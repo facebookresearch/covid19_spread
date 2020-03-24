@@ -1,0 +1,3 @@
+[submodule "timelord"]
+	path = timelord
+	url = ssh://git@github.com/fairinternal/timelord
