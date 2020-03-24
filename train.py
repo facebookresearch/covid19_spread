@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
 
-# HACK: set path to timelord submodule
-import sys
-
-sys.path.insert(0, "./timelord")
-
 import torch as th
 import json
 import numpy as np
@@ -16,16 +11,16 @@ from tqdm import tqdm, trange
 import shutil
 import time
 from torch.utils.data import DataLoader
-from datasets import SizeOrderedSampler, TimelordDSet
-from ll import SparseEmbeddingSoftplus
-from utils import expand_checkpoint_path, load_checkpoint, prepare_dset
-import evaluation
+from timelord.datasets import SizeOrderedSampler, TimelordDSet
+from timelord.ll import SparseEmbeddingSoftplus
+from timelord.utils import expand_checkpoint_path, load_checkpoint, prepare_dset
+from timelord import evaluation
 from tensorboardX import SummaryWriter
 from typing import Optional, Callable, Dict, Any
 import argparse
 import random
 from optim import MultiOptim
-from lr_schedulers import CosineScheduler, ConstantScheduler
+from timelord.lr_schedulers import CosineScheduler, ConstantScheduler
 from scipy.optimize import minimize
 
 
