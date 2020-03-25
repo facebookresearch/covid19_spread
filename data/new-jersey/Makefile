@@ -4,7 +4,13 @@
 # @file
 # @version 0.1
 
-timeseries.h5: NYU-data.csv
-	python3 process_cases.py
+PREV=NYU-data-with-date.csv
+DATE=0324
+
+data-2020$(DATE).csv: $(PREV)
+	python3 merge.py $(PREV) nj-official-$(DATE).csv 2020$(DATE)
+
+timeseries.h5: data-2020$(DATE).csv
+	python3 process_cases.py $<
 
 # end
