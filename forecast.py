@@ -56,12 +56,19 @@ if __name__ == "__main__":
     episode = Episode(th.from_numpy(nts).double(), th.from_numpy(ns).long(), False, M)
     t_obs = episode.timestamps[-1].item()
 
+    # goodness of fit on observed data
+
+    # predictions
     sim_d = lambda d: simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes)
+    d_eval = None
     for day in [1, 3, 4, 7]:
-        print("Predictions for day {}:".format(day))
-        print("--------------------------")
-        print(sim_d(day))
-        print("==========================")
+        df = sim_d(day)[["county", f"MHP d{day}"]]
+        if d_eval is None:
+            d_eval = df
+        else:
+            d_eval = pd.merge(d_eval, df, on="county")
+    print("Predictions")
+    print(d_eval)
 
     """
     df_pred_d1 = sim_d(1)
