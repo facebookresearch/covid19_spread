@@ -6,6 +6,21 @@ import torch as th
 from timelord.trainer import parse_opt, Trainer
 import random
 
+from model import CovidModel
+
+
+class CovidTrainer(Trainer):
+    def __init__(self, opt, user_control=None):
+        super().__init__(opt, user_control)
+        print(f"Events: {len(self.episodes[0].timestamps)}")
+        print(f"T min: {self.episodes[0].timestamps.min()}")
+        print(f"T max: {self.episodes[0].timestamps.max()}")
+
+    def setup_model(self):
+        self.model = CovidModel(len(self.entities), self.opt.dim, self.opt.scale)
+        self.model.initialize_weights()
+        self.model = self.model.to(self.device)
+
 
 def main(args, user_control=None):
     opt = parse_opt(args)
@@ -15,7 +30,7 @@ def main(args, user_control=None):
     np.random.seed(opt.seed)
     th.manual_seed(opt.seed)
     random.seed(opt.seed)
-    trainer = Trainer(opt, user_control)
+    trainer = CovidTrainer(opt, user_control)
     trainer.train()
 
 
