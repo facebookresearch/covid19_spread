@@ -54,8 +54,9 @@ if __name__ == "__main__":
     # create episode
     nts = (ts - ts.min()) / timescale
     episode = Episode(th.from_numpy(nts).double(), th.from_numpy(ns).long(), False, M)
+    t_obs = episode.timestamps[-1].item()
 
-    sim_d = lambda d: simulate_mhp(16, d, episode, mus, beta, A, timescale, nodes)
+    sim_d = lambda d: simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes)
     for day in [1, 3, 4, 7]:
         print("Predictions for day {}:".format(day))
         print("--------------------------")
