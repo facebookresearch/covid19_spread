@@ -32,7 +32,7 @@ def load_model(model_path, M):
 
 def load_data(data_path):
     per_district = {}
-    with h5py.File("/checkpoint/maxn/data/covid19/nj.h5", "r") as fin:
+    with h5py.File(data_path, "r") as fin:
         nodes = np.array([m for m in fin["nodes"]])
         ns = fin["node"][0]
         ts = fin["time"][0]

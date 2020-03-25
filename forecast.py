@@ -6,7 +6,7 @@ import sys
 sys.path.insert(0, "./timelord")
 sys.path.insert(0, ".")
 
-
+import argparse
 import numpy as np
 import pandas as pd
 import torch as th
@@ -36,9 +36,19 @@ def rmse(d, df_pred, target_date):
 
 
 if __name__ == "__main__":
-    nodes, ns, ts, _ = load_data("/checkpoint/maxn/data/covid19/nj.h5")
+
+    parser = argparse.ArgumentParser(description="Forecasting with Hawkes Embeddings")
+    parser.add_argument(
+        "-checkpoint",
+        default="/tmp/timelord_model.bin",
+        help="Name of checkpoint to save",
+    )
+    parser.add_argument("-dset", type=str, help="Forecasting dataset")
+    opt = parser.parse_args(sys.argv[1:])
+
+    nodes, ns, ts, _ = load_data(opt.dset)
     M = len(nodes)
-    mus, beta, S, U, V, A, scale, timescale = load_model("/tmp/timelord_model.bin", M)
+    mus, beta, S, U, V, A, scale, timescale = load_model(opt.checkpoint, M)
     target_date = "0322"
 
     # create episode
@@ -46,6 +56,13 @@ if __name__ == "__main__":
     episode = Episode(th.from_numpy(nts).double(), th.from_numpy(ns).long(), False, M)
 
     sim_d = lambda d: simulate_mhp(16, d, episode, mus, beta, A, timescale, nodes)
+    for day in [1, 3, 4, 7]:
+        print("Predictions for day {}:".format(day))
+        print("--------------------------")
+        print(sim_d(day))
+        print("==========================")
+
+    """
     df_pred_d1 = sim_d(1)
     df_pred_d3 = sim_d(3)
     df_pred_d4 = sim_d(4)
@@ -74,3 +91,4 @@ if __name__ == "__main__":
             "MHP d7",
         ]
     ].round(1)
+    """
