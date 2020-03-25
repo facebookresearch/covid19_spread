@@ -6,8 +6,16 @@ from timelord.ll import SparseEmbeddingSoftplus
 
 
 class CovidModel(SparseEmbeddingSoftplus):
-    def __init__(self, nnodes: int, dim: int, scale: float = 1, global_ll: bool = True):
+    def __init__(
+        self,
+        nnodes: int,
+        dim: int,
+        scale: float = 1,
+        global_ll: bool = True,
+        with_base_intensity: bool = True,
+    ):
         super().__init__(nnodes, dim, scale, global_ll)
+        self.with_base_intensity = with_base_intensity
 
     def initialize_weights(self):
         self.mus_.weight.data.fill_(-5 * self.scale)
@@ -27,7 +35,10 @@ class CovidModel(SparseEmbeddingSoftplus):
         self.mus_.weight.data[-1].fill_(-1e10)
 
     def mus(self, x):
-        return self.fpos(self.mus_(x)) * 0
+        m = self.fpos(self.mus_(x))
+        if not self.with_base_intensity:
+            m *= 0
+        return m
 
     def beta(self):
         return self.fpos(self.beta_)
