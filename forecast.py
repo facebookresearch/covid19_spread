@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+# import warnings filter
+from warnings import simplefilter
+
+# ignore all future warnings
+simplefilter(action="ignore", category=FutureWarning)
+
 # HACK: set path to timelord submodule
 import sys
 
@@ -10,8 +16,9 @@ import argparse
 import numpy as np
 import pandas as pd
 import torch as th
+from scipy.stats import kstest
 from common import load_data, load_model
-from evaluation import simulate_mhp
+from evaluation import simulate_mhp, goodness_of_fit
 from tlc import Episode
 
 
@@ -57,6 +64,14 @@ if __name__ == "__main__":
     t_obs = episode.timestamps[-1].item()
 
     # goodness of fit on observed data
+    residuals = goodness_of_fit(episode, 0.01, mus, beta, A, nodes)
+    ks, pval = zip(
+        *[kstest(residuals[x], "expon") for x in range(M) if len(residuals[x]) > 2]
+    )
+    print("--- Goodness of fit ---")
+    print(f"Avg. KS   = {np.mean(ks):.3f}")
+    print(f"Avg. pval = {np.mean(pval):.3f}")
+    print()
 
     # predictions
     sim_d = lambda d: simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes)
@@ -67,7 +82,7 @@ if __name__ == "__main__":
             d_eval = df
         else:
             d_eval = pd.merge(d_eval, df, on="county")
-    print("Predictions")
+    print("--- Predictions ---")
     print(d_eval)
 
     """

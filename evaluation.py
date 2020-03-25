@@ -2,7 +2,7 @@
 
 import numpy as np
 import pandas as pd
-from scipy.stats import kstest, ksone
+from scipy.stats import ksone
 from scipy import integrate
 from tick.hawkes import HawkesExpKern
 from utils import to_tick_data
@@ -27,7 +27,7 @@ def resid(x, intensities, timestamps, dim):
     return thetas
 
 
-def goodness_of_fit(episode, step, mu, beta, A):
+def goodness_of_fit(episode, step, mu, beta, A, nodes):
     timestamps = to_tick_data([episode], ["covid19_nj"], nodes)
     learner = HawkesExpKern(beta)
     learner.fit(timestamps)
