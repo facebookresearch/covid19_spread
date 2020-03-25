@@ -16,6 +16,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import torch as th
+from datetime import timedelta
 from scipy.stats import kstest
 from common import load_data, load_model
 from evaluation import simulate_mhp, goodness_of_fit
@@ -48,15 +49,21 @@ if __name__ == "__main__":
     parser.add_argument(
         "-checkpoint",
         default="/tmp/timelord_model.bin",
-        help="Name of checkpoint to save",
+        help="Path of checkpoint to load",
     )
     parser.add_argument("-dset", type=str, help="Forecasting dataset")
+    parser.add_argument(
+        "-basedate",
+        type=str,
+        help="Base date from which forecast dates are formated (%m%d format)",
+    )
+    parser.add_argument("-fout", type=str, help="Output file for forecasts")
     opt = parser.parse_args(sys.argv[1:])
 
     nodes, ns, ts, _ = load_data(opt.dset)
     M = len(nodes)
     mus, beta, S, U, V, A, scale, timescale = load_model(opt.checkpoint, M)
-    target_date = "0322"
+    base_date = pd.to_datetime(opt.basedate)
 
     # create episode
     nts = (ts - ts.min()) / timescale
@@ -76,14 +83,19 @@ if __name__ == "__main__":
     # predictions
     sim_d = lambda d: simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes)
     d_eval = None
-    for day in [1, 3, 4, 7]:
+    for day in [1, 2, 3, 4, 5, 6, 7]:
+        datestr = (base_date + timedelta(day)).strftime("%m/%d")
         df = sim_d(day)[["county", f"MHP d{day}"]]
+        df.columns = ["county", datestr]
         if d_eval is None:
             d_eval = df
         else:
             d_eval = pd.merge(d_eval, df, on="county")
     print("--- Predictions ---")
     print(d_eval)
+
+    if opt.fout is not None:
+        d_eval.to_csv(opt.fout)
 
     """
     df_pred_d1 = sim_d(1)
