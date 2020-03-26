@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+# import warnings filter
+from warnings import simplefilter
+
+# ignore all future warnings
+simplefilter(action="ignore", category=FutureWarning)
+
 import numpy as np
 import sys
 import torch as th
@@ -17,7 +23,9 @@ class CovidTrainer(Trainer):
         print(f"T max: {self.episodes[0].timestamps.max()}")
 
     def setup_model(self):
-        self.model = CovidModel(len(self.entities), self.opt.dim, self.opt.scale)
+        self.model = CovidModel(
+            len(self.entities), self.opt.dim, self.opt.scale, True, False
+        )
         self.model.initialize_weights()
         self.model = self.model.to(self.device)
 

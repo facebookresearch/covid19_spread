@@ -37,7 +37,7 @@ class CovidModel(SparseEmbeddingSoftplus):
     def mus(self, x):
         m = self.fpos(self.mus_(x))
         if not self.with_base_intensity:
-            m *= 0
+            m = m * 0
         return m
 
     def beta(self):
