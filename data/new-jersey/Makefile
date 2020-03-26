@@ -4,8 +4,11 @@
 # @file
 # @version 0.1
 
-PREV=NYU-data-with-date.csv
-DATE=0324
+#PREV=NYU-data-with-date.csv
+#DATE=0324
+
+PREV=data-20200324.csv
+DATE=0325
 
 data-2020$(DATE).csv: $(PREV)
 	python3 merge.py $(PREV) nj-official-$(DATE).csv 2020$(DATE)

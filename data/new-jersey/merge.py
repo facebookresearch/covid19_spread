@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import numpy as np
 import pandas as pd
 import sys
 from datetime import datetime, timedelta
@@ -8,6 +9,9 @@ base_df = pd.read_csv(sys.argv[1])
 new_df = pd.read_csv(sys.argv[2])
 date = pd.to_datetime(sys.argv[3])
 print(f"Appending data for {date}")
+
+assert base_df.columns[0] == "Unnamed: 0"
+base_df = base_df[base_df.columns[1:]]
 
 # print(new_df)
 
@@ -18,7 +22,9 @@ new_row = dict(zip(new_df.county, new_df.counts))
 pending = new_row.pop("Pending")
 print(f"Distributing {pending} pending cases")
 counts_all = sum(new_row.values())
-new_row = {k: int(c + pending * c / counts_all) for k, c in new_row.items()}
+new_row = {
+    k: int(np.ceil(c + pending * float(c) / counts_all)) for k, c in new_row.items()
+}
 # print(new_row)
 
 last_date = pd.to_datetime(base_df["Date"].iloc[-1])
