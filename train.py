@@ -9,7 +9,7 @@ simplefilter(action="ignore", category=FutureWarning)
 import numpy as np
 import sys
 import torch as th
-from timelord.trainer import parse_opt, Trainer
+from timelord.trainer import mk_parser, Trainer
 import random
 
 from model import CovidModel
@@ -23,11 +23,21 @@ class CovidTrainer(Trainer):
         print(f"T max: {self.episodes[0].timestamps.max()}")
 
     def setup_model(self):
+        print(self.opt)
         self.model = CovidModel(
-            len(self.entities), self.opt.dim, self.opt.scale, True, False
+            len(self.entities), self.opt.dim, self.opt.scale, True, self.opt.baseint
         )
         self.model.initialize_weights()
         self.model = self.model.to(self.device)
+
+
+def parse_opt(args):
+    parser = mk_parser()
+    parser.add_argument(
+        "-no-baseint", action="store_false", dest="baseint", default=True
+    )
+    opt = parser.parse_args(args)
+    return opt
 
 
 def main(args, user_control=None):

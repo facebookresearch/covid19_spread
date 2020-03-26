@@ -14,7 +14,7 @@ import torch as th
 from common import load_model
 from evaluation import simulate_mhp
 from model import CovidModel
-from timelord.trainer import parse_opt, Trainer
+from timelord.trainer import mk_parser, Trainer
 from timelord.utils import prepare_dset
 
 import tlc
@@ -56,7 +56,7 @@ class RMSETrainer(Trainer):
 
     def setup_model(self):
         self.model = CovidModel(
-            len(self.entities), self.opt.dim, self.opt.scale, True, False
+            len(self.entities), self.opt.dim, self.opt.scale, True, self.opt.baseint
         )
         self.model.initialize_weights()
         self.model = self.model.to(self.device)
@@ -81,6 +81,15 @@ def rmse(opt, user_control, gt, d):
     df = pd.merge(df, gt, on="county")
     _rmse = np.sqrt(((df["ground_truth"] - df[f"MHP d{d}"]) ** 2).mean())
     return _rmse
+
+
+def parse_opt(args):
+    parser = mk_parser()
+    parser.add_argument(
+        "-no-baseint", action="store_false", dest="baseint", default=True
+    )
+    opt = parser.parse_args(args)
+    return opt
 
 
 def main(args, user_control=None):
