@@ -54,8 +54,7 @@ def simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes, step, trials
     learner.baseline[:] = mus[:]
 
     confirmed_cases = [len(t) for t in timestamps[0]]
-    t_max = (t_obs + d) / timescale
-    t_obs /= timescale
+    t_max = t_obs + d
     simu = learner._corresponding_simu()
     simu.force_simulation = True
     simu.verbose = False
