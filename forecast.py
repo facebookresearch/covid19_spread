@@ -82,34 +82,3 @@ if __name__ == "__main__":
 
     if opt.fout is not None:
         d_eval.to_csv(opt.fout)
-
-    """
-    df_pred_d1 = sim_d(1)
-    df_pred_d3 = sim_d(3)
-    df_pred_d4 = sim_d(4)
-    df_pred_d7 = sim_d(7)
-
-    df_eval = rmse("d1", df_pred_d1, "0320")
-    df_eval = pd.merge(
-        df_eval, rmse("d3", df_pred_d3[["county", "MHP d3"]], "0322"), on="county"
-    )
-    df_eval = pd.merge(
-        df_eval, rmse("d4", df_pred_d4[["county", "MHP d4"]], "0323"), on="county"
-    )
-    df_eval = pd.merge(df_eval, df_pred_d7[["county", "MHP d7"]], on="county")
-    df_eval[
-        [
-            "county",
-            "d1",
-            "NYU d1",
-            "MHP d1",
-            "d3",
-            "NYU d3",
-            "MHP d3",
-            "d4",
-            "NYU d4",
-            "MHP d4",
-            "MHP d7",
-        ]
-    ].round(1)
-    """

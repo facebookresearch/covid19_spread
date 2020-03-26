@@ -9,6 +9,9 @@ from utils import to_tick_data
 
 
 def ks_critical_value(n_trials, alpha):
+    """
+    Critical value of Kolmogorov-Smirnov test for significance level alpha
+    """
     return ksone.ppf(1 - alpha / 2, n_trials)
 
 
@@ -28,7 +31,7 @@ def resid(x, intensities, timestamps, dim):
 
 
 def goodness_of_fit(episode, step, mu, beta, A, nodes):
-    timestamps = to_tick_data([episode], ["covid19_nj"], nodes)
+    timestamps = to_tick_data([episode], [None], nodes)
     learner = HawkesExpKern(beta)
     learner.fit(timestamps)
     learner.adjacency[:] = A[:]
@@ -41,7 +44,10 @@ def goodness_of_fit(episode, step, mu, beta, A, nodes):
 
 
 def simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes, step, trials):
-    timestamps = to_tick_data([episode], ["covid19_nj"], nodes)
+    """
+    Simulate a MHP from t_obs until t_obs + d
+    """
+    timestamps = to_tick_data([episode], [None], nodes)
     learner = HawkesExpKern(beta)
     learner.fit(timestamps)
     learner.adjacency[:] = A[:]
@@ -61,7 +67,6 @@ def simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes, step, trials
         simu.end_time = t_max
         simu.simulate()
         simu_cases += np.array([len(t) for t in simu.timestamps])
-        simu_times = [t[-1] for t in simu.timestamps]
     simu_cases /= trials
 
     df_pred = pd.DataFrame(
