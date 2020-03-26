@@ -18,29 +18,9 @@ import pandas as pd
 import torch as th
 from datetime import timedelta
 from scipy.stats import kstest
-from common import load_data, load_model
+from common import load_data, load_model, print_model_stats
 from evaluation import simulate_mhp, goodness_of_fit
 from tlc import Episode
-
-
-def rmse(d, df_pred, target_date):
-    df_gt = pd.read_csv(
-        f"/checkpoint/maxn/data/covid19/nj-test-data-{target_date}.csv",
-        usecols=["county", d],
-    )
-    df_nyu = pd.read_csv(
-        f"/checkpoint/maxn/data/covid19/nj-pred-nyu.csv", usecols=["county", d]
-    )
-    df_nyu.columns = ["county", f"NYU {d}"]
-    df_eval = pd.merge(df_gt, df_nyu, on="county")
-    df_eval = pd.merge(df_eval, df_pred, on="county")
-    rmse_nyu = np.sqrt(((df_eval[d] - df_eval[f"NYU {d}"]) ** 2).mean())
-    rmse_mhp = np.sqrt(((df_eval[d] - df_eval[f"MHP {d}"]) ** 2).mean())
-    # df_eval = df_eval[['county', 'confirmed', 'groundtruth', 'prediction', 'hawkes']]
-    # df_eval.columns = ['County', f'Confirmed (d{int(t_obs)})', f'Confirmed (d{int(t_max)})', f'NYU (d{int(t_max)})', f'MHP (d{int(t_max)})']
-    print(f"RMSE NYU ({d}) =", rmse_nyu)
-    print(f"RMSE MHP ({d}) =", rmse_mhp)
-    return df_eval
 
 
 if __name__ == "__main__":
@@ -65,13 +45,16 @@ if __name__ == "__main__":
     mus, beta, S, U, V, A, scale, timescale = load_model(opt.checkpoint, M)
     base_date = pd.to_datetime(opt.basedate)
 
+    print_model_stats(mus, beta, S, U, V)
+
     # create episode
     nts = (ts - ts.min()) / timescale
     episode = Episode(th.from_numpy(nts).double(), th.from_numpy(ns).long(), False, M)
     t_obs = episode.timestamps[-1].item()
+    print("max observation time: ", t_obs)
 
     # goodness of fit on observed data
-    residuals = goodness_of_fit(episode, 0.01, mus, beta, A, nodes)
+    residuals = goodness_of_fit(episode, 0.001, mus, beta, A, nodes)
     ks, pval = zip(
         *[kstest(residuals[x], "expon") for x in range(M) if len(residuals[x]) > 2]
     )
@@ -81,11 +64,14 @@ if __name__ == "__main__":
     print()
 
     # predictions
-    sim_d = lambda d: simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes)
+    sim_d = lambda d: simulate_mhp(
+        t_obs, d, episode, mus, beta, A, timescale, nodes, 0.01, 10
+    )
     d_eval = None
     for day in [1, 2, 3, 4, 5, 6, 7]:
         datestr = (base_date + timedelta(day)).strftime("%m/%d")
-        df = sim_d(day)[["county", f"MHP d{day}"]]
+        _day = int(day / timescale)
+        df = sim_d(_day)[["county", f"MHP d{_day}"]]
         df.columns = ["county", datestr]
         if d_eval is None:
             d_eval = df

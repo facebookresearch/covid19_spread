@@ -36,10 +36,11 @@ def goodness_of_fit(episode, step, mu, beta, A, nodes):
     dimension = learner.n_nodes
     intensities, x = learner.estimated_intensity(timestamps[0], step)
     residuals = [resid(x, intensities, timestamps[0], dim) for dim in range(dimension)]
+    residuals = [res[np.logical_not(np.isnan(res))] for res in residuals]
     return residuals
 
 
-def simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes):
+def simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes, step, trials):
     timestamps = to_tick_data([episode], ["covid19_nj"], nodes)
     learner = HawkesExpKern(beta)
     learner.fit(timestamps)
@@ -52,9 +53,8 @@ def simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes):
     simu = learner._corresponding_simu()
     simu.force_simulation = True
     simu.verbose = False
-    simu.track_intensity(0.01)
+    simu.track_intensity(step)
     simu_cases = np.zeros(len(nodes))
-    trials = 10
     for _ in range(trials):
         simu.reset()
         simu.set_timestamps(timestamps[0], t_obs)
