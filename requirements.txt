@@ -1,0 +1,17 @@
+torch
+matplotlib==3.0.3
+h5py
+jupyter
+nbconvert
+networkx
+numpy
+pandas
+pylint
+scipy
+scikit-learn
+seaborn
+tqdm
+bokeh
+tick
+tensorboardX
+sqlalchemy
