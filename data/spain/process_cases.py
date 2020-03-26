@@ -16,31 +16,12 @@ df = pd.read_csv(
     parse_dates=["fecha"],
     usecols=["fecha", "CCAA", "cod_ine", "total"],
 )
-df = df.dropna()
-
-# spain pre-processing ######################################################## 
-
 df = df[df.CCAA != "Total"]
-d2 = df.copy(deep=True)
-
-fechas = df.fecha.unique()
-ccaas = df.CCAA.unique()
-
-for f1 in range(1, len(fechas)):
-    yesterday = fechas[f1 - 1]
-    today = fechas[f1]
-
-    for ccaa in ccaas:
-        total_yesterday = d2.loc[(d2["fecha"] == yesterday) & (d2["CCAA"] == ccaa), "total"]
-        total_today = d2.loc[(d2["fecha"] == today) & (d2["CCAA"] == ccaa), "total"]
-
-        cases_today = max(int(total_today) - int(total_yesterday), 0)
-
-        df.loc[(df["fecha"] == today) & (df["CCAA"] == ccaa), "total"] = cases_today
-
-# spain pre-processing ######################################################## 
+df = df.dropna()
+print(df)
 
 nevents = df["total"].sum()
+# nevents = len(df)
 print("Number of events", nevents)
 
 ncount = count()
@@ -53,6 +34,7 @@ _ags = []
 t0 = (df["fecha"].values.astype(np.int64) // 10 ** 9).min()
 df_agg = df.groupby(["CCAA", "cod_ine"])
 for (name, aid), group in df_agg:
+    print(name, aid)
     group = group.sort_values(by="fecha")
     ts = group["fecha"].values.astype(np.int64) // 10 ** 9
     ws = group["total"].values.astype(np.float)
