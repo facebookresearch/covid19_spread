@@ -1,6 +1,6 @@
 # Modeling the spread of COVID-19
 
-![spread](https://raw.githubusercontent.com/fairinternal/covid19_spread/master/img/spread.jpg)
+<img src="https://github.com/fairinternal/covid19_spread/raw/master/img/spread.jpg" width=250 />
 
 ## How do I prepare a dataset for training?
 
