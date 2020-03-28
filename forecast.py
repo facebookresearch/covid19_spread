@@ -45,7 +45,7 @@ if __name__ == "__main__":
     mus, beta, S, U, V, A, scale, timescale = load_model(opt.checkpoint, M)
     base_date = pd.to_datetime(opt.basedate)
 
-    print_model_stats(mus, beta, S, U, V)
+    print_model_stats(mus, beta, S, U, V, A)
 
     # create episode
     nts = (ts - ts.min()) / timescale
@@ -65,10 +65,11 @@ if __name__ == "__main__":
 
     # predictions
     sim_d = lambda d: simulate_mhp(
-        t_obs, d, episode, mus, beta, A, timescale, nodes, 0.01, 10
+        t_obs, d, episode, mus, beta, A, timescale, nodes, 0.01, 50
     )
     d_eval = None
     for day in [1, 2, 3, 4, 5, 6, 7]:
+        # for day in [1, 2, 3]:
         datestr = (base_date + timedelta(day)).strftime("%m/%d")
         _day = int(day / timescale)
         df = sim_d(_day)[["county", f"MHP d{_day}"]]
@@ -79,6 +80,19 @@ if __name__ == "__main__":
             d_eval = pd.merge(d_eval, df, on="county")
     print("--- Predictions ---")
     print(d_eval)
+
+    print("\n")
+    print(" --- Proportional Unknowns --- ")
+    vals = d_eval.iloc[:-1, :][d_eval.columns[1:]].to_numpy()
+    unk = d_eval.loc[df["county"] == "Unknown"]
+    unk = unk[unk.columns[1:]].to_numpy()
+    # print(vals)
+    # print(unk)
+    # print(vals.sum(axis=0))
+    vals = vals + unk * vals / vals.sum(axis=0)
+    d_prop = pd.DataFrame(np.hstack([df["county"].to_numpy()[:-1, np.newaxis], vals]))
+    d_prop.columns = d_eval.columns
+    print(d_prop)
 
     if opt.fout is not None:
         d_eval.to_csv(opt.fout)

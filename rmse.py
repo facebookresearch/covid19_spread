@@ -74,7 +74,7 @@ def rmse(opt, user_control, gt, d):
     episode = trainer.episodes[0]
     t_obs = episode.timestamps[-1].item()
     df = simulate_mhp(
-        t_obs, d, episode, mus, beta, A, timescale, trainer.entities, 0.01, 10
+        t_obs, d, episode, mus, beta, A, timescale, trainer.entities, 0.01, 50
     )[["county", f"MHP d{d}"]]
 
     # compute rmse
@@ -112,7 +112,8 @@ def main(args, user_control=None):
     for d in [3, 2, 1]:
         _rmse[d] = rmse(opt, user_control, gt, d)
 
-    print("RMSE:", _rmse)
+    print("RMSE_PER_DAY:", _rmse)
+    print("RMSE_AVG:", np.mean(list(_rmse.values())))
 
 
 if __name__ == "__main__":

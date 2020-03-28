@@ -43,9 +43,11 @@ def load_data(data_path):
     return nodes, ns, ts, per_district
 
 
-def print_model_stats(mus, beta, S, U, V):
+def print_model_stats(mus, beta, S, U, V, A):
+    C = A - np.diag(np.diag(A))
     print("beta:", beta)
-    print(f"\nNorms      : U = {norm(U).item()}, V = {norm(V)}")
-    print(f"Max Element: U = {np.max(U).item()}, V = {np.max(V)}")
-    print(f"Avg Element: U = {np.mean(U).item()}, V = {np.mean(V)}")
-    print(f"\nSelf:      max = {np.max(S)}, avg = {np.mean(S)}")
+    print(f"\nNorms      : U = {norm(U).item():.3f}, V = {norm(V):.3f}")
+    print(f"Max Element: U = {np.max(U).item():.3f}, V = {np.max(V):.3f}")
+    print(f"Avg Element: U = {np.mean(U).item():.3f}, V = {np.mean(V):.3f}")
+    print(f"\nSelf:       max = {np.max(S):.3f}, avg = {np.mean(S):.3f}")
+    print(f"Cross:      max = {np.max(C):.3f}, avg = {np.mean(C):.3f}")
