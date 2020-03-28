@@ -11,11 +11,39 @@ from itertools import count
 
 fout = "timeseries.h5"
 
-df = pd.read_csv(sys.argv[1], header=0)
+df = pd.read_csv(
+    sys.argv[1],
+    header=0,
+    usecols=[
+        "Start day",
+        "Atlantic",
+        "Bergen",
+        "Burlington",
+        "Camden",
+        "Cape May",
+        "Cumberland",
+        "Essex",
+        "Gloucester",
+        "Hudson",
+        "Hunterdon",
+        "Mercer",
+        "Middlesex",
+        "Monmouth",
+        "Morris",
+        "Ocean",
+        "Passaic",
+        "Salem",
+        "Somerset",
+        "Sussex",
+        "Union",
+        "Warren",
+        "Unknown",
+    ],
+)
 df = df.sort_values(by="Start day")
 # df = df.dropna()
 
-counties = df.columns[3:]
+counties = df.columns[1:]
 df["Start day"] = np.arange(len(df)) + 1
 print(df[counties])
 
