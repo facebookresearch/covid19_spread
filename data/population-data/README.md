@@ -16,6 +16,10 @@ https://en.wikipedia.org/wiki/Provinces_of_Italy
 
 UK data  
 https://www.ons.gov.uk/peoplepopulationandcommunity/populationandmigration/populationestimates/datasets/populationestimatesforukenglandandwalesscotlandandnorthernireland  
+France region and city population estimates   
+https://www.citypopulation.de/en/france/cities/  
+
+  
 
 
 
