@@ -33,6 +33,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("-dset", type=str, help="Forecasting dataset")
     parser.add_argument(
+        "-step-size", type=float, default=0.01, help="Step size for simulation"
+    )
+    parser.add_argument("-trials", type=int, default=50, help="Number of trials")
+    parser.add_argument(
         "-basedate",
         type=str,
         help="Base date from which forecast dates are formated (%m%d format)",
@@ -63,9 +67,12 @@ if __name__ == "__main__":
     print(f"Avg. pval = {np.mean(pval):.3f}")
     print()
 
+    if opt.trials < 1:
+        sys.exit(0)
+
     # predictions
     sim_d = lambda d: simulate_mhp(
-        t_obs, d, episode, mus, beta, A, timescale, nodes, 0.01, 50
+        t_obs, d, episode, mus, beta, A, timescale, nodes, opt.step_size, opt.trials
     )
     d_eval = None
     for day in [1, 2, 3, 4, 5, 6, 7]:
@@ -78,21 +85,25 @@ if __name__ == "__main__":
             d_eval = df
         else:
             d_eval = pd.merge(d_eval, df, on="county")
+    vals = d_eval.iloc[:-1, :][d_eval.columns[1:]].to_numpy()
     print("--- Predictions ---")
+    d_eval = d_eval.append(
+        pd.DataFrame([["Jersey"] + vals.sum(axis=0).tolist()], columns=d_eval.columns),
+        ignore_index=True,
+    )
     print(d_eval)
 
-    print("\n")
-    print(" --- Proportional Unknowns --- ")
-    vals = d_eval.iloc[:-1, :][d_eval.columns[1:]].to_numpy()
-    unk = d_eval.loc[df["county"] == "Unknown"]
-    unk = unk[unk.columns[1:]].to_numpy()
-    # print(vals)
-    # print(unk)
-    # print(vals.sum(axis=0))
-    vals = vals + unk * vals / vals.sum(axis=0)
-    d_prop = pd.DataFrame(np.hstack([df["county"].to_numpy()[:-1, np.newaxis], vals]))
-    d_prop.columns = d_eval.columns
-    print(d_prop)
+    # print("\n")
+    # print(" --- Proportional Unknowns --- ")
+    # unk = d_eval.loc[df["county"] == "Unknown"]
+    # unk = unk[unk.columns[1:]].to_numpy()
+    # # print(vals)
+    # # print(unk)
+    # # print(vals.sum(axis=0))
+    # vals = vals + unk * vals / vals.sum(axis=0)
+    # d_prop = pd.DataFrame(np.hstack([df["county"].to_numpy()[:-2, np.newaxis], vals]))
+    # d_prop.columns = d_eval.columns
+    # print(d_prop)
 
     if opt.fout is not None:
         d_eval.to_csv(opt.fout)

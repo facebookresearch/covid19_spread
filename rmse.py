@@ -74,7 +74,16 @@ def rmse(opt, user_control, gt, d):
     episode = trainer.episodes[0]
     t_obs = episode.timestamps[-1].item()
     df = simulate_mhp(
-        t_obs, d, episode, mus, beta, A, timescale, trainer.entities, 0.01, 50
+        t_obs,
+        d,
+        episode,
+        mus,
+        beta,
+        A,
+        timescale,
+        trainer.entities,
+        opt.step_size,
+        opt.trials,
     )[["county", f"MHP d{d}"]]
 
     # compute rmse
@@ -85,6 +94,10 @@ def rmse(opt, user_control, gt, d):
 
 def parse_opt(args):
     parser = mk_parser()
+    parser.add_argument(
+        "-step-size", type=float, default=0.01, help="Step size for simulation"
+    )
+    parser.add_argument("-trials", type=int, default=50, help="Number of trials")
     parser.add_argument(
         "-no-baseint", action="store_false", dest="baseint", default=True
     )

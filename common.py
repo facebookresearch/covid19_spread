@@ -45,7 +45,7 @@ def load_data(data_path):
 
 def print_model_stats(mus, beta, S, U, V, A):
     C = A - np.diag(np.diag(A))
-    print("beta:", beta)
+    print("beta =", beta)
     print(f"\nNorms      : U = {norm(U).item():.3f}, V = {norm(V):.3f}")
     print(f"Max Element: U = {np.max(U).item():.3f}, V = {np.max(V):.3f}")
     print(f"Avg Element: U = {np.mean(U).item():.3f}, V = {np.mean(V):.3f}")
