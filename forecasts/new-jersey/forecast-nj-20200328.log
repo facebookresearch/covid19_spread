@@ -1,0 +1,73 @@
+Forecast 20200328
+
+--- DIM=5 
+RMSE_PER_DAY: {3: 265.4400894911899, 2: 148.59366981500557, 1: 33.08451216890688}
+RMSE_AVG: 149.0394238250341
+beta = 7.712041633580948
+Norms      : U = 8.050, V = 2.498
+Max Element: U = 5.496, V = 1.160
+Avg Element: U = 0.267, V = 0.109
+Self:       max = 0.917, avg = 0.206
+Cross:      max = 0.638, avg = 0.025
+Avg. KS   = 0.082
+Avg. pval = 0.484
+
+--- DIM=10 
+RMSE_PER_DAY: {3: 265.1256769225425, 2: 145.68989245529824, 1: 32.461495792568}
+RMSE_AVG: 147.75902172346957
+beta = 8.55001233633634
+Norms      : U = 11.217, V = 4.976
+Max Element: U = 5.475, V = 2.457
+Avg Element: U = 0.239, V = 0.111
+Self:       max = 0.965, avg = 0.218
+Cross:      max = 1.279, avg = 0.033
+Avg. KS   = 0.087
+Avg. pval = 0.523
+
+--- DIM=15 
+RMSE_PER_DAY: {3: 280.58959904263935, 2: 160.64859018140413, 1: 31.79356109769283}
+RMSE_AVG: 157.67725010724544
+beta = 9.07992303491085
+Norms      : U = 9.799, V = 4.303
+Max Element: U = 3.545, V = 1.668
+Avg Element: U = 0.179, V = 0.095
+Self:       max = 0.968, avg = 0.193
+Cross:      max = 0.382, avg = 0.020
+Avg. KS   = 0.080
+Avg. pval = 0.483
+
+--- DIM=5 NO-BASEINT
+RMSE_PER_DAY: {3: 223.99779662065671, 2: 202.12347387403844, 1: 38.565609739059695}
+RMSE_AVG: 154.89562674458497
+beta = 5.991738215295289
+Norms      : U = 7.996, V = 2.472
+Max Element: U = 5.235, V = 1.344
+Avg Element: U = 0.267, V = 0.105
+Self:       max = 0.956, avg = 0.215
+Cross:      max = 0.726, avg = 0.024
+Avg. KS   = 0.083
+Avg. pval = 0.498
+
+--- DIM=10 NO-BASEINT
+RMSE_PER_DAY: {3: 225.43182440495278, 2: 180.0084086419803, 1: 30.98856299287909}
+RMSE_AVG: 145.47626534660407
+beta = 6.375027196836213
+Norms      : U = 10.801, V = 5.349
+Max Element: U = 5.023, V = 2.701
+Avg Element: U = 0.240, V = 0.114
+Self:       max = 0.938, avg = 0.184
+Cross:      max = 1.233, avg = 0.035
+Avg. KS   = 0.085
+Avg. pval = 0.542
+
+--- DIM=15 NO-BASEINT
+RMSE_PER_DAY: {3: 232.43221107551886, 2: 160.82047342526786, 1: 32.679221087857826}
+RMSE_AVG: 141.97730186288152
+beta = 7.0690749656900715
+Norms      : U = 10.741, V = 4.585
+Max Element: U = 4.361, V = 1.870
+Avg Element: U = 0.186, V = 0.096
+Self:       max = 0.954, avg = 0.224
+Cross:      max = 0.542, avg = 0.022
+Avg. KS   = 0.083
+Avg. pval = 0.478
