@@ -29,6 +29,7 @@ example: data/new-jersey/timeseries.h5
 	python3 forecast.py -dset data/new-jersey/timeseries.h5 -checkpoint /tmp/timelord_model.bin -basedate 20200325
 
 forecast-nj:
+	python3 sir.py -fdat data/new-jersey/data-$(DATE).csv -fpop data/population-data/US-states/new-jersey-population.csv -days 60 -keep 7 -window 5 -doubling-times 2 3 4 10 -fsuffix nj-$(DATE)
 	echo "Forecast $(DATE)" > $(flog)
 	$(call forecast-train,5,"data/new-jersey/timeseries.h5")
 	$(call forecast-train,10,"data/new-jersey/timeseries.h5")
