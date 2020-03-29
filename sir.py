@@ -67,36 +67,12 @@ def gen_sir(s: float, i: float, r: float, beta: float, gamma: float, n_days: int
         s, i, r = sir(s, i, r, beta, gamma, n)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Forecasting with SIR model")
-    parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
-    parser.add_argument("-fpop", help="Path to population data", required=True)
-    parser.add_argument(
-        "-days", type=int, help="Number of days to forecast", required=True
-    )
-    parser.add_argument("-window", type=int, help="window to compute doubling time")
-    parser.add_argument("-recovery-days", type=int, default=14, help="Recovery days")
-    parser.add_argument(
-        "-distancing-reduction", type=float, default=0.3, help="Recovery days"
-    )
-    opt = parser.parse_args(sys.argv[1:])
-
-    cases = load_confirmed(opt.fdat)
-    pop = load_population(opt.fpop)
-    tmax = len(cases)
-    t = np.arange(tmax) + 1
-
+def simulate(
+    cases, population, doubling_time, recovery_days, distancing_reduction, days, keep
+):
     I0 = cases[0]
-    S0 = pop - I0
+    S0 = population - I0
     R0 = 0.0
-
-    growth_rate = np.exp(np.diff(np.log(cases))) - 1
-    if opt.window is not None:
-        growth_rate = growth_rate[-opt.window :]
-    doubling_time = np.log(2) / growth_rate
-    # print(doubling_time, doubling_time.mean())
-    doubling_time = doubling_time.mean()
-    print(f"Doubling time = {doubling_time}")
 
     # doubling_time = 3
     # relative_contact_rate = 0.3
@@ -104,15 +80,93 @@ if __name__ == "__main__":
     # print(intrinsic_growth_rate, growth_rate, growth_rate.mean())
 
     # Contact rate, beta
-    gamma = 1.0 / opt.recovery_days
-    beta = (intrinsic_growth_rate + gamma) / S0 * (1.0 - opt.distancing_reduction)
-    print(f"beta  = {beta * S0}")
-    print(f"gamma = {gamma}")
-    print(f"R0    = {beta / gamma * S0}")
-    print()
+    gamma = 1.0 / recovery_days
+    beta = (intrinsic_growth_rate + gamma) / S0 * (1.0 - distancing_reduction)
 
     IN = cases[-1]
-    SN = pop - IN
+    SN = population - IN
     RN = 0
-    for d, _S, _I, _R in gen_sir(SN, IN, RN, beta, gamma, opt.days):
-        print(d, _I)
+    res = {d: _I for d, _S, _I, _R in gen_sir(SN, IN, RN, beta, gamma, days)}
+    # res = {d: _I for d, _S, _I, _R in gen_sir(S0 - 3772, 3773, R0, beta, gamma, days)}
+    days, infected = zip(*res.items())
+    infs = pd.DataFrame({"Day": days[:keep], f"{doubling_time:.2f}": infected[:keep]})
+    ix_max = np.argmax(infected)
+    if ix_max == len(infected) - 1:
+        peak_days = f"{ix_max}+"
+    else:
+        peak_days = str(ix_max)
+    meta = pd.DataFrame(
+        {
+            "Doubling time": [round(doubling_time, 3)],
+            "R0": [round(beta / gamma * S0, 3)],
+            "beta": [round(beta * S0, 3)],
+            "gamma": [round(gamma, 3)],
+            "Peak days": [peak_days],
+            "Peak cases": [int(infected[ix_max])],
+        }
+    )
+    return meta, infs
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Forecasting with SIR model")
+    parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
+    parser.add_argument("-fpop", help="Path to population data", required=True)
+    parser.add_argument(
+        "-days", type=int, help="Number of days to forecast", required=True
+    )
+    parser.add_argument(
+        "-keep", type=int, help="Number of days to keep in CSV", required=True
+    )
+    parser.add_argument("-window", type=int, help="window to compute doubling time")
+    parser.add_argument(
+        "-doubling-times",
+        type=int,
+        nargs="+",
+        help="Additional doubling times to simulate",
+    )
+    parser.add_argument("-recovery-days", type=int, default=14, help="Recovery days")
+    parser.add_argument(
+        "-distancing-reduction", type=float, default=0.3, help="Recovery days"
+    )
+    parser.add_argument(
+        "-fsuffix", type=str, help="prefix to store forecast and metadata"
+    )
+    opt = parser.parse_args(sys.argv[1:])
+
+    cases = load_confirmed(opt.fdat)
+    population = load_population(opt.fpop)
+    tmax = len(cases)
+    t = np.arange(tmax) + 1
+
+    growth_rate = np.exp(np.diff(np.log(cases))) - 1
+    if opt.window is not None:
+        growth_rate = growth_rate[-opt.window :]
+    doubling_time = np.log(2) / growth_rate
+    # print(doubling_time, doubling_time.mean())
+    doubling_time = doubling_time.mean()
+    print(f"Population size = {population}")
+    print(f"Inferred doubling time = {doubling_time}")
+
+    f_sim = lambda dt: simulate(
+        cases,
+        population,
+        dt,
+        opt.recovery_days,
+        opt.distancing_reduction,
+        opt.days,
+        opt.keep + 1,
+    )
+    meta, df = f_sim(doubling_time)
+    for dt in opt.doubling_times:
+        _meta, _df = f_sim(dt)
+        meta = meta.append(_meta, ignore_index=True)
+        df = pd.merge(df, _df, on="Day")
+    print()
+    print(meta)
+    print()
+    print(df)
+
+    if opt.fsuffix is not None:
+        meta.to_csv(f"SIR-metadata-{opt.fsuffix}.csv")
+        df.to_csv(f"SIR-forecast-{opt.fsuffix}.csv")
