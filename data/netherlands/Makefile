@@ -7,7 +7,7 @@
 dout=/checkpoint/${USER}/data/covid19
 
 data.csv:
-	curl --output $@ https://raw.githubusercontent.com/J535D165/CoronaWatchNL/master/data/rivm_corona_in_nl.csv
+	/usr/bin/curl --output $@ https://raw.githubusercontent.com/J535D165/CoronaWatchNL/master/data/rivm_corona_in_nl.csv
 
 clean:
 	rm data.csv

@@ -40,14 +40,23 @@ for (name, aid), group in df_agg:
     es = []
     for i in range(len(ts)):
         w = int(ws[i])
-        if i == 0:
-            tp = ts[0] - w * 10
-        else:
-            tp = ts[i - 1]
-        _es = np.linspace(
-            max(tp, int(ts[i] - w * 10)) + 1, int(ts[i]), w, endpoint=True, dtype=np.int
-        )
-        es += _es.tolist()
+        if w <= 0:
+            continue
+        tp = ts[i] - 1
+        # print(tp, ts[i], w)
+        _es = sorted(np.random.uniform(tp, ts[i], w))
+        if len(es) > 0:
+            print(es[-1], _es[0], _es[-1])
+            assert es[-1] < _es[0], (_es[0], es[-1])
+        es += _e
+        # if i == 0:
+        #    tp = ts[0] - w * 10
+        # else:
+        #    tp = ts[i - 1]
+        # _es = np.linspace(
+        #    max(tp, int(ts[i] - w * 10)) + 1, int(ts[i]), w, endpoint=True, dtype=np.int
+        # )
+        # es += _es.tolist()
         # es += [ts[i]] * w
     if len(es) > 0:
         kid = kreis_ids[name]
@@ -61,10 +70,10 @@ for (name, aid), group in df_agg:
 # _ags = df["AGS"]
 # _ws = df["Count"]
 
-# convert timestamps to number of days since first outbreak:	
-min_ts = min(_ts)	
-_ts = [t - min_ts for t in _ts]	
-_ts = [t / (24 * 60 * 60.) for t in _ts]	
+# convert timestamps to number of days since first outbreak:
+min_ts = min(_ts)
+_ts = [t - min_ts for t in _ts]
+_ts = [t / (24 * 60 * 60.) for t in _ts]
 
 assert len(_ts) == nevents, (len(_ts), nevents)
 knames = [None for _ in range(len(kreis_ids))]
