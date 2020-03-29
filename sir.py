@@ -132,6 +132,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-fsuffix", type=str, help="prefix to store forecast and metadata"
     )
+    parser.add_argument("-dout", type=str, default=".", help="Output directory")
     opt = parser.parse_args(sys.argv[1:])
 
     cases = load_confirmed(opt.fdat)
@@ -168,5 +169,5 @@ if __name__ == "__main__":
     print(df)
 
     if opt.fsuffix is not None:
-        meta.to_csv(f"SIR-metadata-{opt.fsuffix}.csv")
-        df.to_csv(f"SIR-forecast-{opt.fsuffix}.csv")
+        meta.to_csv(f"{opt.dout}/SIR-metadata-{opt.fsuffix}.csv")
+        df.to_csv(f"{opt.dout}/SIR-forecast-{opt.fsuffix}.csv")
