@@ -41,6 +41,7 @@ if __name__ == "__main__":
         type=str,
         help="Base date from which forecast dates are formated (%m%d format)",
     )
+    parser.add_argument("-days", type=int, help="Number of days to forecast")
     parser.add_argument("-fout", type=str, help="Output file for forecasts")
     opt = parser.parse_args(sys.argv[1:])
 
@@ -67,7 +68,7 @@ if __name__ == "__main__":
     print(f"Avg. pval = {np.mean(pval):.3f}")
     print()
 
-    if opt.trials < 1:
+    if opt.days is None or opt.days < 1:
         sys.exit(0)
 
     # predictions
@@ -75,7 +76,7 @@ if __name__ == "__main__":
         t_obs, d, episode, mus, beta, A, timescale, nodes, opt.step_size, opt.trials
     )
     d_eval = None
-    for day in [1, 2, 3, 4, 5, 6, 7]:
+    for day in range(1, opt.days + 1):
         # for day in [1, 2, 3]:
         datestr = (base_date + timedelta(day)).strftime("%m/%d")
         _day = int(day / timescale)
