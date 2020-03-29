@@ -90,8 +90,8 @@ knames = [None for _ in range(len(kreis_ids))]
 for kreis, i in kreis_ids.items():
     knames[i] = kreis
 
-pop = pd.read_csv('new_jersey-population.csv', header=None)
-pop.columns = ['county', 'population']
+pop = pd.read_csv("new_jersey-population.csv", header=None)
+pop.columns = ["county", "population"]
 
 
 str_dt = h5py.special_dtype(vlen=str)
@@ -107,4 +107,4 @@ with h5py.File(fout, "w") as fout:
     node[0] = np.array(_ns, dtype=np.int)[ix]
     time = fout.create_dataset("time", (1,), dtype=ts_dt)
     time[0] = np.array(_ts, dtype=np.float)[ix]
-    fout.create_dataset('population', data=pop.set_index('county').loc[knames].values.squeeze())
+    # fout.create_dataset('population', data=pop.set_index('county').loc[knames].values.squeeze())
