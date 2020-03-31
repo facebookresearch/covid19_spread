@@ -4,42 +4,32 @@ import argparse
 import numpy as np
 import pandas as pd
 import sys
+from common import load_data
 
 
-def load_confirmed(path):
-    df = pd.read_csv(
-        path,
-        usecols=[
-            "Bergen",
-            "Essex",
-            "Middlesex",
-            "Monmouth",
-            "Hudson",
-            "Union",
-            "Morris",
-            "Passaic",
-            "Somerset",
-            "Mercer",
-            "Burlington",
-            "Camden",
-            "Ocean",
-            "Hunterdon",
-            "Atlantic",
-            "Gloucester",
-            "Warren",
-            "Sussex",
-            "Cape May",
-            "Cumberland",
-            "Salem",
-        ],
-    )
-    return df.to_numpy().sum(axis=1)
+def load_confirmed(path, regions):
+    # df = pd.read_csv(path, usecols=regions)
+    # cases = df.to_numpy().sum(axis=1)
+    nodes, ns, ts, _ = load_data(path)
+    unk = np.where(nodes == "Unknown")[0]
+    if len(unk) > 0:
+        ix = np.where(ns != unk[0])
+        ts = ts[ix]
+    cases = []
+    for i in range(1, int(np.ceil(ts.max())) + 1):
+        ix = np.where(ts < i)[0]
+        cases.append((i, len(ix)))
+    print(cases)
+    days, cases = zip(*cases)
+    return np.array(cases)
 
 
 def load_population(path, col=1):
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, header=None)
     pop = df.iloc[:, col].sum()
-    return pop
+    regions = df.iloc[:, 0].to_numpy().tolist()
+    print(regions)
+    return pop, regions
 
 
 def sir(s: float, i: float, r: float, beta: float, gamma: float, n: float):
@@ -135,8 +125,8 @@ if __name__ == "__main__":
     parser.add_argument("-dout", type=str, default=".", help="Output directory")
     opt = parser.parse_args(sys.argv[1:])
 
-    cases = load_confirmed(opt.fdat)
-    population = load_population(opt.fpop)
+    population, regions = load_population(opt.fpop)
+    cases = load_confirmed(opt.fdat, regions)
     tmax = len(cases)
     t = np.arange(tmax) + 1
 
