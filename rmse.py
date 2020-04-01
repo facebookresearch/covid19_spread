@@ -37,7 +37,8 @@ class RMSETrainer(Trainer):
         ts, ns = self.episodes[0].timestamps, self.episodes[0].entities
         maxtime = ts.max() - n_days_back
         ix = self.episodes[0].timestamps < maxtime
-        self.episodes[0] = tlc.Episode(ts[ix], ns[ix], False, len(dnames))
+        # FIXME: using sparse episodes is not correct here
+        self.episodes[0] = tlc.Episode(ts[ix], ns[ix], True, len(dnames))
         self.episode_orig = tlc.Episode(ts, ns, False, len(dnames))
 
         self.counts = counts.to(self.device)
@@ -84,11 +85,12 @@ def rmse(opt, user_control, gt, d):
         trainer.entities,
         opt.step_size,
         opt.trials,
-    )[["county", f"MHP d{d}"]]
+    )[["county", d]]
 
     # compute rmse
     df = pd.merge(df, gt, on="county")
-    _rmse = np.sqrt(((df["ground_truth"] - df[f"MHP d{d}"]) ** 2).mean())
+    # _rmse = np.sqrt(((df["ground_truth"] - df[f"MHP d{d}"]) ** 2).mean())
+    _rmse = np.sqrt(((df["ground_truth"] - df[d]) ** 2).mean())
     return _rmse
 
 

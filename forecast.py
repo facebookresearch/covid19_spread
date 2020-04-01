@@ -76,20 +76,26 @@ if __name__ == "__main__":
         t_obs, d, episode, mus, beta, A, timescale, nodes, opt.step_size, opt.trials
     )
     d_eval = None
-    for day in range(1, opt.days + 1):
-        # for day in [1, 2, 3]:
-        datestr = (base_date + timedelta(day)).strftime("%m/%d")
-        _day = int(day / timescale)
-        df = sim_d(_day)[["county", f"MHP d{_day}"]]
-        df.columns = ["county", datestr]
-        if d_eval is None:
-            d_eval = df
-        else:
-            d_eval = pd.merge(d_eval, df, on="county")
-    vals = d_eval.iloc[:-1, :][d_eval.columns[1:]].to_numpy()
+    # for day in range(1, opt.days + 1):
+    datestrs = [
+        (base_date + timedelta(d)).strftime("%m/%d") for d in range(opt.days + 1)
+    ]
+    # _day = int(day / timescale)
+    d_eval = sim_d(opt.days)[["county"] + list(range(opt.days + 1))]
+    d_eval.columns = ["county"] + datestrs
+    # if d_eval is None:
+    #    d_eval = df
+    # else:
+    #    d_eval = pd.merge(d_eval, df, on="county")
+    # FIXME: this is wrong for data without an "Unknwon" column
+    # compute sum without unknown
+    # vals = d_eval.iloc[:-1, :][d_eval.columns[1:]].to_numpy()
+    vals = d_eval[d_eval.columns[1:]].to_numpy()
     print("--- Predictions ---")
     d_eval = d_eval.append(
-        pd.DataFrame([["Jersey"] + vals.sum(axis=0).tolist()], columns=d_eval.columns),
+        pd.DataFrame(
+            [["ALL REGIONS"] + vals.sum(axis=0).tolist()], columns=d_eval.columns
+        ),
         ignore_index=True,
     )
     print(d_eval)

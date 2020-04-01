@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import ksone
 from scipy import integrate
-from tick.hawkes import HawkesExpKern
+from tick.hawkes import HawkesExpKern, SimuHawkesMulti
 from utils import to_tick_data
 
 
@@ -43,12 +43,16 @@ def goodness_of_fit(episode, step, mu, beta, A, nodes):
     return residuals
 
 
+def run_trial(simu, timestamps):
+    pass
+
+
 def simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes, step, trials):
     """
     Simulate a MHP from t_obs until t_obs + d
     """
     timestamps = to_tick_data([episode], [None], nodes)
-    learner = HawkesExpKern(beta)
+    learner = HawkesExpKern(beta, max_iter=1)
     learner.fit(timestamps)
     learner.adjacency[:] = A[:]
     learner.baseline[:] = mus[:]
@@ -60,16 +64,23 @@ def simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes, step, trials
     simu.force_simulation = True
     simu.verbose = False
     simu.track_intensity(step)
-    simu_cases = np.zeros(len(nodes))
-    for _ in range(trials):
+    simu.set_timestamps(timestamps[0], t_obs)
+    simu.end_time = t_max
+    # multi = SimuHawkesMulti(simu, n_simulations=trials, n_threads=min(trials, 40))
+    # multi.simulate()
+    # print("d")
+    simc = {i: np.zeros(len(nodes)) for i in range(1, d + 1)}
+    for k in range(trials):
         simu.reset()
         simu.set_timestamps(timestamps[0], t_obs)
         simu.end_time = t_max
         simu.simulate()
-        simu_cases += np.array([len(t) for t in simu.timestamps])
-    simu_cases /= trials
+        for i in range(1, d + 1):
+            for n in range(len(nodes)):
+                ix = np.where(simu.timestamps[n] < t_obs + i)[0]
+                simc[i][n] += len(ix)
 
-    df_pred = pd.DataFrame(
-        {"county": nodes, "confirmed": confirmed_cases, f"MHP d{d}": simu_cases}
-    )
-    return df_pred
+    simc = {k: v / trials for k, v in simc.items()}
+    simc["county"] = nodes
+    simc[0] = confirmed_cases
+    return pd.DataFrame(simc)
