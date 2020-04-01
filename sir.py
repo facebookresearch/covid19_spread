@@ -111,7 +111,7 @@ if __name__ == "__main__":
     parser.add_argument("-window", type=int, help="window to compute doubling time")
     parser.add_argument(
         "-doubling-times",
-        type=int,
+        type=float,
         nargs="+",
         help="Additional doubling times to simulate",
     )
