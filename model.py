@@ -18,15 +18,19 @@ class CovidModel(SparseEmbeddingSoftplus):
         self.with_base_intensity = with_base_intensity
 
     def initialize_weights(self):
-        self.mus_.weight.data.fill_(-5 * self.scale)
-        self.beta_.data.fill_(0)
-        self.self_A.weight.data.fill_(-5 * self.scale)
+        if self.with_base_intensity:
+            self.mus_.weight.data.fill_(-5 * self.scale)
+        else:
+            self.mus_.weight.data.fill_(-1e10)
+
+        self.beta_.data.fill_(5)
+        self.self_A.weight.data.fill_(0)
         # Randomly initialize embeddings, except for the pad embedding
         self.U.weight.data[:-1].copy_(
-            th.rand(self.nnodes, self.dim, dtype=th.double) * (-10 * self.scale)
+            th.rand(self.nnodes, self.dim, dtype=th.double) * (-5 * self.scale)
         )
         self.V.weight.data[:-1].copy_(
-            th.rand(self.nnodes, self.dim, dtype=th.double) * (-10 * self.scale)
+            th.rand(self.nnodes, self.dim, dtype=th.double) * (-5 * self.scale)
         )
         # Set these to a large negative value, such that fpos(pad_emb) == 0
         self.U.weight.data[-1].fill_(-1e10)
