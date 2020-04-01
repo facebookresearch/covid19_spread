@@ -37,7 +37,7 @@ df = pd.read_csv(
         "Sussex",
         "Union",
         "Warren",
-        "Unknown",
+        # "Unknown",
     ],
 )
 df = df.sort_values(by="Start day")
