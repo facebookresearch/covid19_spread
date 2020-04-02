@@ -19,8 +19,10 @@ import torch as th
 from datetime import timedelta
 from scipy.stats import kstest
 from common import load_data, load_model, print_model_stats
-from evaluation import simulate_mhp, goodness_of_fit
+from evaluation import simulate_mhp, goodness_of_fit, simulate_tl_mhp
 from tlc import Episode
+from timelord.ll import SparseEmbeddingSoftplus
+
 
 
 def main(args):
@@ -40,6 +42,7 @@ def main(args):
         type=str,
         help="Base date from which forecast dates are formated (%m%d format)",
     )
+    parser.add_argument('-tl-simulate', action='store_true', help='Use timelord\'s simulation implementation')
     parser.add_argument("-days", type=int, help="Number of days to forecast")
     parser.add_argument("-fout", type=str, help="Output file for forecasts")
     opt = parser.parse_args(args)
@@ -74,6 +77,13 @@ def main(args):
     sim_d = lambda d: simulate_mhp(
         t_obs, d, episode, mus, beta, A, timescale, nodes, opt.step_size, opt.trials
     )
+
+    if opt.tl_simulate:
+        model, model_opt = SparseEmbeddingSoftplus.from_checkpoint(opt.checkpoint)
+        simulator = model.mk_simulator()
+        timescale = model_opt.timescale
+        sim_d = lambda d: simulate_tl_mhp(t_obs, d, episode, timescale, simulator, nodes, opt.trials)
+
     d_eval = None
     # for day in range(1, opt.days + 1):
     datestrs = [
