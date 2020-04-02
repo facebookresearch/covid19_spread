@@ -23,8 +23,7 @@ from evaluation import simulate_mhp, goodness_of_fit
 from tlc import Episode
 
 
-if __name__ == "__main__":
-
+def main(args):
     parser = argparse.ArgumentParser(description="Forecasting with Hawkes Embeddings")
     parser.add_argument(
         "-checkpoint",
@@ -43,7 +42,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("-days", type=int, help="Number of days to forecast")
     parser.add_argument("-fout", type=str, help="Output file for forecasts")
-    opt = parser.parse_args(sys.argv[1:])
+    opt = parser.parse_args(args)
 
     nodes, ns, ts, _ = load_data(opt.dset)
     M = len(nodes)
@@ -114,3 +113,6 @@ if __name__ == "__main__":
 
     if opt.fout is not None:
         d_eval.to_csv(opt.fout)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
