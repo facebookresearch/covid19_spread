@@ -98,7 +98,7 @@ def simulate(
     return meta, infs
 
 
-if __name__ == "__main__":
+def main(args):
     parser = argparse.ArgumentParser(description="Forecasting with SIR model")
     parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
     parser.add_argument("-fpop", help="Path to population data", required=True)
@@ -123,7 +123,7 @@ if __name__ == "__main__":
         "-fsuffix", type=str, help="prefix to store forecast and metadata"
     )
     parser.add_argument("-dout", type=str, default=".", help="Output directory")
-    opt = parser.parse_args(sys.argv[1:])
+    opt = parser.parse_args(args)
 
     population, regions = load_population(opt.fpop)
     cases = load_confirmed(opt.fdat, regions)
@@ -161,3 +161,6 @@ if __name__ == "__main__":
     if opt.fsuffix is not None:
         meta.to_csv(f"{opt.dout}/SIR-metadata-{opt.fsuffix}.csv")
         df.to_csv(f"{opt.dout}/SIR-forecast-{opt.fsuffix}.csv")
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
