@@ -89,6 +89,8 @@ if __name__ == "__main__":
     #    d_eval = pd.merge(d_eval, df, on="county")
     # FIXME: this is wrong for data without an "Unknwon" column
     # compute sum without unknown
+    # d_eval.set_index("county")
+    d_eval = d_eval[d_eval["county"] != "Unknown"]
     # vals = d_eval.iloc[:-1, :][d_eval.columns[1:]].to_numpy()
     vals = d_eval[d_eval.columns[1:]].to_numpy()
     print("--- Predictions ---")
