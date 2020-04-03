@@ -14,7 +14,7 @@ import itertools
 
 
 DFLT_PARAMS = [
-    '-max-events', 5000, '-sparse','-optim', 'lbfgs', '-quiet',
+    '-max-events', 5000, '-sparse', '-scale', '1', '-optim', 'lbfgs', '-quiet',
     '-fresh', '-epochs', 200, '-maxcor', 25
 ]
 
