@@ -22,10 +22,10 @@ def load_model(model_path, M):
     beta_ = fpos(beta).item()
     U_ = fpos(U).numpy()
     V_ = fpos(V).numpy()
+    S_ = fpos(alpha_s).numpy().flatten()
     A = np.dot(U_, V_.T) / dim
     for i in range(M):
-        A[i, i] = fpos(alpha_s[i])
-    S_ = fpos(alpha_s).numpy().flatten()
+        A[i, i] = S_[i]
     mus_ = fpos(mus).numpy().flatten()
     return mus_, beta_, S_, U_, V_, A, scale, timescale
 
