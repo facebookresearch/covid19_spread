@@ -8,7 +8,7 @@ from scipy.stats import ksone
 from scipy import integrate
 from tick.hawkes import HawkesExpKern, SimuHawkesMulti
 from utils import to_tick_data
-
+from simulation_ext import HawkesExpSimulation
 
 def ks_critical_value(n_trials, alpha):
     """
@@ -67,6 +67,23 @@ def run_trial(t_obs, t_max, d, M, tid):
             simc[i][n] += len(ix)
     return simc
 
+def simulate_tl_mhp(t_obs, d, episode, timescale, simulator, nodes, trials, quiet=False):
+    confirmed_cases = np.bincount(episode.entities, minlength=len(nodes))
+    t_max = t_obs + (d / timescale)
+    counts = {i: np.zeros((len(nodes),)) for i in range(1, d+1)}
+    counts[0] = confirmed_cases * trials
+    for _ in range(trials):
+        evts = simulator.simulate(episode.entities, episode.timestamps, t_max, quiet)
+        evts = np.array(evts)
+        for i in range(1, d+1):
+            current_evts = evts[evts[:, 1] <= t_obs + (i/ timescale)]
+            print(f'len = {len(current_evts)}')
+            cur_counts = np.bincount(current_evts[:, 0].astype(int), minlength=len(nodes))
+            counts[i] += cur_counts
+
+    counts = {k: v / trials for k, v in counts.items()}
+    counts["county"] = nodes
+    return pd.DataFrame(counts)
 
 def simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes, step, trials):
     """
