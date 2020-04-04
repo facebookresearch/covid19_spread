@@ -7,6 +7,12 @@ import sys
 import torch as th
 
 from sklearn.linear_model import Ridge
+
+import os,sys,inspect
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0,parentdir) 
+
 from common import load_data
 
 
@@ -34,6 +40,15 @@ def load_population(path, col=1):
     return pop, regions
 
 
+def convolve(x, k=1):
+    # np adds padding by default, we remove the edges
+    if k == 1:
+        return x
+    f = [1/k] * k
+    return np.convolve(x, f)[k-1:1-k]
+
+
+
 def simulate(s, i, r, beta, gamma, J, alpha_beta, days, days_predict, keep):
     # days is the list of all days from the first case being 0
     # days_predict is the number of future days to predict
@@ -41,19 +56,38 @@ def simulate(s, i, r, beta, gamma, J, alpha_beta, days, days_predict, keep):
     n = s[0] + i[0] + r[0] # for normalization below
 
     
-    beta_head = np.asarray([beta[j - J:j] for  j in range(J, T - 1)])
-    clf_beta = Ridge(alpha=alpha_beta) # overfits at 0.001 & J=15
-    clf_beta.fit(beta_head, beta[J:T - 1])
+#     # FIR filter fit for beta | not great
+#     beta_head = np.asarray([beta[j - J:j] for  j in range(J, T - 1)])
+#     clf_beta = Ridge(alpha=alpha_beta) # overfits at 0.001 & J=15
+#     clf_beta.fit(beta_head, beta[J:T - 1])
     
-
+    threshold = 3000 # try 3000 and 5000 as well
+    k = 5 # convolution size
+    i_ = i[i>threshold] # ignore first few days
+    
+    i_ = convolve(i_, k)
+    di_ = i_[1:] - i_[:-1] # delta_i
+    beta_ = di_ / i_[:-1] + gamma[-1] # gamma:1/14 | initial phase 
+#     print(len(beta_))
+    x_range = np.linspace(1, len(i), len(beta_))
+#     print(x_range)
+    x, y = np.log(x_range), np.log(beta_ - 1/14 + 0.0001)
+    A = np.vstack([x, np.ones(len(x))]).T
+    res = np.linalg.lstsq(A, y, rcond=None)
+#     print(res[0][0], res[1])
+    slope, intercept = res[0]
+#     print(beta_)
+    
+    
     for t in range(days_predict):
         days.append(T + t)
 
         # predict next beta & calculate s i r
-        beta_next = clf_beta.predict(beta[-J:].reshape(1,-1))
-        
+#         beta_next = clf_beta.predict(beta[-J:].reshape(1,-1))
+        beta_next = np.exp(slope * np.log(T + t) + intercept) + gamma[-1]
+#         print(T + t, beta_next)
         # uncomment below to cross test with sir.py
-        # beta_next = 0.26523 
+#         beta_next = 0.26523 
         
         beta_next = max(0, beta_next)
         gamma_next = gamma[-1] # constant gamma | may increase slightly
@@ -106,8 +140,8 @@ if __name__ == "__main__":
     parser.add_argument("-distancing-reduction", type=float, default=0.3)
     parser.add_argument("-fsuffix", type=str, help="prefix to store forecast and metadata")
     parser.add_argument("-dout", type=str, default=".", help="Output directory")
-    parser.add_argument("-firJ", type=int, default=5, help="filter number for beta")
-    parser.add_argument("-alpha-beta", type=float, default=0.3, help="ridge reg coeff for beta")
+    parser.add_argument("-firJ", type=int, default=10, help="filter number for beta")
+    parser.add_argument("-alpha-beta", type=float, default=3, help="ridge reg coeff for beta")
     
     opt = parser.parse_args(sys.argv[1:])
 
