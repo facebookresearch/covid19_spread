@@ -1,0 +1,7 @@
+*.h5
+*.bin
+__pycache__
+*.log
+*.stdout
+*.stderr
+data/**/*.csv
