@@ -19,7 +19,7 @@ import torch as th
 from datetime import timedelta
 from scipy.stats import kstest
 from common import load_data, load_model, print_model_stats
-from evaluation import simulate_mhp, goodness_of_fit
+from evaluation import simulate_mhp, goodness_of_fit, ks_critical_value
 from tlc import Episode
 
 
@@ -49,6 +49,8 @@ def main(args):
     mus, beta, S, U, V, A, scale, timescale = load_model(opt.checkpoint, M)
     base_date = pd.to_datetime(opt.basedate)
 
+    # A *= 0.99
+
     print_model_stats(mus, beta, S, U, V, A)
 
     # create episode
@@ -60,12 +62,27 @@ def main(args):
     # goodness of fit on observed data
     residuals = goodness_of_fit(episode, 0.001, mus, beta, A, nodes)
     ks, pval = zip(
-        *[kstest(residuals[x], "expon") for x in range(M) if len(residuals[x]) > 2]
+        *[
+            kstest(residuals[x], "expon") if len(residuals[x]) > 1 else (np.nan, np.nan)
+            for x in range(M)
+        ]
     )
+    ks = np.array(ks)
+    pval = np.array(pval)
+    crit = [
+        ks_critical_value(len(residuals[x]), 0.05) if len(residuals[x]) > 1 else np.nan
+        for x in range(M)
+    ]
     print("--- Goodness of fit ---")
-    print(f"Avg. KS   = {np.mean(ks):.3f}")
-    print(f"Avg. pval = {np.mean(pval):.3f}")
+    print(f"Avg. KS   = {np.mean(ks[ks == ks]):.3f}")
+    print(f"Avg. pval = {np.mean(pval[pval == pval]):.3f}")
     print()
+
+    assert len(ks) == len(nodes), (len(ks), len(nodes))
+    for i, node in enumerate(nodes):
+        print(
+            f"{node:15s}: N = {len(residuals[i])}, KS = {ks[i]:.3f}, Crit = {crit[i]:.3f}, pval = {pval[i]:.3f}"
+        )
 
     if opt.days is None or opt.days < 1:
         sys.exit(0)
@@ -99,6 +116,9 @@ def main(args):
         ),
         ignore_index=True,
     )
+    d_eval["KS"] = ks.tolist()[: len(d_eval)] + [np.mean(ks)]
+    d_eval["pval"] = pval.tolist()[: len(d_eval)] + [np.mean(pval)]
+    d_eval = d_eval.round(3)
     print(d_eval)
 
     # print("\n")
@@ -115,6 +135,7 @@ def main(args):
 
     if opt.fout is not None:
         d_eval.to_csv(opt.fout)
+
 
 if __name__ == "__main__":
     main(sys.argv[1:])
