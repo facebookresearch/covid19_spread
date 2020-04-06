@@ -4,6 +4,7 @@ import pandas
 import os
 from subprocess import check_output
 import re
+from typing import Optional
 
 
 @click.group()
@@ -32,6 +33,37 @@ def rmse(sweep_dir, verbose: bool = False):
         print(results.sort_values(by='rmse_avg').iloc[:10])
     return results
 
+
+
+@click.command()
+@click.argument('sweep_dir')
+@click.option('--sort-by', default=None)
+@click.option('--verbose/--no-verbose', default=True)
+def summary(sweep_dir, sort_by: Optional[str] = None, verbose: bool = False):
+    keys=['RMSE_PER_DAY', 'RMSE_AVG', 'beta', 'Norms','Max Element', 'Avg Element','Avg. KS','Avg. pval']
+    results = []
+    for log in glob(os.path.join(sweep_dir, '**/*log.out'), recursive=True):
+        logtxt = open(log,'r').read()
+        current = {'job': os.path.dirname(log)}
+        for key in keys:            
+            current[key] = re.search(f'{key} *(:|=) *(.*)', logtxt).group(2)
+        results.append(current)
+
+    if sort_by is not None:
+        assert sort_by in results[0]
+        results = sorted(results, key=lambda x: float(x[sort_by]))
+
+    if verbose:
+        for result in results:
+            print(f'Job: {result["job"]}')
+            for k in keys:
+                print(f'{k}: {result[k]}')
+            forecasts = pandas.read_csv(os.path.join(result['job'], 'forecasts.csv'), index_col=0)
+            print(forecasts)
+            print()
+    return results
+    
 if __name__ == '__main__':
     cli.add_command(rmse)
+    cli.add_command(summary)
     cli()
