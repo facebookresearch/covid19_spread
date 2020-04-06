@@ -33,7 +33,15 @@ DFLT_PARAMS = [
 
 
 def forecast_train(
-    dataset, dim, base_intensity, basedate, job_dir, days=7, trials=10, log=None
+    dataset,
+    dim,
+    base_intensity,
+    basedate,
+    job_dir,
+    days=7,
+    trials=10,
+    const_beta=-1,
+    log=None,
 ):
     with contextlib.ExitStack() as stack:
         if log is not None:
@@ -51,6 +59,8 @@ def forecast_train(
             dataset,
             "-dim",
             dim,
+            "-const-beta",
+            const_beta,
         ] + with_intensity
         train_params = list(map(str, DFLT_PARAMS + NON_DFLT))
 
@@ -119,6 +129,7 @@ if __name__ == "__main__":
     parser.add_argument("-timeout-min", type=int, default=12 * 60)
     parser.add_argument("-array-parallelism", type=int, default=50)
     parser.add_argument("-mem-gb", type=int, default=20)
+    parser.add_argument("-ncpus", type=int, default=20)
     opt = parser.parse_args()
 
     config = load_config(opt.config)
@@ -154,7 +165,7 @@ if __name__ == "__main__":
         executor.update_parameters(
             name=f'{config["region"]}-sweep',
             gpus_per_node=1,
-            cpus_per_task=3,
+            cpus_per_task=opt.ncpus,
             mem_gb=opt.mem_gb,
             array_parallelism=opt.array_parallelism,
             timeout_min=opt.timeout_min,
