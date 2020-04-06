@@ -45,7 +45,7 @@ def forecast_train(dataset, dim, base_intensity, basedate, job_dir, days=7, tria
             '-basedate', basedate,
             '-days', days,
             '-trials', trials,
-            '-fout', os.path.join(job_dir, 'forecasts.csv')
+            '-fout', os.path.join(job_dir, 'forecasts.csv'),
         ]
         forecast(list(map(str, forecast_params)))
 
@@ -68,8 +68,10 @@ def run_sir(data, population, region, base, **kwargs):
         '-days', kwargs.get('days', 60),
         '-keep', kwargs.get('keep', 7),
         '-window', kwargs.get('window', 5),
+        '-fsuffix', '-'
     ] + ['-doubling-times'] + doubling_times
     sir(list(map(str, args)))
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
