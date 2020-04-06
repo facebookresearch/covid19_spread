@@ -20,8 +20,11 @@ env:
 	conda env create -f environment.yml
 
 timelord:
+	git submodule sync
 	git submodule update --init --recursive
 	cd timelord && CC="ccache gcc" python3 setup.py build -f develop
+	cd timelord && (rm tl_kernels.* || true)
+	cd timelord && make kernels
 
 example: data/new-jersey/timeseries.h5
 	OMP_NUM_THREADS=1 python3 train.py -max-events 5000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -dset data/new-jersey/timeseries.h5 -epochs 200 -maxcor 25 -dim 15
