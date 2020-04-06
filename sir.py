@@ -73,6 +73,15 @@ def simulate(
     gamma = 1.0 / recovery_days
     beta = (intrinsic_growth_rate + gamma) / S0 * (1.0 - distancing_reduction)
 
+    # compute fit quality
+    res = {d: _I for d, _S, _I, _R in gen_sir(S0, I0, R0, beta, gamma, days)}
+    mae = [abs(cases[i] - res[i]) for i in range(5, len(cases))]
+    rmse = [(cases[i] - res[i]) ** 2 for i in range(5, len(cases))]
+
+    print(mae)
+    print(rmse)
+
+    # simulate forward
     IN = cases[-1]
     SN = population - IN
     RN = 0
@@ -93,6 +102,8 @@ def simulate(
             "gamma": [round(gamma, 3)],
             "Peak days": [peak_days],
             "Peak cases": [int(infected[ix_max])],
+            "MAE": [np.mean(mae)],
+            "RMSE": [np.mean(rmse)],
         }
     )
     return meta, infs
@@ -161,6 +172,7 @@ def main(args):
     if opt.fsuffix is not None:
         meta.to_csv(f"{opt.dout}/SIR-metadata-{opt.fsuffix}.csv")
         df.to_csv(f"{opt.dout}/SIR-forecast-{opt.fsuffix}.csv")
+
 
 if __name__ == "__main__":
     main(sys.argv[1:])
