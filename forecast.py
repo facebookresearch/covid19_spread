@@ -87,13 +87,13 @@ def main(args):
     assert len(ks) == len(nodes), (len(ks), len(nodes))
     for i, node in enumerate(nodes):
         print(
-            f"{node:15s}: N = {len(residuals[i])}, KS = {ks[i]:.3f}, Crit = {crit[i]:.3f}, pval = {pval[i]:.3f}"
+            f"{node:15s}: N = {len(episode.occurrences_of_dim(i)) - 1}, KS = {ks[i]:.3f}, Crit = {crit[i]:.3f}, pval = {pval[i]:.3f}"
         )
 
     if opt.days is None or opt.days < 1:
         sys.exit(0)
 
-    # predictions
+    # compute predictions
     sim_d = lambda d: simulate_mhp(
         t_obs, d, episode, mus, beta, A, timescale, nodes, opt.step_size, opt.trials
     )
@@ -106,49 +106,35 @@ def main(args):
             t_obs, d, episode, timescale, simulator, nodes, opt.trials
         )
 
+    # collect simulation data and prepare for output
     d_eval = None
-    # for day in range(1, opt.days + 1):
     datestrs = [
         (base_date + timedelta(d)).strftime("%m/%d") for d in range(opt.days + 1)
     ]
     # _day = int(day / timescale)
     d_eval = sim_d(opt.days)[["county"] + list(range(opt.days + 1))]
     d_eval.columns = ["county"] + datestrs
-    # if d_eval is None:
-    #    d_eval = df
-    # else:
-    #    d_eval = pd.merge(d_eval, df, on="county")
-    # FIXME: this is wrong for data without an "Unknwon" column
     # compute sum without unknown
-    # d_eval.set_index("county")
     d_eval = d_eval[d_eval["county"] != "Unknown"]
-    # vals = d_eval.iloc[:-1, :][d_eval.columns[1:]].to_numpy()
     vals = d_eval[d_eval.columns[1:]].to_numpy()
-    print("--- Predictions ---")
     d_eval = d_eval.append(
         pd.DataFrame(
             [["ALL REGIONS"] + vals.sum(axis=0).tolist()], columns=d_eval.columns
         ),
         ignore_index=True,
     )
-    d_eval["KS"] = ks.tolist()[: len(d_eval)] + [np.mean(ks)]
-    d_eval["pval"] = pval.tolist()[: len(d_eval)] + [np.mean(pval)]
+    # add KS stats to output
+    d_eval["KS"] = ks.tolist()[: len(d_eval) - 1] + [np.mean(ks)]
+    d_eval["pval"] = pval.tolist()[: len(d_eval) - 1] + [np.mean(pval)]
     d_eval = d_eval.round(3)
+
+    print("--- Predictions ---")
     print(d_eval)
 
-    # print("\n")
-    # print(" --- Proportional Unknowns --- ")
-    # unk = d_eval.loc[df["county"] == "Unknown"]
-    # unk = unk[unk.columns[1:]].to_numpy()
-    # # print(vals)
-    # # print(unk)
-    # # print(vals.sum(axis=0))
-    # vals = vals + unk * vals / vals.sum(axis=0)
-    # d_prop = pd.DataFrame(np.hstack([df["county"].to_numpy()[:-2, np.newaxis], vals]))
-    # d_prop.columns = d_eval.columns
-    # print(d_prop)
-
     if opt.fout is not None:
+        # convert to format we send out
+        d_eval = d_eval.set_index("county").transpose()
+        d_eval.columns = d_eval.columns.rename("date")
         d_eval.to_csv(opt.fout)
 
 
