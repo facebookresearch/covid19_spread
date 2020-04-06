@@ -11,6 +11,8 @@ from forecast import main as forecast
 import os
 import contextlib
 import itertools
+import submitit
+from timelord import snapshot
 
 
 DFLT_PARAMS = [
@@ -73,14 +75,21 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('config', help='config file (json or yml)')
     parser.add_argument('-basedate', help='Base date for forecasting')
+    parser.add_argument('-remote', action='store_true', help='Run jobs remotely on SLURM')
+    parser.add_argument('-timeout-min', type=int, default=12*60)
+    parser.add_argument('-array-parallelism', type=int, default=50)
+    parser.add_argument('-mem-gb', type=int, default=20)
     opt = parser.parse_args()
 
     config = load_config(opt.config)
     now = datetime.now().strftime('%Y_%m_%d_%H_%M')
-    base = f'forecasts/{config["region"]}/{now}'
+    user = os.environ['USER']
+    base = f'/checkpoint/{user}/covid19/forecasts/{config["region"]}/{now}'
+
+    dataset = os.path.realpath(config['data'])
 
     print('Running SIR model...')
-    run_sir(data=config['data'], base=base, region=config['region'], **config['sir'])
+    run_sir(data=dataset, base=base, region=config['region'], **config['sir'])
 
     keys = config['grid'].keys()
     values = list(itertools.product(*[config['grid'][k] for k in keys]))
@@ -89,8 +98,30 @@ if __name__ == '__main__':
 
     basedate = opt.basedate or str(date.today())
 
-    for d in grid:
-        job_dir = os.path.join(base, '_'.join([f'{k}_{v}' for k, v in d.items()]))
+    def run_job(d):
+        kwargs = {**d,**config["forecast"], 'basedate': basedate}
+        try:
+            job_env = submitit.JobEnvironment()
+            job_dir = os.path.join(base, str(submitit.JobEnvironment().job_id))
+        except Exception:
+            job_dir = os.path.join(base, '_'.join([f'{k}_{v}' for k, v in d.items()]))
+            kwargs["log"] = f'{job_dir}/log'
         os.makedirs(job_dir, exist_ok=True)
-        current = {**d, **config['forecast'], 'log': f'{job_dir}/log', 'basedate': basedate}
-        forecast_train(dataset=config['data'], job_dir=job_dir, **current)
+        forecast_train(dataset=dataset, job_dir=job_dir, **kwargs)
+
+    if opt.remote:
+        executor = submitit.AutoExecutor(folder=base + '/%j')
+        executor.update_parameters(
+            name=f'{config["region"]}-sweep',
+            gpus_per_node=1,
+            cpus_per_task=3,
+            mem_gb=opt.mem_gb,
+            array_parallelism=opt.array_parallelism,
+            timeout_min=opt.timeout_min,
+        )
+        with snapshot.SnapshotManager(snapshot_dir=base + '/snapshot', with_submodules=True):
+            jobs = executor.map_array(run_job, grid)
+        print(base)
+    else:
+        for d in grid:
+            run_job(grid)

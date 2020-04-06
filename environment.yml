@@ -15,6 +15,7 @@ dependencies:
   - scikit-learn
   - seaborn
   - tqdm
+  - click
   - pip:
     - bokeh
     - pyyaml
