@@ -18,7 +18,7 @@ def load_model(model_path, M):
     assert U.size(0) == M, (U.size(0), M)
     assert V.size(0) == M, (V.size(0), M)
 
-    fpos = lambda x: scale * th.nn.functional.softplus(x, beta=1 / scale)
+    fpos = lambda x: th.nn.functional.softplus(x, beta=1 / scale)
     beta_ = fpos(beta).item()
     U_ = fpos(U).numpy()
     V_ = fpos(V).numpy()
