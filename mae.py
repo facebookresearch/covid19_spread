@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import numpy as np
+import os
 import pandas as pd
 import sys
 
@@ -21,11 +22,13 @@ basedate = pd.to_datetime(sys.argv[3])
 suffix = sys.argv[4]
 # print(df_pred)
 
-maes = {}
+maes = {"Measure": ["MAE"]}
 ix = basedate.strftime("%m/%d")
 for d in range(1, 8):
     pdate = basedate - timedelta(d)
     fname = f"{prefix}-{pdate.strftime('%Y%m%d')}{suffix}.csv"
+    if not os.path.exists(fname):
+        continue
     df_pred = pd.read_csv(fname, usecols=cols + ["date"])
     df_pred = df_pred.set_index("date")
     # print(d, pdate, df_pred.loc[ix])
@@ -36,6 +39,8 @@ for d in range(1, 8):
 
     # mae_triv = np.mean(np.abs(np.diff(df_gt.counts)))
 
+    print()
+    print(pdate)
     errs = np.zeros(len(cols))
     for i, c in enumerate(cols):
         err = abs(gt[c] - vals[i])
@@ -43,7 +48,8 @@ for d in range(1, 8):
         errs[i] = err
     maes[pdate.strftime("%m/%d")] = [np.mean(errs)]
 
+df = pd.DataFrame(maes).round(2)
+
 print()
-print(pdate)
-print("MAE", pd.DataFrame(maes))
+print(df)
 # print("MASE", mae / mae_triv)
