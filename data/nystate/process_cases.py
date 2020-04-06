@@ -10,19 +10,21 @@ from itertools import count
 
 fout = "timeseries.h5"
 
-dparser = lambda x: pd.to_datetime(x, format="%Y-%m-%d")
+dparser = lambda x: pd.to_datetime(x, format="%m/%d/%Y")
 df = pd.read_csv(
     sys.argv[1],
     header=0,
     date_parser=dparser,
-    parse_dates=["date"],
-    usecols=["date", "county", "cases"],
+    parse_dates=["Test Date"],
+    usecols=["Test Date", "County", "New Positives"],
 )
+df.columns = ["date", "county", "cases"]
+print(df.head())
 df = df.sort_values(by="date")
 # df = df.dropna()
 
 nevents = df["cases"].sum()
-print(df.county.unique())
+print(sorted(df.county.unique()))
 
 ncount = count()
 region_ids = ddict(ncount.__next__)
@@ -39,7 +41,7 @@ for county, group in df_agg:
     group = group.sort_values(by="date")
     ts = group["date"].values.astype(np.int)
     ws = group["cases"].values.astype(np.float)
-    ws = np.diff([0] + ws.tolist())
+    # ws = np.diff([0] + ws.tolist())
     ncases = ws.sum()
     print(county, ncases, ws, ts)
     es = []
@@ -54,12 +56,12 @@ for county, group in df_agg:
         # print(tp, ts[i], w)
         _es = sorted(np.random.uniform(tp, ts[i], w))
         if len(es) > 0:
-            print(es[-1], _es[0], _es[-1])
+            # print(es[-1], _es[0], _es[-1])
             assert es[-1] < _es[0], (_es[0], es[-1])
         es += _es
         # tp = ts[i]
         # es += [ts[i]] * w
-    # assert len(es) <= ncases, (len(es), ncases)
+    assert len(es) == ncases, (len(es), ncases)
     if len(es) > 0:
         kid = region_ids[county]
         _ts += es
