@@ -51,7 +51,7 @@ def summary(sweep_dir, sort_by: Optional[str] = None, verbose: bool = False):
     keys = [
         "RMSE_PER_DAY",
         "RMSE_AVG",
-        "beta",
+        "json_conf",
         "Norms",
         "Max Element",
         "Avg Element",
