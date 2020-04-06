@@ -103,6 +103,7 @@ def parse_opt(args):
     parser.add_argument(
         "-no-baseint", action="store_false", dest="baseint", default=True
     )
+    parser.add_argument("-const-beta", type=float, default=-1)
     opt = parser.parse_args(args)
     return opt
 

@@ -25,7 +25,12 @@ class CovidTrainer(Trainer):
     def setup_model(self):
         print(self.opt)
         self.model = CovidModel(
-            len(self.entities), self.opt.dim, self.opt.scale, True, self.opt.baseint
+            len(self.entities),
+            self.opt.dim,
+            self.opt.scale,
+            True,
+            self.opt.baseint,
+            self.opt.const_beta,
         )
         self.model.initialize_weights()
         self.model = self.model.to(self.device)
@@ -36,6 +41,7 @@ def parse_opt(args):
     parser.add_argument(
         "-no-baseint", action="store_false", dest="baseint", default=True
     )
+    parser.add_argument("-const-beta", type=float, default=-1)
     opt = parser.parse_args(args)
     return opt
 
