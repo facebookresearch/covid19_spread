@@ -16,6 +16,7 @@ def cli():
 @click.argument("sweep_dir")
 @click.option("--verbose/--no-verbose", default=True)
 def rmse(sweep_dir, verbose: bool = False):
+    'Report job with best RMSE'
     results = []
     for log in glob(os.path.join(sweep_dir, "**/*log.out"), recursive=True):
         rmse_per_day = check_output(
@@ -46,6 +47,7 @@ def rmse(sweep_dir, verbose: bool = False):
 @click.option("--sort-by", default=None)
 @click.option("--verbose/--no-verbose", default=True)
 def summary(sweep_dir, sort_by: Optional[str] = None, verbose: bool = False):
+    '''Provide a summary of the sweep'''
     keys = [
         "RMSE_PER_DAY",
         "RMSE_AVG",
