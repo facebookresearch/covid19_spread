@@ -48,9 +48,11 @@ grid-nj:
 	$(call forecast-train,20,new-jersey,7,50,-no-baseint)
 
 forecast-nj: params = -max-events 500000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 25
+forecast-nj: doubling-times = 3 4 5 10
 forecast-nj: dset = data/new-jersey/timeseries.h5
 forecast-nj:
-	OMP_NUM_THREADS=1 python3 train.py $(params) -dset = $(dset) -checkpoint /tmp/forecast_nj.bin  $(TARGS)
+	python3 sir.py -fdat data/new-jersey/timeseries.h5 -fpop data/population-data/US-states/new-jersey-population.csv -fsuffix nj-$(DATE) -dout forecasts/new-jersey -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
+	OMP_NUM_THREADS=1 python3 train.py $(params) -dset $(dset) -checkpoint /tmp/forecast_nj.bin  $(TARGS)
 	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -checkpoint /tmp/forecast_nj.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/new-jersey/forecast-nj-$(DATE)$(FSUFFIX).csv
 
 # --- NYC ---
