@@ -16,7 +16,7 @@ def cli():
 @click.argument("sweep_dir")
 @click.option("--verbose/--no-verbose", default=True)
 def rmse(sweep_dir, verbose: bool = False):
-    'Report job with best RMSE'
+    "Report job with best RMSE"
     results = []
     for log in glob(os.path.join(sweep_dir, "**/*log.out"), recursive=True):
         rmse_per_day = check_output(
@@ -47,7 +47,7 @@ def rmse(sweep_dir, verbose: bool = False):
 @click.option("--sort-by", default=None)
 @click.option("--verbose/--no-verbose", default=True)
 def summary(sweep_dir, sort_by: Optional[str] = None, verbose: bool = False):
-    '''Provide a summary of the sweep'''
+    """Provide a summary of the sweep"""
     keys = [
         "RMSE_PER_DAY",
         "RMSE_AVG",
@@ -58,12 +58,15 @@ def summary(sweep_dir, sort_by: Optional[str] = None, verbose: bool = False):
         "Avg. KS",
         "Avg. pval",
     ]
+
     results = []
     for log in glob(os.path.join(sweep_dir, "**/*log.out"), recursive=True):
         logtxt = open(log, "r").read()
         current = {"job": os.path.dirname(log)}
         for key in keys:
-            current[key] = re.search(f"{key} *(:|=) *(.*)", logtxt).group(2)
+            match = re.search(f"{key} *(:|=) *(.*)", logtxt)
+            if match is not None:
+                current[key] = match.group(2)
         results.append(current)
 
     if sort_by is not None:
@@ -71,6 +74,11 @@ def summary(sweep_dir, sort_by: Optional[str] = None, verbose: bool = False):
         results = sorted(results, key=lambda x: float(x[sort_by]))
 
     if verbose:
+        sir_forecast = glob(os.path.join(sweep_dir, "sir/SIR-forecast*"))[0]
+        sir = pandas.read_csv(sir_forecast, index_col=0)
+        print(sir)
+        print()
+
         for result in results:
             print(f'Job: {result["job"]}')
             for k in keys:
@@ -84,37 +92,41 @@ def summary(sweep_dir, sort_by: Optional[str] = None, verbose: bool = False):
 
 
 @click.command()
-@click.argument('sweep_dir')
-@click.option('--verbose/--no-verbose', default=True)
+@click.argument("sweep_dir")
+@click.option("--verbose/--no-verbose", default=True)
 def sir_similarity(sweep_dir, verbose=True):
-    '''
+    """
     Reports the model who's forecast is most closely in line with the SIR model.
     Similarity is in terms of mean average distance of the forecasts.
-    '''
-    sir_forecast = glob(os.path.join(sweep_dir, 'sir/SIR-forecast*'))[0]
+    """
+    sir_forecast = glob(os.path.join(sweep_dir, "sir/SIR-forecast*"))[0]
     sir = pandas.read_csv(sir_forecast, index_col=0)
     sir = sir[sir.columns[:2]]
-    sir.columns = ['days', 'sir']
+    sir.columns = ["days", "sir"]
     results = []
-    for log in glob(os.path.join(sweep_dir, '**/*log.out'), recursive=True):
+    for log in glob(os.path.join(sweep_dir, "**/*log.out"), recursive=True):
         job_dir = os.path.dirname(log)
-        forecast = pandas.read_csv(os.path.join(job_dir, 'forecasts.csv'), index_col=0)
-        forecast = forecast.loc[(forecast.index != 'KS') & (forecast.index != 'pval')]
-        merged = sir.set_index(forecast.index).merge(forecast, left_index=True, right_index=True)
-        results.append({
-            'mae': (merged['sir'] - merged['ALL REGIONS']).abs().mean(),
-            'job': job_dir
-        })
+        forecast = pandas.read_csv(os.path.join(job_dir, "forecasts.csv"), index_col=0)
+        forecast = forecast.loc[(forecast.index != "KS") & (forecast.index != "pval")]
+        merged = sir.set_index(forecast.index).merge(
+            forecast, left_index=True, right_index=True
+        )
+        results.append(
+            {
+                "mae": (merged["sir"] - merged["ALL REGIONS"]).abs().mean(),
+                "job": job_dir,
+            }
+        )
     df = pandas.DataFrame(results)
     if verbose:
-        best = df.sort_values(by='mae').iloc[0]
-        print(f'Best run = {best.job}')
+        best = df.sort_values(by="mae").iloc[0]
+        print(f"Best run = {best.job}")
         print()
-        print(df.sort_values(by='mae'))
+        print(df.sort_values(by="mae"))
     return df
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     cli.add_command(rmse)
     cli.add_command(summary)
     cli.add_command(sir_similarity)
