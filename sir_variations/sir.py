@@ -80,7 +80,7 @@ def fit_beta(beta, gamma, times, days_predict, beta_fit='exp', eps= 0.000001):
         return beta_pred
     
 
-def simulate(s, i, r, beta, gamma, T, days, keep, window=5, bc_window=1, fit_window=10, beta_fit='constant'):
+def simulate(s, i, r, beta, gamma, T, dt, days, keep, window=5, bc_window=1, fit_window=10, beta_fit='constant'):
     # days is the list of all days from the first case being 0
     # days_predict is the number of future days to predict
     # i[T] will be the first predicted day!
@@ -93,15 +93,24 @@ def simulate(s, i, r, beta, gamma, T, days, keep, window=5, bc_window=1, fit_win
     days_predict = np.asarray(days_predict)
 
     # fit beta
-    if beta_fit == 'constant':
+    if beta_fit == 'manual':
+        # cross check values
+        distancing_reduction = 0.3 # copy from main sir.py
+        intrinsic_growth_rate = 2.0 ** (1.0 / dt) - 1.0
+        beta_val = (intrinsic_growth_rate + gamma[-1]) * (1.0 - distancing_reduction)
+        beta_pred = [beta_val] * opt.days # beta for future days
+    elif beta_fit == 'constant':
         beta_val = np.mean(beta[-bc_window:])
         beta_pred = [beta_val] * opt.days # beta for future days
-    else:
+    elif beta_fit in ['lin', 'exp', 'power']:
         assert fit_window > 1
         _times = days_given[-fit_window:]
         _beta = beta[-fit_window:]
         _gamma = gamma[-fit_window:]        
         beta_pred = fit_beta(_beta, _gamma, _times, days_predict, beta_fit)
+    else:
+        raise NotImplementedError
+        
     # expand beta and gamma for past and future times
     beta = np.concatenate((beta, beta_pred))
     gamma = np.concatenate((gamma, [gamma[-1]] * days ))
@@ -132,11 +141,17 @@ def simulate(s, i, r, beta, gamma, T, days, keep, window=5, bc_window=1, fit_win
     i = i.astype(int) # convert predicted numbers to int
     
     # infs = pd.DataFrame({"Day": list(range(T-1, T+keep)), f"beta_last: {beta[-1]:.2f}": i[T-1:T+keep]})
-    infs = pd.DataFrame({"Day": list(range(keep + 1)), f"beta_last: {beta[-1]:.2f}": i[T-1:T+keep]})
+    infs = pd.DataFrame(
+        {
+            "Day": list(range(keep + 1)), # days from first prediction time
+            # "Day": list(range(T-1, T+keep)), # days from first absolute time
+            beta_fit: i[T-1:T+keep]
+        }
+    )
     
     ix_max = np.argmax(i)
     if ix_max == len(i) - 1:
-        peak_days = f"{ix_max - T + 1}+" # + 1 bc indexing starts from 0, from the last day this many days to reach the peak
+        peak_days = f"{ix_max - T + 1}+"
     else:
         peak_days = str(ix_max - T + 1)
 
@@ -160,7 +175,6 @@ if __name__ == "__main__":
     parser.add_argument("-keep", type=int, help="nDays to keep in CSV", required=True)
     parser.add_argument("-doubling-times", type=float, nargs="+", help="Addl d-times to simulate")
     parser.add_argument("-recovery-days", type=int, default=14, help="Recovery days")
-    parser.add_argument("-distancing-reduction", type=float, default=0.3)
     parser.add_argument("-fsuffix", type=str, help="prefix to store forecast and metadata")
     parser.add_argument("-dout", type=str, default=".", help="Output directory")
     parser.add_argument("-dt_window", type=int, help="window to compute doubling time")
@@ -202,6 +216,7 @@ if __name__ == "__main__":
         beta,
         gamma,
         T,
+        dt,
         opt.days,
         opt.keep,
         opt.dt_window,
@@ -211,9 +226,9 @@ if __name__ == "__main__":
     )
     
     # simulate with constant beta average of past opt.window days
-    meta, df = f_sim('constant')
+    meta, df = f_sim('manual')
     # simulate with different fits...
-    for beta_fit in ['lin', 'exp', 'power']:
+    for beta_fit in ['constant', 'lin', 'exp', 'power']:
         _meta, _df = f_sim(beta_fit)
         meta = meta.append(_meta, ignore_index=True)
         df = pd.merge(df, _df, on="Day")
