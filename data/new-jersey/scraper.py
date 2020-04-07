@@ -23,6 +23,17 @@ for row in data['features']:
     county = row['attributes']['COUNTY_LAB']
     new_data[' '.join(county.split()[:-1])] = row['attributes']['TOTAL_CASES']
 
+
+unknown = None
+while True:
+    try:
+        unknown = input('Enter number of unknown cases ( https://www.nj.gov/health/cd/topics/covid2019_dashboard.shtml ): ')
+        unknown = float(unknown)
+        break
+    except Exception:
+        pass
+
+new_data['Unknown'] = unknown
 new_data = pandas.DataFrame([new_data])
 
 df = pandas.concat([df, new_data]).reset_index()
