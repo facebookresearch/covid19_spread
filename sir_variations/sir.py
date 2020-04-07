@@ -80,7 +80,7 @@ def fit_beta(beta, gamma, times, days_predict, beta_fit='exp', eps= 0.000001):
         return beta_pred
     
 
-def simulate(s, i, r, beta, gamma, T, dt, days, keep, window=5, bc_window=1, fit_window=10, beta_fit='constant'):
+def simulate(s, i, r, beta, gamma, T, dt, days, keep, window=5, bc_window=1, fit_window=10, c=1, beta_fit='constant'):
     # days is the list of all days from the first case being 0
     # days_predict is the number of future days to predict
     # i[T] will be the first predicted day!
@@ -125,8 +125,8 @@ def simulate(s, i, r, beta, gamma, T, dt, days, keep, window=5, bc_window=1, fit
 
         # calcualte s, i, r at tau + 1
         i_next = i[-1] + i[-1] * (beta_current * (s[-1] / n)  - gamma_current)
-        r_next = r[-1] + i[-1] * gamma_current
-        s_next = s[-1] - i[-1] * beta_current * (s[-1] / n)
+        r_next = r[-1] + i[-1] * gamma_current / c
+        s_next = s[-1] - i[-1] * beta_current * (s[-1] / n) / c
 
         i_next = max(0, i_next)
         s_next = max(0, s_next)
@@ -180,8 +180,7 @@ if __name__ == "__main__":
     parser.add_argument("-dt_window", type=int, help="window to compute doubling time")
     parser.add_argument("-bc_window", type=int, default = 1, help="beta constant averaging window")
     parser.add_argument("-fit_window", type=int, default=10, help="fit using last .. days")
-    parser.add_argument("-firJ", type=int, default=10, help="filter number for beta")
-    parser.add_argument("-alpha-beta", type=float, default=3, help="ridge reg coeff for beta")
+    parser.add_argument("-c", type=float, default=1., help="between 0 & 1, fraction of reported cases")
     
     opt = parser.parse_args(sys.argv[1:])
 
@@ -222,6 +221,7 @@ if __name__ == "__main__":
         opt.dt_window,
         opt.bc_window,
         opt.fit_window,
+        opt.c,
         beta_fit
     )
     
