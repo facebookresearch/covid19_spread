@@ -141,7 +141,7 @@ def main(args):
         # convert to format we send out
         d_eval = d_eval.set_index("county").transpose()
         d_eval.columns = d_eval.columns.rename("date")
-        d_eval.to_csv(opt.fout)
+        d_eval.to_csv(opt.fout, index_label="date")
 
 
 if __name__ == "__main__":

@@ -1,15 +1,16 @@
 # Location of dataset (relative to covid19_spread repository base)
-data: data/new-jersey/timeseries.h5
+data: data/nystate/timeseries.h5
 region: new-jersey  # unique region identifier (forecasts go into forecasts/`region`)
 sir:  # SIR parameters
-  population: data/population-data/US-states/new-jersey-population.csv
+  population: data/population-data/US-states/new-york-population.csv
   days: 60
   keep: 7
   window: 5
-  doubling_times: [3, 4, 5, 10]
+  doubling_times: [6, 7, 8, 10]
 grid:  # parameter grid for training
-  dim: [5, 10, 15, 20]
+  dim: [10, 20, 40, 60]
   base_intensity: [True, False]
+  const_beta: [-1, 80, 100]
 forecast:  # forecasting parameters
   days: 7
-  trials: 50
+  trials: 40

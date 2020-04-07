@@ -80,13 +80,13 @@ def summary(sweep_dir, sort_by: Optional[str] = None, verbose: bool = False):
         print()
 
         for result in results:
+            f_forecast = os.path.join(result["job"], "forecasts.csv")
             print(f'Job: {result["job"]}')
             for k in keys:
                 print(f"{k}: {result[k]}")
-            forecasts = pandas.read_csv(
-                os.path.join(result["job"], "forecasts.csv"), index_col=0
-            )
-            print(forecasts["ALL REGIONS"].to_frame().transpose())
+            if os.path.exists(f_forecast):
+                forecasts = pandas.read_csv(f_forecast, index_col=0)
+                print(forecasts["ALL REGIONS"].to_frame().transpose())
             print()
     return results
 
@@ -106,7 +106,10 @@ def sir_similarity(sweep_dir, verbose=True):
     results = []
     for log in glob(os.path.join(sweep_dir, "**/*log.out"), recursive=True):
         job_dir = os.path.dirname(log)
-        forecast = pandas.read_csv(os.path.join(job_dir, "forecasts.csv"), index_col=0)
+        fname = os.path.join(job_dir, "forecasts.csv")
+        if not os.path.exists(fname):
+            continue
+        forecast = pandas.read_csv(fname, index_col=0)
         forecast = forecast.loc[(forecast.index != "KS") & (forecast.index != "pval")]
         merged = sir.set_index(forecast.index).merge(
             forecast, left_index=True, right_index=True
