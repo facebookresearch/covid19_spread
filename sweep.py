@@ -177,4 +177,4 @@ if __name__ == "__main__":
         print(base)
     else:
         for d in grid:
-            run_job(grid)
+            run_job(d)
