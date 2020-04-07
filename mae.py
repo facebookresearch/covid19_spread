@@ -22,12 +22,13 @@ basedate = pd.to_datetime(sys.argv[3])
 suffix = sys.argv[4]
 # print(df_pred)
 
-maes = {"Measure": ["MAE"]}
+maes = {"Measure": ["MAE", "MAPE"]}
 ix = basedate.strftime("%m/%d")
 for d in range(1, 8):
     pdate = basedate - timedelta(d)
     fname = f"{prefix}-{pdate.strftime('%Y%m%d')}{suffix}.csv"
     if not os.path.exists(fname):
+        print(f"Skipping {fname}")
         continue
     df_pred = pd.read_csv(fname, usecols=cols + ["date"])
     df_pred = df_pred.set_index("date")
@@ -37,7 +38,7 @@ for d in range(1, 8):
     # vals = df_pred[cols].iloc[offset].to_numpy()
     vals = df_pred.loc[ix]
 
-    # mae_triv = np.mean(np.abs(np.diff(df_gt.counts)))
+    # triv = np.mean(np.abs(np.diff(df_gt.counts)))
 
     print()
     print(pdate)
@@ -46,7 +47,8 @@ for d in range(1, 8):
         err = abs(gt[c] - vals[i])
         print(d, c, err, gt[c], vals[i])
         errs[i] = err
-    maes[pdate.strftime("%m/%d")] = [np.mean(errs)]
+        vals[i] = gt[c]
+    maes[pdate.strftime("%m/%d")] = [np.mean(errs), np.mean(errs / vals)]
 
 df = pd.DataFrame(maes).round(2)
 
