@@ -6,7 +6,7 @@ import pandas as pd
 import sys
 import torch as th
 
-from sklearn.linear_model import Ridge
+# from sklearn.linear_model import Ridge
 
 import os,sys,inspect
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
@@ -92,8 +92,7 @@ def simulate(s, i, r, beta, gamma, T, days, keep, window=5, bc_window=1, fit_win
     days_given = np.asarray(days_given)
     days_predict = np.asarray(days_predict)
 
-    # expand gamma and beta for the future days
-    
+    # fit beta
     if beta_fit == 'constant':
         beta_val = np.mean(beta[-bc_window:])
         beta_pred = [beta_val] * opt.days # beta for future days
@@ -103,22 +102,22 @@ def simulate(s, i, r, beta, gamma, T, days, keep, window=5, bc_window=1, fit_win
         _beta = beta[-fit_window:]
         _gamma = gamma[-fit_window:]        
         beta_pred = fit_beta(_beta, _gamma, _times, days_predict, beta_fit)
-        
+    # expand beta and gamma for past and future times
     beta = np.concatenate((beta, beta_pred))
     gamma = np.concatenate((gamma, [gamma[-1]] * days ))
     
     for t in range(days):
+        # calculate sir at tau + 1 using time tau
         tau = T + t - 1
 
-        # to get s,i,r at tau + 1 use beta gamma at tau
-        beta_next = beta[tau]
-        beta_next = max(0, beta_next)
-        gamma_next = gamma[tau]
+        # get beta & gamma at time tau
+        beta_current = beta[tau]
+        gamma_current = gamma[tau]
 
-        # s, i, r at tau + 1
-        i_next = i[-1] + i[-1] * (beta_next * (s[-1] / n)  - gamma_next)
-        r_next = r[-1] + i[-1] * gamma_next
-        s_next = s[-1] - i[-1] * beta_next * (s[-1] / n)
+        # calcualte s, i, r at tau + 1
+        i_next = i[-1] + i[-1] * (beta_current * (s[-1] / n)  - gamma_current)
+        r_next = r[-1] + i[-1] * gamma_current
+        s_next = s[-1] - i[-1] * beta_current * (s[-1] / n)
 
         i_next = max(0, i_next)
         s_next = max(0, s_next)
@@ -159,7 +158,6 @@ if __name__ == "__main__":
     parser.add_argument("-fpop", help="Path to population data", required=True)
     parser.add_argument("-days", type=int, help="nDays to forecast", required=True)
     parser.add_argument("-keep", type=int, help="nDays to keep in CSV", required=True)
-    
     parser.add_argument("-doubling-times", type=float, nargs="+", help="Addl d-times to simulate")
     parser.add_argument("-recovery-days", type=int, default=14, help="Recovery days")
     parser.add_argument("-distancing-reduction", type=float, default=0.3)
