@@ -80,7 +80,7 @@ def fit_beta(beta, gamma, times, days_predict, beta_fit='exp', eps= 0.000001):
         return beta_pred
     
 
-def simulate(s, i, r, beta, gamma, T, days, keep, window=5, beta_window=10, beta_fit='constant'):
+def simulate(s, i, r, beta, gamma, T, days, keep, window=5, bc_window=1, fit_window=10, beta_fit='constant'):
     # days is the list of all days from the first case being 0
     # days_predict is the number of future days to predict
     # i[T] will be the first predicted day!
@@ -95,12 +95,13 @@ def simulate(s, i, r, beta, gamma, T, days, keep, window=5, beta_window=10, beta
     # expand gamma and beta for the future days
     
     if beta_fit == 'constant':
-        beta_val = np.mean(beta[-beta_window:])
+        beta_val = np.mean(beta[-bc_window:])
         beta_pred = [beta_val] * opt.days # beta for future days
     else:
-        _times = days_given[-beta_window:]
-        _beta = beta[-beta_window:]
-        _gamma = gamma[-beta_window:]        
+        assert fit_window > 1
+        _times = days_given[-fit_window:]
+        _beta = beta[-fit_window:]
+        _gamma = gamma[-fit_window:]        
         beta_pred = fit_beta(_beta, _gamma, _times, days_predict, beta_fit)
         
     beta = np.concatenate((beta, beta_pred))
@@ -130,7 +131,10 @@ def simulate(s, i, r, beta, gamma, T, days, keep, window=5, beta_window=10, beta
             break
             
     i = i.astype(int) # convert predicted numbers to int
-    infs = pd.DataFrame({"Day": list(range(T-1, T+keep)), f"{beta[-1]:.2f}": i[T-1:T+keep]})
+    
+    # infs = pd.DataFrame({"Day": list(range(T-1, T+keep)), f"beta_last: {beta[-1]:.2f}": i[T-1:T+keep]})
+    infs = pd.DataFrame({"Day": list(range(keep + 1)), f"beta_last: {beta[-1]:.2f}": i[T-1:T+keep]})
+    
     ix_max = np.argmax(i)
     if ix_max == len(i) - 1:
         peak_days = f"{ix_max - T + 1}+" # + 1 bc indexing starts from 0, from the last day this many days to reach the peak
@@ -155,13 +159,15 @@ if __name__ == "__main__":
     parser.add_argument("-fpop", help="Path to population data", required=True)
     parser.add_argument("-days", type=int, help="nDays to forecast", required=True)
     parser.add_argument("-keep", type=int, help="nDays to keep in CSV", required=True)
-    parser.add_argument("-window", type=int, help="window to compute doubling time")
+    
     parser.add_argument("-doubling-times", type=float, nargs="+", help="Addl d-times to simulate")
     parser.add_argument("-recovery-days", type=int, default=14, help="Recovery days")
     parser.add_argument("-distancing-reduction", type=float, default=0.3)
     parser.add_argument("-fsuffix", type=str, help="prefix to store forecast and metadata")
     parser.add_argument("-dout", type=str, default=".", help="Output directory")
-    parser.add_argument("-beta_window", type=int, default=7, help="fit using last .. days")
+    parser.add_argument("-dt_window", type=int, help="window to compute doubling time")
+    parser.add_argument("-bc_window", type=int, default = 1, help="beta constant averaging window")
+    parser.add_argument("-fit_window", type=int, default=10, help="fit using last .. days")
     parser.add_argument("-firJ", type=int, default=10, help="filter number for beta")
     parser.add_argument("-alpha-beta", type=float, default=3, help="ridge reg coeff for beta")
     
@@ -173,11 +179,11 @@ if __name__ == "__main__":
     
     # calculate doubling rate from seen data
     growth_rate = np.exp(np.diff(np.log(cases))) - 1
-    if opt.window is not None:
-        growth_rate = growth_rate[-opt.window :]
+    if opt.dt_window is not None:
+        growth_rate = growth_rate[-opt.dt_window :]
     doubling_time = np.log(2) / growth_rate
     dt = doubling_time.mean()
-    print("\n Observed last doubling time according to past {} days is {:0.03f}".format(opt.window, dt))
+    print("\n Observed last doubling time according to past {} days is {:0.03f}".format(opt.dt_window, dt))
     
     # initialize s, i, r as sequences of length T
     r = cases.copy() * 0.0 # zero IC for recovered
@@ -200,11 +206,11 @@ if __name__ == "__main__":
         T,
         opt.days,
         opt.keep,
-        opt.window,
-        opt.beta_window,
+        opt.dt_window,
+        opt.bc_window,
+        opt.fit_window,
         beta_fit
     )
-    
     
     # simulate with constant beta average of past opt.window days
     meta, df = f_sim('constant')
