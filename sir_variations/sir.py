@@ -64,17 +64,20 @@ def fit_beta(beta, gamma, times, days_predict, beta_fit='exp', eps= 0.000001):
     if beta_fit == 'lin':
         x, y = _x, _y 
         m, b = fit(x, y)
-        return m * days_predict + b + gamma[-1]
+        beta_pred = m * days_predict + b + gamma[-1]
+        return beta_pred.clip(0)
     
     elif beta_fit == 'exp':
         x, y = _x, np.log(_y)
         m, b = fit(x, y)
-        return np.exp(m * days_predict + b) + gamma[-1]
+        beta_pred = np.exp(m * days_predict + b) + gamma[-1]
+        return beta_pred
     
     elif beta_fit == 'power':
         x, y = np.log(_x), np.log(_y)
         m, b = fit(x, y)
-        return np.exp(m * np.log(days_predict) + b) + gamma[-1]
+        beta_pred = np.exp(m * np.log(days_predict) + b) + gamma[-1]
+        return beta_pred
     
 
 def simulate(s, i, r, beta, gamma, T, days, keep, window=5, beta_window=10, beta_fit='constant'):
