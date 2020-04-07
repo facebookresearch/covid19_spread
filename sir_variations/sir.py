@@ -48,50 +48,71 @@ def convolve(x, k=1):
     return np.convolve(x, f)[k-1:1-k]
 
 
+def fit_beta(beta, gamma, times, days_predict, beta_fit='exp', eps= 0.000001):
+    # given beta gamma can be past few days!
+    # be careful with the time axis values!
+    
+    x_ = times 
+    y_ = beta - gamma + eps
 
-def simulate(s, i, r, beta, gamma, J, alpha_beta, days, days_predict, keep):
+    def fit(x, y):
+        A = np.vstack([x, np.ones(len(x))]).T
+        res = np.linalg.lstsq(A, y, rcond=None)
+        slope, intercept = res[0]    
+        return slope, intercept
+    
+    if beta_fit == 'lin':
+        x, y = x_, y_ 
+    elif beta_fit == 'exp':
+        x, y = x_, np.log(y_)
+    elif beta_fit == 'power':
+        x, y = np.log(x_), np.log(y_)
+        
+    slope, intercept = fit(x, y)
+    
+    if beta_fit == 'lin':
+        return slope * days_predict + intercept + gamma[-1]
+    elif beta_fit == 'exp':
+        return np.exp(slope * days_predict + intercept) + gamma[-1]
+    elif beta_fit == 'power':
+        return np.exp(slope * np.log(days_predict) + intercept) + gamma[-1]
+    
+
+def simulate(s, i, r, beta, gamma, T, days, keep, window=5, beta_window=10, beta_fit='constant'):
     # days is the list of all days from the first case being 0
     # days_predict is the number of future days to predict
     # i[T] will be the first predicted day!
     n = s[0] + i[0] + r[0] # for normalization below
+    
+    T = len(i)
+    days_given = list(range(T))
+    days_predict = list(range(T, T + opt.days))
+    days_given = np.asarray(days_given)
+    days_predict = np.asarray(days_predict)
 
+    # expand gamma and beta for the future days
     
-#     # FIR filter fit for beta | not great
-#     beta_head = np.asarray([beta[j - J:j] for  j in range(J, T - 1)])
-#     clf_beta = Ridge(alpha=alpha_beta) # overfits at 0.001 & J=15
-#     clf_beta.fit(beta_head, beta[J:T - 1])
-    
-    threshold = 3000 # try 3000 and 5000 as well
-    k = 5 # convolution size
-    i_ = i[i>threshold] # ignore first few days
-    
-    i_ = convolve(i_, k)
-    di_ = i_[1:] - i_[:-1] # delta_i
-    beta_ = di_ / i_[:-1] + gamma[-1] # gamma:1/14 | initial phase 
-#     print(len(beta_))
-    x_range = np.linspace(1, len(i), len(beta_))
-#     print(x_range)
-    x, y = np.log(x_range), np.log(beta_ - 1/14 + 0.0001)
-    A = np.vstack([x, np.ones(len(x))]).T
-    res = np.linalg.lstsq(A, y, rcond=None)
-#     print(res[0][0], res[1])
-    slope, intercept = res[0]
-#     print(beta_)
-    
-    
-    for t in range(days_predict):
-        days.append(T + t)
-
-        # predict next beta & calculate s i r
-#         beta_next = clf_beta.predict(beta[-J:].reshape(1,-1))
-        beta_next = np.exp(slope * np.log(T + t) + intercept) + gamma[-1]
-#         print(T + t, beta_next)
-        # uncomment below to cross test with sir.py
-#         beta_next = 0.26523 
+    if beta_fit == 'constant':
+        beta_val = np.mean(beta[-beta_window:])
+        beta_pred = [beta_val] * opt.days # beta for future days
+    else:
+        _times = days_given[-beta_window:]
+        _beta = beta[-beta_window:]
+        _gamma = gamma[-beta_window:]        
+        beta_pred = fit_beta(_beta, _gamma, _times, days_predict, beta_fit)
         
-        beta_next = max(0, beta_next)
-        gamma_next = gamma[-1] # constant gamma | may increase slightly
+    beta = np.concatenate((beta, beta_pred))
+    gamma = np.concatenate((gamma, [gamma[-1]] * days ))
+    
+    for t in range(days):
+        tau = T + t - 1
 
+        # to get s,i,r at tau + 1 use beta gamma at tau
+        beta_next = beta[tau]
+        beta_next = max(0, beta_next)
+        gamma_next = gamma[tau]
+
+        # s, i, r at tau + 1
         i_next = i[-1] + i[-1] * (beta_next * (s[-1] / n)  - gamma_next)
         r_next = r[-1] + i[-1] * gamma_next
         s_next = s[-1] - i[-1] * beta_next * (s[-1] / n)
@@ -99,8 +120,6 @@ def simulate(s, i, r, beta, gamma, J, alpha_beta, days, days_predict, keep):
         i_next = max(0, i_next)
         s_next = max(0, s_next)
 
-        beta = np.append(beta, beta_next)
-        gamma = np.append(gamma, gamma_next)
         i = np.append(i, i_next)
         r = np.append(r, r_next)
         s = np.append(s, s_next)
@@ -109,7 +128,7 @@ def simulate(s, i, r, beta, gamma, J, alpha_beta, days, days_predict, keep):
             break
             
     i = i.astype(int) # convert predicted numbers to int
-    infs = pd.DataFrame({"Day": days[T-1:T+keep], f"{beta[-1]:.2f}": i[T-1:T+keep]})
+    infs = pd.DataFrame({"Day": list(range(T-1, T+keep)), f"{beta[-1]:.2f}": i[T-1:T+keep]})
     ix_max = np.argmax(i)
     if ix_max == len(i) - 1:
         peak_days = f"{ix_max - T + 1}+" # + 1 bc indexing starts from 0, from the last day this many days to reach the peak
@@ -140,6 +159,7 @@ if __name__ == "__main__":
     parser.add_argument("-distancing-reduction", type=float, default=0.3)
     parser.add_argument("-fsuffix", type=str, help="prefix to store forecast and metadata")
     parser.add_argument("-dout", type=str, default=".", help="Output directory")
+    parser.add_argument("-beta_window", type=int, default=7, help="fit using last .. days")
     parser.add_argument("-firJ", type=int, default=10, help="filter number for beta")
     parser.add_argument("-alpha-beta", type=float, default=3, help="ridge reg coeff for beta")
     
@@ -148,33 +168,49 @@ if __name__ == "__main__":
     # load data
     n, regions = load_population(opt.fpop)
     cases = load_confirmed(opt.fdat, regions)
-
-    T = len(cases)
-    days = list(range(T))
-
-    # HardCoded constant sq of gammas
-    gamma = np.asarray([1.0 / opt.recovery_days] * T )
-    
-    # artificial values for the recovered
-    r = cases.copy() * gamma * 0.0
-    i = cases - r # values for the infected
-    s = n - i - r 
-    
-    # calculate beta and gamma from 0 until T - 2 
-    delta_i = i[1:] - i[:-1]
-    delta_r = r[1:] - r[:-1]
-    beta = (n / s[:-1]) * (delta_i + delta_r) / i[:-1] # consider s_n/n
-    
-    meta, df = simulate(s, i, r, beta, gamma, opt.firJ, opt.alpha_beta, days, opt.days, opt.keep)
     
     # calculate doubling rate from seen data
     growth_rate = np.exp(np.diff(np.log(cases))) - 1
     if opt.window is not None:
         growth_rate = growth_rate[-opt.window :]
     doubling_time = np.log(2) / growth_rate
-    doubling_time = doubling_time.mean()
+    dt = doubling_time.mean()
+    print("\n Observed last doubling time according to past {} days is {:0.03f}".format(opt.window, dt))
     
-    meta.insert(0, "Doubling time", [round(doubling_time, 3)])
+    # initialize s, i, r as sequences of length T
+    r = cases.copy() * 0.0 # zero IC for recovered
+    i = cases - r # values for the infected
+    s = n - i - r
+    T = len(i)
+    
+    # length of gamma and beta are T - 1
+    gamma_constant = 1.0 / opt.recovery_days
+    gamma = np.full(T - 1, gamma_constant)
+    di = i[1:] - i[:-1]
+    beta = (di / i[:-1] + gamma) * (n / s[:-1])
+    
+    f_sim = lambda beta_fit: simulate(
+        s,
+        i,
+        r,
+        beta,
+        gamma,
+        T,
+        opt.days,
+        opt.keep,
+        opt.window,
+        opt.beta_window,
+        beta_fit
+    )
+    
+    
+    # simulate with constant beta average of past opt.window days
+    meta, df = f_sim('constant')
+    # simulate with different fits...
+    for beta_fit in ['lin', 'exp', 'power']:
+        _meta, _df = f_sim(beta_fit)
+        meta = meta.append(_meta, ignore_index=True)
+        df = pd.merge(df, _df, on="Day")
     
     print('\n', meta, '\n\n', df)
 
