@@ -22,6 +22,7 @@ from common import load_data, load_model, print_model_stats
 from evaluation import simulate_mhp, goodness_of_fit, simulate_tl_mhp, ks_critical_value
 from tlc import Episode
 from timelord.ll import SparseEmbeddingSoftplus
+import h5py
 
 
 def main(args):
@@ -49,6 +50,11 @@ def main(args):
     parser.add_argument("-days", type=int, help="Number of days to forecast")
     parser.add_argument("-fout", type=str, help="Output file for forecasts")
     opt = parser.parse_args(args)
+
+    if opt.basedate is None:
+        with h5py.File(opt.dset,'r') as hf:
+            assert 'basedate' in hf.attrs, "Missing basedate!"
+            opt.basedate = hf.attrs['basedate']
 
     nodes, ns, ts, _ = load_data(opt.dset)
     M = len(nodes)
