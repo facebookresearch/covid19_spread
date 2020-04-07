@@ -52,8 +52,8 @@ def fit_beta(beta, gamma, times, days_predict, beta_fit='exp', eps= 0.000001):
     # given beta gamma can be past few days!
     # be careful with the time axis values!
     
-    x_ = times 
-    y_ = beta - gamma + eps
+    _x = times 
+    _y = beta - gamma + eps
 
     def fit(x, y):
         A = np.vstack([x, np.ones(len(x))]).T
@@ -62,20 +62,19 @@ def fit_beta(beta, gamma, times, days_predict, beta_fit='exp', eps= 0.000001):
         return slope, intercept
     
     if beta_fit == 'lin':
-        x, y = x_, y_ 
-    elif beta_fit == 'exp':
-        x, y = x_, np.log(y_)
-    elif beta_fit == 'power':
-        x, y = np.log(x_), np.log(y_)
-        
-    slope, intercept = fit(x, y)
+        x, y = _x, _y 
+        m, b = fit(x, y)
+        return m * days_predict + b + gamma[-1]
     
-    if beta_fit == 'lin':
-        return slope * days_predict + intercept + gamma[-1]
     elif beta_fit == 'exp':
-        return np.exp(slope * days_predict + intercept) + gamma[-1]
+        x, y = _x, np.log(_y)
+        m, b = fit(x, y)
+        return np.exp(m * days_predict + b) + gamma[-1]
+    
     elif beta_fit == 'power':
-        return np.exp(slope * np.log(days_predict) + intercept) + gamma[-1]
+        x, y = np.log(_x), np.log(_y)
+        m, b = fit(x, y)
+        return np.exp(m * np.log(days_predict) + b) + gamma[-1]
     
 
 def simulate(s, i, r, beta, gamma, T, days, keep, window=5, beta_window=10, beta_fit='constant'):
