@@ -15,6 +15,7 @@ df = pd.read_csv(
     sys.argv[1],
     header=0,
     usecols=[
+        "Date",
         "Start day",
         "Atlantic",
         "Bergen",
@@ -40,6 +41,10 @@ df = pd.read_csv(
         "Unknown",
     ],
 )
+
+last_date = str(pd.to_datetime(df["Date"]).max().date())
+del df["Date"]
+
 df = df.sort_values(by="Start day")
 # df = df.dropna()
 
@@ -98,6 +103,7 @@ str_dt = h5py.special_dtype(vlen=str)
 ds_dt = h5py.special_dtype(vlen=np.dtype("int"))
 ts_dt = h5py.special_dtype(vlen=np.dtype("float32"))
 with h5py.File(fout, "w") as fout:
+    fout.attrs["basedate"] = last_date
     _dnames = fout.create_dataset("nodes", (len(knames),), dtype=str_dt)
     _dnames[:] = knames
     _cnames = fout.create_dataset("cascades", (1,), dtype=str_dt)
