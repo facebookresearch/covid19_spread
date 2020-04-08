@@ -17,7 +17,7 @@ from timelord import snapshot
 
 DFLT_PARAMS = [
     "-max-events",
-    5000,
+    1000000,
     "-sparse",
     "-scale",
     "1",
@@ -33,13 +33,7 @@ DFLT_PARAMS = [
 
 
 def forecast_train(
-    train_params,
-    dataset,
-    basedate,
-    job_dir,
-    days=7,
-    trials=10,
-    log=None,
+    train_params, dataset, basedate, job_dir, days=7, trials=50, log=None
 ):
     with contextlib.ExitStack() as stack:
         if log is not None:
@@ -48,20 +42,22 @@ def forecast_train(
             stdout = stack.enter_context(open(log + ".stdout", "w"))
             stack.enter_context(contextlib.redirect_stdout(stdout))
 
-        print(f'train_params: {json.dumps(train_params)}')
+        print(f"train_params: {json.dumps(train_params)}")
         checkpoint = os.path.join(job_dir, "model.bin")
-        with_intensity = [] if train_params.get('base_intensity', True) else ["-no-baseint"]
+        with_intensity = (
+            [] if train_params.get("base_intensity", True) else ["-no-baseint"]
+        )
         NON_DFLT = [
             "-checkpoint",
             checkpoint,
             "-dset",
             dataset,
             "-dim",
-            train_params.get('dim', 10),
+            train_params.get("dim", 10),
             "-const-beta",
-            train_params.get('const_beta', -1),
-            '-max-events',
-            train_params.get('max_events', 5000),
+            train_params.get("const_beta", -1),
+            "-max-events",
+            train_params.get("max_events", 5000),
         ] + with_intensity
         train_params = list(map(str, DFLT_PARAMS + NON_DFLT))
 
@@ -139,7 +135,7 @@ if __name__ == "__main__":
 
     region = os.path.splitext(os.path.basename(opt.config))[0]
 
-    base = f'/checkpoint/{user}/covid19/forecasts/{region}/{now}'
+    base = f"/checkpoint/{user}/covid19/forecasts/{region}/{now}"
 
     dataset = os.path.realpath(config["data"])
 
@@ -167,7 +163,7 @@ if __name__ == "__main__":
     if opt.remote:
         executor = submitit.AutoExecutor(folder=base + "/%j")
         executor.update_parameters(
-            name=f'{region}-sweep',
+            name=f"{region}-sweep",
             gpus_per_node=1,
             cpus_per_task=opt.ncpus,
             mem_gb=opt.mem_gb,

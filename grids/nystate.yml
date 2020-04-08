@@ -9,7 +9,7 @@ sir:  # SIR parameters
 grid:  # parameter grid for training
   dim: [30, 45, 60]
   base_intensity: [True, False]
-  const_beta: [-1, 50, 80]
+  const_beta: [-1, 40, 60, 80]
 forecast:  # forecasting parameters
   days: 7
   trials: 40

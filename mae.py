@@ -8,6 +8,8 @@ import sys
 from datetime import timedelta
 from common import load_data
 
+verbose = False
+
 
 def load_ground_truth(path):
     nodes, ns, ts, _ = load_data(path)
@@ -50,16 +52,17 @@ for d in range(1, 8):
     for i, c in enumerate(cols):
         err = abs(gt[c] - vals[i])
         trivs[i] = abs(gt[c] - pred_triv[c])
-        print(
-            d,
-            c,
-            round(err, 2),
-            gt[c],
-            vals[i],
-            round(err / gt[c], 3),
-            trivs[i],
-            pred_triv[c],
-        )
+        if verbose:
+            print(
+                d,
+                c,
+                round(err, 2),
+                gt[c],
+                vals[i],
+                round(err / gt[c], 3),
+                trivs[i],
+                pred_triv[c],
+            )
         errs[i] = err
         # make sure errors and gts are aligned
         gts[i] = max(1, gt[c])
