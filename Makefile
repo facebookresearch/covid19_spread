@@ -8,6 +8,8 @@
 
 params=-max-events 5000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 25
 DATE=$(shell date "+%Y%m%d")
+LAST=1
+SARGS=--sort-by RMSE_AVG
 
 define forecast-train
 	echo "\n--- DIM=$(1) $(if $5,NO-BASEINT)" >> $(flog)
@@ -38,7 +40,7 @@ grid-nj:
 	python3 sweep.py grids/new-jersey.yml -remote -ncpus 40 >> $(runlog)
 
 forecast-nj: params = -max-events 500000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 25
-forecast-nj: doubling-times = 4 5 16 0
+forecast-nj: doubling-times = 4 5 6 10
 forecast-nj: dset = data/new-jersey/timeseries.h5
 forecast-nj:
 	python3 sir.py -fdat data/new-jersey/timeseries.h5 -fpop data/population-data/US-states/new-jersey-population.csv -fsuffix nj-$(DATE) -dout forecasts/new-jersey -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
@@ -49,15 +51,21 @@ forecast-nj:
 analyze-nj: sweepdir = $(shell tail -$(LAST) runs/new-jersey/$(DATE).log | head -n1)
 analyze-nj:
 	@echo "---- Summary ---------"
-	-python3 analyze_sweep.py summary $(sweepdir) $(TARGS)
+	-python3 analyze_sweep.py summary $(sweepdir) $(SARGS)
 	@echo "\n---- SIR Similarity ----------"
 	python3 analyze_sweep.py sir-similarity $(sweepdir)
 	@echo "\n---- Remaining Jobs ----------"
 	squeue -u $(USER)
 
+mae-nj:
+	@echo "--- MAE Slow ---"
+	python3 mae.py data/new-jersey/timeseries.h5 forecasts/new-jersey/forecast-nj $(DATE) _slow
+	@echo "\n--- MAE Fast ---"
+	python3 mae.py data/new-jersey/timeseries.h5 forecasts/new-jersey/forecast-nj $(DATE) _fast
+
 # --- NY State ---
 
-forecast-nystate: params = -max-events 1000000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 50
+forecast-nystate: params = -max-events 1000000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 25
 forecast-nystate: doubling-times = 6 7 8 9
 forecast-nystate: dset = data/nystate/timeseries.h5
 forecast-nystate:
@@ -76,9 +84,16 @@ grid-nystate:
 analyze-nystate: sweepdir = $(shell tail -$(LAST) runs/nystate/$(DATE).log | head -n1)
 analyze-nystate:
 	@echo "---- Summary ---------"
-	-python3 analyze_sweep.py summary $(sweepdir) $(TARGS)
+	-python3 analyze_sweep.py summary $(sweepdir) $(SARGS)
 	@echo "\n---- SIR Similarity ----------"
 	python3 analyze_sweep.py sir-similarity $(sweepdir)
 	@echo "\n---- Remaining Jobs ----------"
 	squeue -u $(USER)
+
+mae-ny:
+	@echo "--- MAE Slow ---"
+	python3 mae.py data/nystate/timeseries.h5 forecasts/nystate/forecast-ny $(DATE) _slow
+	@echo "\n--- MAE Fast ---"
+	python3 mae.py data/nystate/timeseries.h5 forecasts/nystate/forecast-ny $(DATE) _fast
+
 # end
