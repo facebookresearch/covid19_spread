@@ -33,14 +33,12 @@ DFLT_PARAMS = [
 
 
 def forecast_train(
+    train_params,
     dataset,
-    dim,
-    base_intensity,
     basedate,
     job_dir,
     days=7,
     trials=10,
-    const_beta=-1,
     log=None,
 ):
     with contextlib.ExitStack() as stack:
@@ -50,17 +48,20 @@ def forecast_train(
             stdout = stack.enter_context(open(log + ".stdout", "w"))
             stack.enter_context(contextlib.redirect_stdout(stdout))
 
+        print(f'train_params: {json.dumps(train_params)}')
         checkpoint = os.path.join(job_dir, "model.bin")
-        with_intensity = [] if base_intensity else ["-no-baseint"]
+        with_intensity = [] if train_params.get('base_intensity', True) else ["-no-baseint"]
         NON_DFLT = [
             "-checkpoint",
             checkpoint,
             "-dset",
             dataset,
             "-dim",
-            dim,
+            train_params.get('dim', 10),
             "-const-beta",
-            const_beta,
+            train_params.get('const_beta', -1),
+            '-max-events',
+            train_params.get('max_events', 5000),
         ] + with_intensity
         train_params = list(map(str, DFLT_PARAMS + NON_DFLT))
 
@@ -135,12 +136,15 @@ if __name__ == "__main__":
     config = load_config(opt.config)
     now = datetime.now().strftime("%Y_%m_%d_%H_%M")
     user = os.environ["USER"]
-    base = f'/checkpoint/{user}/covid19/forecasts/{config["region"]}/{now}'
+
+    region = os.path.splitext(os.path.basename(opt.config))[0]
+
+    base = f'/checkpoint/{user}/covid19/forecasts/{region}/{now}'
 
     dataset = os.path.realpath(config["data"])
 
     print("Running SIR model...")
-    run_sir(data=dataset, base=base, region=config["region"], **config["sir"])
+    run_sir(data=dataset, base=base, region=region, **config["sir"])
 
     keys = config["grid"].keys()
     values = list(itertools.product(*[config["grid"][k] for k in keys]))
@@ -150,7 +154,7 @@ if __name__ == "__main__":
     basedate = opt.basedate or str(date.today())
 
     def run_job(d):
-        kwargs = {**d, **config["forecast"], "basedate": basedate}
+        kwargs = {**config["forecast"], "basedate": basedate}
         try:
             job_env = submitit.JobEnvironment()
             job_dir = os.path.join(base, str(submitit.JobEnvironment().job_id))
@@ -158,12 +162,12 @@ if __name__ == "__main__":
             job_dir = os.path.join(base, "_".join([f"{k}_{v}" for k, v in d.items()]))
             kwargs["log"] = f"{job_dir}/log"
         os.makedirs(job_dir, exist_ok=True)
-        forecast_train(dataset=dataset, job_dir=job_dir, **kwargs)
+        forecast_train(d, dataset=dataset, job_dir=job_dir, **kwargs)
 
     if opt.remote:
         executor = submitit.AutoExecutor(folder=base + "/%j")
         executor.update_parameters(
-            name=f'{config["region"]}-sweep',
+            name=f'{region}-sweep',
             gpus_per_node=1,
             cpus_per_task=opt.ncpus,
             mem_gb=opt.mem_gb,
@@ -177,4 +181,4 @@ if __name__ == "__main__":
         print(base)
     else:
         for d in grid:
-            run_job(grid)
+            run_job(d)

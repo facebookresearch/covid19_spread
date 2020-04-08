@@ -1,6 +1,5 @@
 # Location of dataset (relative to covid19_spread repository base)
 data: data/new-jersey/timeseries.h5
-region: new-jersey  # unique region identifier (forecasts go into forecasts/`region`)
 sir:  # SIR parameters
   population: data/population-data/US-states/new-jersey-population.csv
   days: 60
