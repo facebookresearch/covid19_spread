@@ -148,15 +148,15 @@ def simulate(cases, s, i, r, beta, gamma, T, days, keep, dt_window=5, bc_window=
         if i_next == 0:
             break
             
-    i = i.astype(int) # convert predicted numbers to int
-    
+    _i = i.astype(int) # convert predicted numbers to int
+    _cases = list(cases) + ['?'] * days # for printing
     # infs = pd.DataFrame({"Day": list(range(T-1, T+keep)), f"beta_last: {beta[-1]:.2f}": i[T-1:T+keep]})
     infs = pd.DataFrame(
         {
 #             "Day": list(range(keep + 1)), # days from first prediction time
             "Day": list(range(T-1, T+keep)), # days from first absolute time
-            "observed": cases[T-1:T+keep],
-            beta_fit: i[T-1:T+keep]
+            "observed": _cases[T-1:T+keep],
+            beta_fit: _i[T-1:T+keep]
         }
     )
     
@@ -166,6 +166,10 @@ def simulate(cases, s, i, r, beta, gamma, T, days, keep, dt_window=5, bc_window=
     else:
         peak_days = str(ix_max - T + 1)
 
+    print(cases[T+1:len(cases)])
+    mae = [abs(cases[j] - i[j]) for j in range(T, len(cases))]
+    rmse = [(cases[j] - i[j]) ** 2 for j in range(T, len(cases))]
+    
     meta = pd.DataFrame(
         {
             "method": [beta_fit],
@@ -174,6 +178,8 @@ def simulate(cases, s, i, r, beta, gamma, T, days, keep, dt_window=5, bc_window=
             "gamma": [round(gamma[-1], 3)],
             "Peak days": [peak_days],
             "Peak cases": [int(i[ix_max])],
+            "mae-{}-days".format(len(mae)): [np.mean(mae)],
+            "rmse-{}-days".format(len(rmse)): [np.mean(rmse)],
             "dt-init": [round(doubling_time(i[:T], dt_window), 2)],
             "dt-final": [round(doubling_time(i, dt_window), 2)]
         }
@@ -209,7 +215,6 @@ def main(args):
     s = n - i - r
     T = len(i)
     
-    cases = list(cases) + ['?'] * opt.days # for printing
     # length of gamma and beta are T - 1
     gamma_constant = 1.0 / opt.recovery_days
     gamma = np.full(T - 1, gamma_constant)
@@ -243,7 +248,6 @@ def main(args):
     
     print('\n', meta, '\n\n', df)
     
-    # add MAE and RMSE
     # add sweep through c
     
     if opt.fsuffix is not None:
