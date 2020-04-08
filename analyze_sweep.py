@@ -83,7 +83,8 @@ def summary(sweep_dir, sort_by: Optional[str] = None, verbose: bool = False):
             f_forecast = os.path.join(result["job"], "forecasts.csv")
             print(f'Job: {result["job"]}')
             for k in keys:
-                print(f"{k}: {result[k]}")
+                if k in result:
+                    print(f"{k}: {result[k]}")
             if os.path.exists(f_forecast):
                 forecasts = pandas.read_csv(f_forecast, index_col=0)
                 print(forecasts["ALL REGIONS"].to_frame().transpose())
@@ -116,8 +117,8 @@ def sir_similarity(sweep_dir, verbose=True):
         )
         results.append(
             {
-                "mae": (merged["sir"] - merged["ALL REGIONS"]).abs().mean(),
-                "job": job_dir,
+                "mae": (merged["sir"][-2:] - merged["ALL REGIONS"][-2:]).abs().mean(),
+                "job": job_dir.split("/")[-1],
             }
         )
     df = pandas.DataFrame(results)
