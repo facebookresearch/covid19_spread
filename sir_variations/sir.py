@@ -89,7 +89,7 @@ def doubling_time(i, window):
     return doubling_time.mean()
     
     
-def simulate(s, i, r, beta, gamma, T, days, keep, dt_window=5, bc_window=1, fit_window=10, c=1, beta_fit='constant'):
+def simulate(cases, s, i, r, beta, gamma, T, days, keep, dt_window=5, bc_window=1, fit_window=10, c=1, beta_fit='constant'):
     # days is the list of all days from the first case being 0
     # days_predict is the number of future days to predict
     # i[T] will be the first predicted day!
@@ -153,8 +153,9 @@ def simulate(s, i, r, beta, gamma, T, days, keep, dt_window=5, bc_window=1, fit_
     # infs = pd.DataFrame({"Day": list(range(T-1, T+keep)), f"beta_last: {beta[-1]:.2f}": i[T-1:T+keep]})
     infs = pd.DataFrame(
         {
-            "Day": list(range(keep + 1)), # days from first prediction time
-            # "Day": list(range(T-1, T+keep)), # days from first absolute time
+#             "Day": list(range(keep + 1)), # days from first prediction time
+            "Day": list(range(T-1, T+keep)), # days from first absolute time
+            "observed": cases[T-1:T+keep],
             beta_fit: i[T-1:T+keep]
         }
     )
@@ -173,8 +174,8 @@ def simulate(s, i, r, beta, gamma, T, days, keep, dt_window=5, bc_window=1, fit_
             "gamma": [round(gamma[-1], 3)],
             "Peak days": [peak_days],
             "Peak cases": [int(i[ix_max])],
-            "dt init": [doubling_time(i[:T], dt_window)],
-            "dt final": [doubling_time(i, dt_window)]
+            "dt-init": [round(doubling_time(i[:T], dt_window), 2)],
+            "dt-final": [round(doubling_time(i, dt_window), 2)]
         }
     )
     return meta, infs
@@ -208,6 +209,7 @@ def main(args):
     s = n - i - r
     T = len(i)
     
+    cases = list(cases) + ['?'] * opt.days # for printing
     # length of gamma and beta are T - 1
     gamma_constant = 1.0 / opt.recovery_days
     gamma = np.full(T - 1, gamma_constant)
@@ -215,6 +217,7 @@ def main(args):
     beta = (di / i[:-1] + gamma) * (n / s[:-1])
     
     f_sim = lambda beta_fit: simulate(
+        cases,
         s[:len(s) - opt.initial_state],
         i[:len(i) - opt.initial_state],
         r[:len(r) - opt.initial_state],
@@ -232,16 +235,15 @@ def main(args):
     
     # simulate with constant beta average of past opt.window days
     meta, df = f_sim('manual')
-    # simulate with different fits...
-    for beta_fit in ['constant', 'lin', 'exp', 'power']:
+    # simulate with different fits, in pessimistic order 
+    for beta_fit in ['lin', 'exp', 'power', 'constant']:
         _meta, _df = f_sim(beta_fit)
         meta = meta.append(_meta, ignore_index=True)
-        df = pd.merge(df, _df, on="Day")
+        df = pd.merge(df, _df, on=["Day", "observed"])
     
     print('\n', meta, '\n\n', df)
     
     # add MAE and RMSE
-    # add estimates from any initial state, right now they take it from the last state
     # add sweep through c
     
     if opt.fsuffix is not None:
