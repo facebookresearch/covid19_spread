@@ -4,8 +4,8 @@ import argparse
 import numpy as np
 import pandas as pd
 import sys
-import torch as th
 
+# import torch as th
 # from sklearn.linear_model import Ridge
 
 import os,sys,inspect
@@ -79,8 +79,17 @@ def fit_beta(beta, gamma, times, days_predict, beta_fit='exp', eps= 0.000001):
         beta_pred = np.exp(m * np.log(days_predict) + b) + gamma[-1]
         return beta_pred
     
-
-def simulate(s, i, r, beta, gamma, T, dt, days, keep, window=5, bc_window=1, fit_window=10, c=1, beta_fit='constant'):
+    
+def doubling_time(i, window):
+    # calculate doubling rate from seen data
+    growth_rate = np.exp(np.diff(np.log(i))) - 1
+    if window is not None:
+        growth_rate = growth_rate[-window:]
+    doubling_time = np.log(2) / growth_rate
+    return doubling_time.mean()
+    
+    
+def simulate(s, i, r, beta, gamma, T, days, keep, dt_window=5, bc_window=1, fit_window=10, c=1, beta_fit='constant'):
     # days is the list of all days from the first case being 0
     # days_predict is the number of future days to predict
     # i[T] will be the first predicted day!
@@ -91,10 +100,11 @@ def simulate(s, i, r, beta, gamma, T, dt, days, keep, window=5, bc_window=1, fit
     days_predict = list(range(T, T + days))
     days_given = np.asarray(days_given)
     days_predict = np.asarray(days_predict)
-
+    
     # fit beta
     if beta_fit == 'manual':
         # cross check values
+        dt = doubling_time(i, dt_window)
         distancing_reduction = 0.3 # copy from main sir.py
         intrinsic_growth_rate = 2.0 ** (1.0 / dt) - 1.0
         beta_val = (intrinsic_growth_rate + gamma[-1]) * (1.0 - distancing_reduction)
@@ -157,11 +167,14 @@ def simulate(s, i, r, beta, gamma, T, dt, days, keep, window=5, bc_window=1, fit
 
     meta = pd.DataFrame(
         {
+            "method": [beta_fit],
             "R0": [round(beta[-1] / gamma[-1], 3)],
             "beta": [round(beta[-1], 3)],
             "gamma": [round(gamma[-1], 3)],
             "Peak days": [peak_days],
             "Peak cases": [int(i[ix_max])],
+            "dt init": [doubling_time(i[:T], dt_window)],
+            "dt final": [doubling_time(i, dt_window)]
         }
     )
     return meta, infs
@@ -177,24 +190,17 @@ def main(args):
     parser.add_argument("-recovery-days", type=int, default=14, help="Recovery days")
     parser.add_argument("-fsuffix", type=str, help="prefix to store forecast and metadata")
     parser.add_argument("-dout", type=str, default=".", help="Output directory")
-    parser.add_argument("-dt_window", type=int, help="window to compute doubling time")
-    parser.add_argument("-bc_window", type=int, default = 1, help="beta constant averaging window")
-    parser.add_argument("-fit_window", type=int, default=10, help="fit using last .. days")
-    parser.add_argument("-c", type=float, default=1., help="between 0 & 1, fraction of reported cases")
+    parser.add_argument("-dt-window", type=int, help="window to compute doubling time")
+    parser.add_argument("-bc-window", type=int, default=5, help="beta constant averaging window")
+    parser.add_argument("-fit-window", type=int, default=10, help="fit using last .. days")
+    parser.add_argument("-initial-state", type=int, default=0, help="days of rewinding for retrofit")
+    parser.add_argument("-coeff", type=float, default=1., help="between 0 & 1, fraction of reported cases")
     
     opt = parser.parse_args(args)
 
     # load data
     n, regions = load_population(opt.fpop)
     cases = load_confirmed(opt.fdat, regions)
-    
-    # calculate doubling rate from seen data
-    growth_rate = np.exp(np.diff(np.log(cases))) - 1
-    if opt.dt_window is not None:
-        growth_rate = growth_rate[-opt.dt_window :]
-    doubling_time = np.log(2) / growth_rate
-    dt = doubling_time.mean()
-    print("\n Observed last doubling time according to past {} days is {:0.03f}".format(opt.dt_window, dt))
     
     # initialize s, i, r as sequences of length T
     r = cases.copy() * 0.0 # zero IC for recovered
@@ -209,19 +215,18 @@ def main(args):
     beta = (di / i[:-1] + gamma) * (n / s[:-1])
     
     f_sim = lambda beta_fit: simulate(
-        s,
-        i,
-        r,
-        beta,
-        gamma,
-        T,
-        dt,
+        s[:len(s) - opt.initial_state],
+        i[:len(i) - opt.initial_state],
+        r[:len(r) - opt.initial_state],
+        beta[:len(beta) - opt.initial_state],
+        gamma[:len(gamma) - opt.initial_state],
+        T - opt.initial_state,
         opt.days,
         opt.keep,
         opt.dt_window,
         opt.bc_window,
         opt.fit_window,
-        opt.c,
+        opt.coeff,
         beta_fit
     )
     
@@ -234,7 +239,11 @@ def main(args):
         df = pd.merge(df, _df, on="Day")
     
     print('\n', meta, '\n\n', df)
-
+    
+    # add MAE and RMSE
+    # add estimates from any initial state, right now they take it from the last state
+    # add sweep through c
+    
     if opt.fsuffix is not None:
         meta.to_csv(f"{opt.dout}/SIR-metadata-{opt.fsuffix}.csv")
         df.to_csv(f"{opt.dout}/SIR-forecast-{opt.fsuffix}.csv")
