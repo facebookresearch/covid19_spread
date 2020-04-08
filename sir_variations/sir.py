@@ -88,7 +88,7 @@ def simulate(s, i, r, beta, gamma, T, dt, days, keep, window=5, bc_window=1, fit
     
     T = len(i)
     days_given = list(range(T))
-    days_predict = list(range(T, T + opt.days))
+    days_predict = list(range(T, T + days))
     days_given = np.asarray(days_given)
     days_predict = np.asarray(days_predict)
 
@@ -98,10 +98,10 @@ def simulate(s, i, r, beta, gamma, T, dt, days, keep, window=5, bc_window=1, fit
         distancing_reduction = 0.3 # copy from main sir.py
         intrinsic_growth_rate = 2.0 ** (1.0 / dt) - 1.0
         beta_val = (intrinsic_growth_rate + gamma[-1]) * (1.0 - distancing_reduction)
-        beta_pred = [beta_val] * opt.days # beta for future days
+        beta_pred = [beta_val] * days # beta for future days
     elif beta_fit == 'constant':
         beta_val = np.mean(beta[-bc_window:])
-        beta_pred = [beta_val] * opt.days # beta for future days
+        beta_pred = [beta_val] * days # beta for future days
     elif beta_fit in ['lin', 'exp', 'power']:
         assert fit_window > 1
         _times = days_given[-fit_window:]
@@ -167,7 +167,7 @@ def simulate(s, i, r, beta, gamma, T, dt, days, keep, window=5, bc_window=1, fit
     return meta, infs
 
 
-if __name__ == "__main__":
+def main(args):
     parser = argparse.ArgumentParser(description="Forecasting with SIR model")
     parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
     parser.add_argument("-fpop", help="Path to population data", required=True)
@@ -182,7 +182,7 @@ if __name__ == "__main__":
     parser.add_argument("-fit_window", type=int, default=10, help="fit using last .. days")
     parser.add_argument("-c", type=float, default=1., help="between 0 & 1, fraction of reported cases")
     
-    opt = parser.parse_args(sys.argv[1:])
+    opt = parser.parse_args(args)
 
     # load data
     n, regions = load_population(opt.fpop)
@@ -238,3 +238,7 @@ if __name__ == "__main__":
     if opt.fsuffix is not None:
         meta.to_csv(f"{opt.dout}/SIR-metadata-{opt.fsuffix}.csv")
         df.to_csv(f"{opt.dout}/SIR-forecast-{opt.fsuffix}.csv")
+
+        
+if __name__ == "__main__":
+    main(sys.argv[1:])
