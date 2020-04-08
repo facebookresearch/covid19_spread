@@ -32,8 +32,8 @@ example: data/new-jersey/timeseries.h5
 
 # --- New Jersey ---
 
-grid-nj: flog = "forecasts/new-jersey/forecast-$(DATE).log"
-grid-nj:
+grid-nj-old: flog = "forecasts/new-jersey/forecast-$(DATE).log"
+grid-nj-old:
 	python3 sir.py -fdat data/new-jersey/timeseries.h5 -fpop data/population-data/US-states/new-jersey-population.csv -fsuffix nj-$(DATE) -dout forecasts/new-jersey -days 60 -keep 7 -window 5 -doubling-times 3 4 5 10
 
 	echo "Forecast $(DATE)" > $(flog)
@@ -47,13 +47,28 @@ grid-nj:
 	$(call forecast-train,15,new-jersey,7,50,-no-baseint)
 	$(call forecast-train,20,new-jersey,7,50,-no-baseint)
 
+grid-nj: runlog = runs/new-jersey/$(DATE).log
+grid-nj:
+	touch $(runlog)
+	python3 sweep.py grids/new-jersey.yml -remote -ncpus 40 >> $(runlog)
+
 forecast-nj: params = -max-events 500000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 25
-forecast-nj: doubling-times = 3 4 5 10
+forecast-nj: doubling-times = 4 5 16 0
 forecast-nj: dset = data/new-jersey/timeseries.h5
 forecast-nj:
 	python3 sir.py -fdat data/new-jersey/timeseries.h5 -fpop data/population-data/US-states/new-jersey-population.csv -fsuffix nj-$(DATE) -dout forecasts/new-jersey -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
 	OMP_NUM_THREADS=1 python3 train.py $(params) -dset $(dset) -checkpoint /tmp/forecast_nj.bin  $(TARGS)
 	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -checkpoint /tmp/forecast_nj.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/new-jersey/forecast-nj-$(DATE)$(FSUFFIX).csv
+
+
+analyze-nj: sweepdir = $(shell tail -$(OFFSET) runs/new-jersey/$(DATE).log | head -n1)
+analyze-nj:
+	@echo "---- Summary ---------"
+	-python3 analyze_sweep.py summary $(sweepdir) $(TARGS)
+	@echo "\n---- SIR Similarity ----------"
+	python3 analyze_sweep.py sir-similarity $(sweepdir)
+	@echo "\n---- Remaining Jobs ----------"
+	squeue -u $(USER)
 
 # --- NYC ---
 
@@ -78,9 +93,9 @@ forecast-nyc:
 
 # --- NY State ---
 
-grid-nystate: params = -max-events 1000000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 50 -const-beta 80
-grid-nystate: flog = "forecasts/nystate/forecast-$(DATE).log"
-grid-nystate:
+grid-nystate-old: params = -max-events 1000000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 50 -const-beta 80
+grid-nystate-old: flog = "forecasts/nystate/forecast-$(DATE).log"
+grid-nystate-old:
 	python3 sir.py -fdat data/nystate/timeseries.h5 -fpop data/population-data/US-states/new-york-population.csv -fsuffix nystate-$(DATE) -dout forecasts/nystate -days 60 -keep 7 -window 5 -doubling-times 4 5 6 10
 
 	echo "Forecast $(DATE)" > $(flog)
@@ -92,12 +107,29 @@ grid-nystate:
 	$(call forecast-train,30,nystate,7,30,-no-baseint)
 	$(call forecast-train,60,nystate,7,30,-no-baseint)
 
+
 forecast-nystate: params = -max-events 1000000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 50
+forecast-nystate: doubling-times = 6 7 8 9
 forecast-nystate: dset = data/nystate/timeseries.h5
 forecast-nystate:
+	python3 sir.py -fdat data/nystate/timeseries.h5 -fpop data/population-data/US-states/new-york-population.csv -fsuffix ny-$(DATE) -dout forecasts/nystate -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
 	OMP_NUM_THREADS=1 python3 train.py $(params) -dset $(dset) $(TARGS) -checkpoint /tmp/forecast_nystate.bin
 	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -checkpoint /tmp/forecast_nystate.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/nystate/forecast-ny-$(DATE)$(FSUFFIX).csv
 
 
+grid-nystate: runlog = runs/nystate/$(DATE).log
+grid-nystate:
+	touch $(runlog)
+	python3 sweep.py grids/nystate.yml -remote -ncpus 40 | tail -1 >> $(runlog)
+	tail -1 $(runlog)
 
+
+analyze-nystate: sweepdir = $(shell tail -$(OFFSET) runs/nystate/$(DATE).log | head -n1)
+analyze-nystate:
+	@echo "---- Summary ---------"
+	-python3 analyze_sweep.py summary $(sweepdir) $(TARGS)
+	@echo "\n---- SIR Similarity ----------"
+	python3 analyze_sweep.py sir-similarity $(sweepdir)
+	@echo "\n---- Remaining Jobs ----------"
+	squeue -u $(USER)
 # end
