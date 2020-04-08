@@ -86,6 +86,7 @@ def doubling_time(i, window):
     if window is not None:
         growth_rate = growth_rate[-window:]
     doubling_time = np.log(2) / growth_rate
+    print(doubling_time)
     return doubling_time.mean()
     
     
@@ -94,7 +95,7 @@ def simulate(cases, s, i, r, beta, gamma, T, days, keep, dt_window=5, bc_window=
     # days_predict is the number of future days to predict
     # i[T] will be the first predicted day!
     n = s[0] + i[0] + r[0] # for normalization below
-    
+
     T = len(i)
     days_given = list(range(T))
     days_predict = list(range(T, T + days))
@@ -105,6 +106,7 @@ def simulate(cases, s, i, r, beta, gamma, T, days, keep, dt_window=5, bc_window=
     if beta_fit == 'manual':
         # cross check values
         dt = doubling_time(i, dt_window)
+        # dt = doubling_time(cases, dt_window) # calculate doubling time from cases or i
         distancing_reduction = 0.3 # copy from main sir.py
         intrinsic_growth_rate = 2.0 ** (1.0 / dt) - 1.0
         beta_val = (intrinsic_growth_rate + gamma[-1]) * (1.0 - distancing_reduction)
@@ -153,7 +155,7 @@ def simulate(cases, s, i, r, beta, gamma, T, days, keep, dt_window=5, bc_window=
     # infs = pd.DataFrame({"Day": list(range(T-1, T+keep)), f"beta_last: {beta[-1]:.2f}": i[T-1:T+keep]})
     infs = pd.DataFrame(
         {
-#             "Day": list(range(keep + 1)), # days from first prediction time
+            # "Day": list(range(keep + 1)), # days from first prediction time
             "Day": list(range(T-1, T+keep)), # days from first absolute time
             "observed": _cases[T-1:T+keep],
             beta_fit: _i[T-1:T+keep]
@@ -166,7 +168,6 @@ def simulate(cases, s, i, r, beta, gamma, T, days, keep, dt_window=5, bc_window=
     else:
         peak_days = str(ix_max - T + 1)
 
-    print(cases[T+1:len(cases)])
     mae = [abs(cases[j] - i[j]) for j in range(T, len(cases))]
     rmse = [(cases[j] - i[j]) ** 2 for j in range(T, len(cases))]
     
@@ -180,7 +181,7 @@ def simulate(cases, s, i, r, beta, gamma, T, days, keep, dt_window=5, bc_window=
             "Peak cases": [int(i[ix_max])],
             "mae-{}-days".format(len(mae)): [np.mean(mae)],
             "rmse-{}-days".format(len(rmse)): [np.mean(rmse)],
-            "dt-init": [round(doubling_time(i[:T], dt_window), 2)],
+            "dt-init": [round(doubling_time(cases, dt_window), 2)],
             "dt-final": [round(doubling_time(i, dt_window), 2)]
         }
     )
