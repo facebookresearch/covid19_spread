@@ -59,7 +59,7 @@ class RMSETrainer(Trainer):
         self.model = CovidModel(
             len(self.entities), self.opt.dim, self.opt.scale, True, self.opt.baseint
         )
-        self.model.initialize_weights()
+        self.model.initialize_weights(self.opt.alpha_scale)
         self.model = self.model.to(self.device)
 
 
@@ -103,6 +103,7 @@ def parse_opt(args):
     parser.add_argument(
         "-no-baseint", action="store_false", dest="baseint", default=True
     )
+    parser.add_argument('-alpha-scale', type=float, default=-15)
     parser.add_argument("-const-beta", type=float, default=-1)
     opt = parser.parse_args(args)
     return opt

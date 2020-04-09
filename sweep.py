@@ -58,6 +58,8 @@ def forecast_train(
             train_params.get("const_beta", -1),
             "-max-events",
             train_params.get("max_events", 5000),
+            "-alpha-scale",
+            train_params.get("alpha_scale", -15),
         ] + with_intensity
         train_params = list(map(str, DFLT_PARAMS + NON_DFLT))
 

@@ -32,7 +32,7 @@ class CovidTrainer(Trainer):
             self.opt.baseint,
             self.opt.const_beta,
         )
-        self.model.initialize_weights()
+        self.model.initialize_weights(self.opt.alpha_scale)
         self.model = self.model.to(self.device)
 
 
@@ -41,6 +41,7 @@ def parse_opt(args):
     parser.add_argument(
         "-no-baseint", action="store_false", dest="baseint", default=True
     )
+    parser.add_argument('-alpha-scale', type=float, default=-15)
     parser.add_argument("-const-beta", type=float, default=-1)
     opt = parser.parse_args(args)
     return opt
