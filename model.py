@@ -19,7 +19,7 @@ class CovidModel(SparseEmbeddingSoftplus):
         self.with_base_intensity = with_base_intensity
         self.const_beta = const_beta
 
-    def initialize_weights(self):
+    def initialize_weights(self, alpha_scale=-15):
         if self.with_base_intensity:
             self.mus_.weight.data.fill_(-5 * self.scale)  # NJ
         else:
@@ -34,13 +34,13 @@ class CovidModel(SparseEmbeddingSoftplus):
             # th.rand(self.nnodes, self.dim, dtype=th.double)
             # * (-5 * self.scale)  # NYC
             th.rand(self.nnodes, self.dim, dtype=th.double)
-            * (-15 * self.scale)  # NJ
+            * (alpha_scale * self.scale)  # NJ
         )
         self.V.weight.data[:-1].copy_(
             # th.rand(self.nnodes, self.dim, dtype=th.double)
             # * (-5 * self.scale)  # NYC
             th.rand(self.nnodes, self.dim, dtype=th.double)
-            * (-15 * self.scale)  # NJ
+            * (alpha_scale * self.scale)  # NJ
         )
         # Set these to a large negative value, such that fpos(pad_emb) == 0
         self.U.weight.data[-1].fill_(-1e10)

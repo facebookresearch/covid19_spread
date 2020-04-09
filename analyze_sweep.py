@@ -19,20 +19,23 @@ def rmse(sweep_dir, verbose: bool = False):
     "Report job with best RMSE"
     results = []
     for log in glob(os.path.join(sweep_dir, "**/*log.out"), recursive=True):
-        rmse_per_day = check_output(
-            f'cat {log} | grep "^RMSE_PER_DAY" | grep -o "\\{{.*\\}}"', shell=True
-        )
-        rmse_per_day = eval(rmse_per_day.decode("utf-8"))
-        rmse_avg = check_output(f'cat {log} | grep "^RMSE_AVG"', shell=True)
-        results.append(
-            {
-                "job": os.path.dirname(log),
-                "rmse_avg": float(
-                    re.search("\d*\.\d+", rmse_avg.decode("utf-8")).group(0)
-                ),
-                **{f"rmse_day_{k}": v for k, v in rmse_per_day.items()},
-            }
-        )
+        try:
+            rmse_per_day = check_output(
+                f'cat {log} | grep "^RMSE_PER_DAY" | grep -o "\\{{.*\\}}"', shell=True
+            )
+            rmse_per_day = eval(rmse_per_day.decode("utf-8"))
+            rmse_avg = check_output(f'cat {log} | grep "^RMSE_AVG"', shell=True)
+            results.append(
+                {
+                    "job": os.path.dirname(log),
+                    "rmse_avg": float(
+                        re.search("\d*\.\d+", rmse_avg.decode("utf-8")).group(0)
+                    ),
+                    **{f"rmse_day_{k}": v for k, v in rmse_per_day.items()},
+                }
+            )
+        except Exception:
+            pass
     results = pandas.DataFrame(results)
     if verbose:
         best = results.sort_values(by="rmse_avg").iloc[0]
