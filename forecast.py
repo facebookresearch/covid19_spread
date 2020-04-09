@@ -47,6 +47,12 @@ def main(args):
         action="store_true",
         help="Use timelord's simulation implementation",
     )
+    parser.add_argument(
+        "-std-dev",
+        default=-1,
+        type=float,
+        help="std deviation threshold for excluding simulations (-1 for none)"
+    )
     parser.add_argument("-days", type=int, help="Number of days to forecast")
     parser.add_argument("-fout", type=str, help="Output file for forecasts")
     opt = parser.parse_args(args)
@@ -109,7 +115,7 @@ def main(args):
         simulator = model.mk_simulator()
         timescale = model_opt.timescale
         sim_d = lambda d: simulate_tl_mhp(
-            t_obs, d, episode, timescale, simulator, nodes, opt.trials
+            t_obs, d, episode, timescale, simulator, nodes, opt.trials, stddev=opt.std_dev
         )
 
     # collect simulation data and prepare for output
