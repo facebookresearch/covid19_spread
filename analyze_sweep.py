@@ -1,5 +1,6 @@
 import click
 from glob import glob
+import numpy as np
 import pandas
 import os
 from subprocess import check_output
@@ -70,6 +71,8 @@ def summary(sweep_dir, sort_by: Optional[str] = None, verbose: bool = False):
             match = re.search(f"{key} *(:|=) *(.*)", logtxt)
             if match is not None:
                 current[key] = match.group(2)
+            else:
+                current[key] = np.nan
         results.append(current)
 
     if sort_by is not None:
