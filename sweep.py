@@ -59,7 +59,9 @@ def forecast_train(
             "-max-events",
             train_params.get("max_events", 5000),
             "-alpha-scale",
-            train_params.get("alpha_scale", -15),
+            train_params.get("alpha_scale", -10),
+            "-weight-decay",
+            train_params.get("weight_decay", 0),
         ] + with_intensity
         train_params = list(map(str, DFLT_PARAMS + NON_DFLT))
 
