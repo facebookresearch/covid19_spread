@@ -9,13 +9,13 @@ simplefilter(action="ignore", category=FutureWarning)
 import numpy as np
 import sys
 import torch as th
-from timelord.trainer import mk_parser, Trainer
+from timelord import trainer
 import random
 
 from model import CovidModel
 
 
-class CovidTrainer(Trainer):
+class CovidTrainer(trainer.Trainer):
     def __init__(self, opt, user_control=None):
         super().__init__(opt, user_control)
         print(f"Events: {len(self.episodes[0].timestamps)}")
@@ -36,19 +36,19 @@ class CovidTrainer(Trainer):
         self.model = self.model.to(self.device)
 
 
-def parse_opt(args):
-    parser = mk_parser()
+def mk_parser():
+    parser = trainer.mk_parser()
     parser.add_argument(
         "-no-baseint", action="store_false", dest="baseint", default=True
     )
     parser.add_argument('-alpha-scale', type=float, default=-15)
     parser.add_argument("-const-beta", type=float, default=-1)
-    opt = parser.parse_args(args)
-    return opt
+    return parser
 
 
 def main(args, user_control=None):
-    opt = parse_opt(args)
+    parser = mk_parser()
+    opt = parser.parse_args(args)
     if opt.repro is not None:
         opt = th.load(opt.repro)["opt"]
 

@@ -13,14 +13,12 @@ import sys
 import torch as th
 from common import load_model
 from evaluation import simulate_mhp
-from model import CovidModel
-from timelord.trainer import mk_parser, Trainer
 from timelord.utils import prepare_dset
-
 import tlc
+import train
 
 
-class RMSETrainer(Trainer):
+class RMSETrainer(train.CovidTrainer):
     def __init__(self, opt, n_days_back, episodes, user_control=None):
         self.device = self.get_device()
         self.last_epoch = -1
@@ -55,13 +53,6 @@ class RMSETrainer(Trainer):
         print(f"T min: {self.episodes[0].timestamps.min()}")
         print(f"T max: {self.episodes[0].timestamps.max()}")
 
-    def setup_model(self):
-        self.model = CovidModel(
-            len(self.entities), self.opt.dim, self.opt.scale, True, self.opt.baseint
-        )
-        self.model.initialize_weights(self.opt.alpha_scale)
-        self.model = self.model.to(self.device)
-
 
 def rmse(opt, user_control, gt, d):
     # train model
@@ -93,24 +84,18 @@ def rmse(opt, user_control, gt, d):
     _rmse = np.sqrt(((df["ground_truth"] - df[d]) ** 2).mean())
     return _rmse
 
-
-def parse_opt(args):
-    parser = mk_parser()
+def mk_parser():
+    parser = train.mk_parser()
     parser.add_argument(
         "-step-size", type=float, default=0.01, help="Step size for simulation"
     )
     parser.add_argument("-trials", type=int, default=50, help="Number of trials")
-    parser.add_argument(
-        "-no-baseint", action="store_false", dest="baseint", default=True
-    )
-    parser.add_argument('-alpha-scale', type=float, default=-15)
-    parser.add_argument("-const-beta", type=float, default=-1)
-    opt = parser.parse_args(args)
-    return opt
-
+    parser.add_argument("-days", type=int, default=3, help="Number of days to forecast")
+    return parser
 
 def main(args, user_control=None):
-    opt = parse_opt(args)
+    parser = mk_parser()
+    opt = parser.parse_args(args)
     if opt.repro is not None:
         opt = th.load(opt.repro)["opt"]
 
@@ -126,7 +111,7 @@ def main(args, user_control=None):
         gt["ground_truth"].append(len(trainer.episode_orig.occurrences_of_dim(x)) - 1)
     gt = pd.DataFrame(gt)
 
-    for d in [3, 2, 1]:
+    for d in range(1, opt.days + 1):
         _rmse[d] = rmse(opt, user_control, gt, d)
 
     print("RMSE_PER_DAY:", _rmse)
