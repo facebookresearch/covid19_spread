@@ -6,11 +6,40 @@ import os
 from subprocess import check_output
 import re
 from typing import Optional
+import json
 
 
 @click.group()
 def cli():
     pass
+
+
+@click.command()
+@click.argument("sweep_dir")
+@click.option("--verbose/--no-verbose", default=True)
+def ll(sweep_dir, verbose: bool = False):
+    "Report job with best RMSE"
+    results = []
+    for log in glob(os.path.join(sweep_dir, "**/*log.out"), recursive=True):
+        try:
+            lines = check_output(
+                f'cat {log} | grep "non_global_ll" | grep -o "\\{{.*\\}}"', shell=True
+            )
+            log_ = [json.loads(l) for l in lines.decode('utf-8').strip().split('\n')]
+            df = pandas.DataFrame(log_)
+            results.append({
+                "job": os.path.dirname(log),
+                "ll": df["non_global_ll"].max(),
+            })
+        except Exception as e:
+            pass
+    results = pandas.DataFrame(results)
+    if verbose:
+        best = results.sort_values(by="ll", ascending=False).iloc[0]
+        print(f"Best job: {best.job}")
+        print("First 10 results:")
+        print(results.sort_values(by="ll", ascending=False).iloc[:10])
+    return results
 
 
 @click.command()
@@ -140,4 +169,5 @@ if __name__ == "__main__":
     cli.add_command(rmse)
     cli.add_command(summary)
     cli.add_command(sir_similarity)
+    cli.add_command(ll)
     cli()
