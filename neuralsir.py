@@ -40,6 +40,7 @@ class SIR(nn.Module):
         super(SIR, self).__init__()
         self.beta = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-4))
         # self.gamma = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-5))
+        self.gamma = th.tensor([1.0 / 14]).to(device)
         self.fpos = F.softplus
         self.N = population
 
@@ -49,21 +50,21 @@ class SIR(nn.Module):
     def forward(self, t, y):
         # S, I, R = y
         beta = self.fpos(self.beta)
-        # gamma = self.fpos(self.gamma)
-        gamma = th.tensor([1 / 14]).to(device)
         ds = -beta * y[0] * y[1] / self.N
-        di = beta * y[0] * y[1] / self.N - gamma * y[1]
-        dr = gamma * y[2]
-        dy = th.cat([ds, di, dr])
-        # print(dy)
+        di = beta * y[0] * y[1] / self.N - self.gamma * y[1]
+        dy = th.cat([ds, di])
         return dy
+
+    def __repr__(self):
+        with th.no_grad():
+            return f"SIR ({self.fpos(self.beta).data.item():.3f})"
 
 
 class DecaySIR(nn.Module):
     def __init__(self, population):
         super(DecaySIR, self).__init__()
-        self.a = th.nn.Parameter(th.ones(1, dtype=th.float))
-        self.b = th.nn.Parameter(th.ones(1, dtype=th.float))
+        self.a = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-4))
+        self.b = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-4))
         # self.gamma = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-5))
         self.gamma = th.tensor([1.0 / 14]).to(device)
         self.fpos = F.softplus
@@ -74,7 +75,7 @@ class DecaySIR(nn.Module):
 
     def forward(self, t, y):
         S, I = y[0], y[1]
-        beta = self.fpos(self.a) * th.exp(-self.fpos(self.b) * t)
+        beta = self.fpos(self.a) * th.exp(self.fpos(self.b) * t)
         ds = -beta * S * I / self.N
         di = beta * S * I / self.N - self.gamma * I
         dy = th.cat([ds, di])
@@ -82,22 +83,23 @@ class DecaySIR(nn.Module):
 
     def __repr__(self):
         with th.no_grad():
-            return f"({self.fpos(self.a).data.item():.3f}, {self.fpos(self.b).data.item():.3f})"
+            return f"DecaySIR ({self.fpos(self.a).data.item():.3f}, {self.fpos(self.b).data.item():.3f})"
 
 
 class LatentSIR(nn.Module):
     def __init__(self, dim, population):
         super(LatentSIR, self).__init__()
         self.dim = dim
-        self.Wbeta = nn.Linear(dim, dim)
-        self.Wbeta2 = nn.Linear(dim, dim)
+        self.fc1 = nn.Linear(10, 10, bias=False)
+        self.fc2 = nn.Linear(10, 1, bias=False)
+        self.relu = th.sigmoid
         self.b0 = nn.Parameter(th.randn(dim, dtype=th.float))
         # self.gamma = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-5))
         self.gamma = th.tensor([1 / 14]).to(device)
         self.fpos = th.sigmoid
         self.N = population
-        nn.init.xavier_uniform_(self.Wbeta.weight)
-        nn.init.xavier_uniform_(self.Wbeta2.weight)
+        # nn.init.xavier_uniform_(self.Wbeta.weight)
+        # nn.init.xavier_uniform_(self.Wbeta2.weight)
 
     def y0(self, S, I):
         return th.cat([th.tensor([S, I]).to(device), self.b0]).float()
@@ -105,9 +107,9 @@ class LatentSIR(nn.Module):
     def forward(self, t, y):
         S, I = y[0], y[1]
         b_last = y.narrow(0, 2, self.dim)
-        b_now = self.Wbeta(b_last)
-        beta = self.Wbeta2(F.leaky_relu(b_now))
-        beta = th.sigmoid(th.mean(beta))
+        b_now = self.fc1(b_last)
+        beta = self.fc2(self.relu(b_last))
+        beta = th.sigmoid(beta).squeeze()
         ds = -beta * S * I / self.N
         di = beta * S * I / self.N - self.gamma * I
         dy = th.cat([ds.unsqueeze(0), di, b_now])
@@ -137,7 +139,7 @@ if __name__ == "__main__":
 
     # load data
     population, regions = load_population(args.fpop)
-    cases = load_confirmed(args.fdat, regions)[-14:]
+    cases = load_confirmed(args.fdat, regions)[10:]
     cases = th.from_numpy(cases).float().to(device)
     tmax = len(cases)
     t = th.arange(tmax).float().to(device) + 1
@@ -156,21 +158,20 @@ if __name__ == "__main__":
 
     ii = 0
 
-    # func = LatentSIR(10, population).to(device)
-    func = DecaySIR(population).to(device)
+    # func = SIR(population).to(device)
+    # func = DecaySIR(population).to(device)
+    func = LatentSIR(10, population).to(device)
     y0 = func.y0(S0, I0)
 
-    optimizer = optim.AdamW(
-        func.parameters(), lr=1e-2, betas=[0.99, 0.999], weight_decay=0
-    )
+    optimizer = optim.AdamW(func.parameters(), lr=1e-3, weight_decay=0.1)
 
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
         pred_y = odeint(func, y0, t)
         pred_y = pred_y.narrow(1, 1, 1)
-        print(th.cat([cases[-14:].unsqueeze(1), pred_y[-14:]], dim=1))
+        print(th.cat([cases[-10:].unsqueeze(1), pred_y[-10:]], dim=1))
 
-        loss = th.mean((pred_y[-14:] - cases[-14:]) ** 2)
+        loss = th.mean((pred_y - cases) ** 2)
         loss.backward()
         optimizer.step()
 
