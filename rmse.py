@@ -12,10 +12,11 @@ import random
 import sys
 import torch as th
 from common import load_model
-from evaluation import simulate_mhp
+from evaluation import simulate_mhp, simulate_tl_mhp
 from timelord.utils import prepare_dset
 import tlc
 import train
+
 
 
 class RMSETrainer(train.CovidTrainer):
@@ -60,23 +61,31 @@ def rmse(opt, user_control, gt, d):
     M = len(trainer.entities)
     trainer.train()
 
-    mus, beta, S, U, V, A, scale, timescale = load_model(opt.checkpoint, M)
 
     # predictions
     episode = trainer.episodes[0]
     t_obs = episode.timestamps[-1].item()
-    df = simulate_mhp(
-        t_obs,
-        d,
-        episode,
-        mus,
-        beta,
-        A,
-        timescale,
-        trainer.entities,
-        opt.step_size,
-        opt.trials,
-    )[["county", d]]
+
+    if opt.tl_simulate:
+        model, model_opt = trainer.model.__class__.from_checkpoint(opt.checkpoint)
+        simulator = model.mk_simulator()
+        df = simulate_tl_mhp(
+            t_obs, d, episode, model_opt.timescale, simulator, trainer.entities, opt.trials
+        )[["county", d]]
+    else:
+        mus, beta, S, U, V, A, scale, timescale = load_model(opt.checkpoint, M)
+        df = simulate_mhp(
+            t_obs,
+            d,
+            episode,
+            mus,
+            beta,
+            A,
+            timescale,
+            trainer.entities,
+            opt.step_size,
+            opt.trials,
+        )[["county", d]]
 
     # compute rmse
     df = pd.merge(df, gt, on="county")
@@ -90,7 +99,8 @@ def mk_parser():
         "-step-size", type=float, default=0.01, help="Step size for simulation"
     )
     parser.add_argument("-trials", type=int, default=50, help="Number of trials")
-    parser.add_argument("-days", type=int, default=3, help="Number of days to forecast")
+    parser.add_argument("-days", nargs="+", type=int, default=[1, 2, 3], help="Number of days to forecast")
+    parser.add_argument("-tl-simulate", action="store_true")
     return parser
 
 def main(args, user_control=None):
@@ -111,7 +121,7 @@ def main(args, user_control=None):
         gt["ground_truth"].append(len(trainer.episode_orig.occurrences_of_dim(x)) - 1)
     gt = pd.DataFrame(gt)
 
-    for d in range(1, opt.days + 1):
+    for d in opt.days:
         _rmse[d] = rmse(opt, user_control, gt, d)
 
     print("RMSE_PER_DAY:", _rmse)
