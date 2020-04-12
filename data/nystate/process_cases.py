@@ -8,16 +8,17 @@ import sys
 from collections import defaultdict as ddict
 from itertools import count
 
-fout = "timeseries.h5"
+fout = sys.argv[1]
 
 dparser = lambda x: pd.to_datetime(x, format="%m/%d/%Y")
 df = pd.read_csv(
-    sys.argv[1],
+    sys.stdin,
     header=0,
     date_parser=dparser,
     parse_dates=["Test Date"],
     usecols=["Test Date", "County", "New Positives"],
 )
+
 df.columns = ["date", "county", "cases"]
 print(df.head())
 df = df.sort_values(by="date")
@@ -36,6 +37,8 @@ _ts = []
 df["date"] = df["date"].values.astype(np.int64) // 10 ** 9
 df["date"] = (df["date"] - df["date"].min()) / (24 * 60 * 60) + 1
 print(df.date.min(), df.date.max())
+
+# convert counts to events
 df_agg = df.groupby(["county"])
 for county, group in df_agg:
     group = group.sort_values(by="date")
