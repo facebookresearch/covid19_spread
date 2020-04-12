@@ -41,36 +41,125 @@ def load_population(path, col=1):
     return th.from_numpy(pop), regions
 
 
-class MetaSIR(nn.Module):
+class BetaExpDecay(nn.Module):
     def __init__(self, population):
-        super(MetaSIR, self).__init__()
-        self.M = len(population)
-        # self.beta = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-4))
+        super(BetaExpDecay, self).__init__()
+        M = len(population)
+        # self.a = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
+        # self.b = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
         self.a = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-4))
         self.b = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-4))
-        self.alphas = th.nn.Parameter(th.randn((self.M, self.M), dtype=th.float))
-        # self.gamma = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-5))
-        self.gamma = th.tensor([1.0 / 14]).to(device)
+        self.c = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
+        self.fpos = F.softplus
+
+    def forward(self, t, y):
+        beta = self.fpos(self.a) * th.exp(-self.fpos(self.b) * t * self.fpos(self.c))
+        return beta, None
+
+    def __repr__(self):
+        with th.no_grad():
+            return f"Exp = ({self.fpos(self.a).mean().item():.3f}, {self.fpos(self.b).mean().item():.3f})"
+
+    def y0(self):
+        return None
+
+
+class BetaPowerLawDecay(nn.Module):
+    def __init__(self, population):
+        super(BetaPowerLawDecay, self).__init__()
+        M = len(population)
+        # self.a = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
+        # self.b = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
+        self.a = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-4))
+        self.b = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-4))
+        self.c = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
+        self.fpos = F.softplus
+
+    def forward(self, t, y):
+        # beta = self.fpos(self.a) * th.exp(
+        #    -self.fpos(self.b) * th.log(t) - self.fpos(self.c)
+        # )
+        a = self.fpos(self.a)
+        m = self.fpos(self.b)
+        beta = a * m ** a / t ** (a + 1) + self.fpos(self.c)
+        return beta, None
+
+    def __repr__(self):
+        with th.no_grad():
+            return f"Power law = ({self.fpos(self.a).mean().item():.3f}, {self.fpos(self.b).mean().item():.3f})"
+
+    def y0(self):
+        return None
+
+
+class BetaLatent(nn.Module):
+    def __init__(self, population, dim):
+        super(BetaLatent, self).__init__()
+        self.M = len(population)
+        self.dim = dim
+        self.Wbeta = nn.Linear(dim, dim, bias=True)
+        self.Wbeta2 = nn.Linear(dim, dim, bias=True)
+        self.v = nn.Linear(dim, 3, bias=True)
+        self.b0 = nn.Parameter(th.ones(dim, dtype=th.float))
+        self.fpos = F.softplus
+        nn.init.xavier_uniform_(self.Wbeta.weight)
+        nn.init.xavier_uniform_(self.Wbeta2.weight)
+        nn.init.xavier_uniform_(self.v.weight)
+
+    def forward(self, t, y):
+        beta_last = y.narrow(0, self.M * 2, self.dim)
+        beta_now = self.Wbeta2(th.tanh(self.Wbeta(beta_last)))
+
+        tmp = self.v(th.tanh(beta_now))
+        a = tmp.narrow(0, 0, 1)
+        b = tmp.narrow(0, 1, 1)
+        c = tmp.narrow(0, 2, 1)
+        beta = self.fpos(a) * th.exp(-self.fpos(b) * t - self.fpos(c))
+        # beta = th.sigmoid(tmp)
+        assert beta == beta, (beta_last, beta_now, self.Wbeta.weight)
+        return beta, beta_now
+
+    def y0(self):
+        return self.b0
+
+
+class MetaSIR(nn.Module):
+    def __init__(self, population, beta_net):
+        super(MetaSIR, self).__init__()
+        self.M = len(population)
+        self.alphas = th.nn.Parameter(th.ones((self.M, self.M), dtype=th.float))
+        self.gamma = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-5))
+        # self.gamma = th.tensor([1.0 / 14]).to(device)
+        # self.c = th.nn.Parameter(th.zeros(1, dtype=th.float))
         self.fpos = F.softplus
         self.Ns = population
+        self.beta_net = beta_net
 
     def y0(self, S, I):
-        return th.cat([S, I], axis=1).to(device).float()
+        elems = list(filter(None.__ne__, [S.view(-1), I.view(-1), self.beta_net.y0()]))
+        return th.cat(elems, dim=0).to(device).float()
 
-    def forward(self, t, ys):
-        Ss, Is = ys.narrow(1, 0, 1), ys.narrow(1, 1, 1)
-        # beta = self.fpos(self.beta)
-        beta = self.fpos(self.a) * th.exp(self.fpos(self.b) * t)
-        W = self.fpos(self.alphas) / self.Ns
-        WIs = th.mm(W, Is)
-        dSs = -beta * Ss * WIs
-        dIs = beta * Ss * WIs - self.gamma * Is
-        dy = th.cat([dSs, dIs], dim=1)
+    def forward(self, t, y):
+        # prepare input
+        Ss = y.narrow(0, 0, self.M)
+        Is = y.narrow(0, self.M, self.M)
+        beta, dBeta = self.beta_net(t, y)
+        assert beta.ndim <= 1, beta.size()
+
+        # compute dynamics
+        W = F.softmax(self.alphas, dim=0)
+        WIs = th.mv(W, Is) / self.Ns
+        dSs = -beta * Ss * WIs  # / th.sigmoid(self.c)
+        dIs = beta * Ss * WIs - self.fpos(self.gamma) * Is
+
+        # prepare dy output
+        elems = list(filter(None.__ne__, [dSs, dIs, dBeta]))
+        dy = th.cat(elems, dim=0)
         return dy
 
     def __repr__(self):
         with th.no_grad():
-            return f"SIR ({self.fpos(self.a).data.item():.3f})"
+            return f" gamma {self.fpos(self.gamma).item():.3f} | {self.beta_net}"
 
 
 if __name__ == "__main__":
@@ -80,11 +169,18 @@ if __name__ == "__main__":
     parser.add_argument(
         "--method", type=str, choices=["dopri5", "adams"], default="dopri5"
     )
-    parser.add_argument("--batch_time", type=int, default=10)
-    parser.add_argument("--batch_size", type=int, default=20)
-    parser.add_argument("--niters", type=int, default=2000)
-    parser.add_argument("--gpu", type=int, default=0)
-    parser.add_argument("--adjoint", action="store_true")
+    parser.add_argument("-lr", type=float, default=5e-2)
+    parser.add_argument("-weight-decay", type=float, default=0)
+    parser.add_argument("-niters", type=int, default=2000)
+    parser.add_argument("-adjoint", default=False, action="store_true")
+    parser.add_argument("-amsgrad", default=False, action="store_true")
+    parser.add_argument("-method", default="euler", choices=["euler", "rk4", "dopri5"])
+    parser.add_argument("-loss", default="lsq", choices=["lsq", "poisson"])
+    parser.add_argument("-decay", default="exp", choices=["exp", "powerlaw", "latent"])
+    parser.add_argument("-t0", default=10, type=int)
+    parser.add_argument("-fit-on", default=5, type=int)
+    parser.add_argument("-test-on", default=5, type=int)
+    parser.add_argument("-checkpoint", type=str, default="/tmp/metasir_model.bin")
     args = parser.parse_args()
 
     if args.adjoint:
@@ -92,33 +188,83 @@ if __name__ == "__main__":
     else:
         from torchdiffeq import odeint
 
-    device = th.device("cuda:" + str(args.gpu) if th.cuda.is_available() else "cpu")
+    device = th.device("cuda" if th.cuda.is_available() else "cpu")
 
     # load data
     population, regions = load_population(args.fpop)
     cases = load_confirmed(args.fdat, regions)
-    cases = cases.float().to(device)[:, 10:]
-    population = population.float().to(device).unsqueeze(1)
+    test_cases = cases[:, -args.test_on :]
+    cases = cases.float().to(device)[:, args.t0 : -args.test_on]
+    population = population.float().to(device)
     tmax = cases.size(1)
     t = th.arange(tmax).float().to(device) + 1
 
     I0 = cases.narrow(1, 0, 1)
-    print(I0, population, regions, tmax)
-    S0 = population - I0
+    S0 = population.unsqueeze(1) - I0
+    M = len(population)
 
-    func = MetaSIR(population).to(device)
+    if args.decay == "exp":
+        beta_net = BetaExpDecay(population)
+    elif args.decay == "powerlaw":
+        beta_net = BetaPowerLawDecay(population)
+    elif args.decay == "latent":
+        beta_net = BetaLatent(population, 10)
+    func = MetaSIR(population, beta_net).to(device)
     y0 = func.y0(S0, I0)
 
-    optimizer = optim.Adam(func.parameters(), lr=5e-2, betas=[0.9, 0.999])
+    optimizer = optim.AdamW(
+        func.parameters(),
+        lr=args.lr,
+        betas=[0.9, 0.999],
+        weight_decay=args.weight_decay,
+    )
+    nsteps = args.niters
 
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
-        pred_y = odeint(func, y0, t, method="euler", options={"step_size": 1})
-        pred_y = pred_y.narrow(2, 1, 1).squeeze().t()
+        pred_y = odeint(func, y0, t, method=args.method, options={"step_size": 1})
+        pred_Is = pred_y.narrow(1, M, M).squeeze().t()
 
-        loss = th.sum((pred_y[:, -5:] - cases[:, -5:]) ** 2)
+        predicted = pred_Is[:, -args.fit_on :]
+        observed = cases[:, -args.fit_on :]
+
+        if args.loss == "lsq":
+            loss = th.sum((predicted - observed) ** 2)
+        elif args.loss == "poisson":
+            loss = th.sum(predicted - observed * th.log(predicted))
+        else:
+            raise RuntimeError(f"Unknown loss")
         loss.backward()
         optimizer.step()
         if itr % 50 == 0:
-            print(th.cat([cases[:, -3:], pred_y[:, -3:]], dim=1))
-            print(f"Iter {itr:04d} | Loss {loss.item():.2f} | model {func}")
+            with th.no_grad(), np.printoptions(precision=3, suppress=True):
+                maes = th.abs(cases[:, -3:] - pred_Is[:, -3:])
+                print(
+                    th.cat([cases[:, -3:], pred_Is[:, -3:], maes], dim=1)
+                    .cpu()
+                    .numpy()
+                    .round(2)
+                )
+            print(
+                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes[:, -1].mean():.2f} | {func}"
+            )
+            th.save(func.state_dict(), args.checkpoint)
+
+    with th.no_grad():
+        print(F.softmax(func.alphas, dim=1).cpu().numpy().round(2))
+
+    It = cases.narrow(1, -1, 1)
+    St = population.unsqueeze(1) - I0
+    yt = func.y0(St, It)
+    test_preds = odeint(
+        func,
+        yt,
+        th.arange(tmax + 1, tmax + 7).float(),
+        method="euler",
+        options={"step_size": 1},
+    )
+    # print(test_preds)
+    test_preds = test_preds.narrow(1, M, M).squeeze().t().narrow(1, -5, 5)
+    print(test_cases)
+    print(test_preds)
+    print(th.abs(test_cases.to(device) - test_preds).mean(dim=0))
