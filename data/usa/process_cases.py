@@ -103,11 +103,23 @@ with h5py.File('timeseries.h5', "w") as hf:
     hf.create_dataset('time', data=times, dtype=ts_dt)
     hf.attrs['basedate'] = str(df.index.max().date())    
 
-    states = set(list(neighbors.keys()) + list(itertools.chain(*neighbors.values())))
-    regex = '|'.join(f'^{s}' for s in states)
-    cols = [c for c in df.columns if re.match(regex, c)]
-    all_times, all_entities = mk_episode(cols)
-    assert len(county_ids) == len(counties)
+    # Group all events into a single episode
+    processed = np.array([], dtype='int')
+    all_times = []
+    all_nodes = []
+    for idx in range(len(times)):
+        # Extract events corresponding to entities we haven't processed yet.
+        mask = ~np.in1d(entities[idx], processed)
+        all_nodes.append(entities[idx][mask])
+        all_times.append(times[idx][mask])
+        unique_nodes = np.unique(all_nodes[-1])
+        assert np.intersect1d(processed, unique_nodes).size == 0
+        processed = np.concatenate([processed, unique_nodes])
+
+    all_times = np.concatenate(all_times)
+    idx = all_times.argsort()
+    all_times = all_times[idx]
+    all_nodes = np.concatenate(all_nodes)[idx]
     hf.create_dataset('all_times', data=all_times, dtype='float64')
-    hf.create_dataset('all_nodes', data=all_entities)
+    hf.create_dataset('all_nodes', data=all_nodes)
     print(f'{len(counties)} counties')
