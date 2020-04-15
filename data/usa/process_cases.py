@@ -11,6 +11,7 @@ import json
 import re
 from collections import defaultdict
 import itertools
+import shutil
 
 
 def get_nyt():
@@ -42,6 +43,7 @@ county_ids = defaultdict(counter.__next__)
 # If an h5 file already exists, use a consistent naming
 if os.path.exists('timeseries.h5'):
     with h5py.File('timeseries.h5', 'r') as hf:
+        shutil.copy('timeseries.h5', f'timeseries_{hf.attrs["basedate"]}.h5')
         nodes = hf['nodes'][:]
         for county in nodes:
             county_ids[county]
