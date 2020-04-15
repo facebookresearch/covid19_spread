@@ -34,8 +34,12 @@ def load_data(data_path):
     per_district = {}
     with h5py.File(data_path, "r") as fin:
         nodes = np.array([m for m in fin["nodes"]])
-        ns = fin["node"][0]
-        ts = fin["time"][0]
+        if 'all_nodes' in fin:
+            ns = fin['all_nodes'][:]
+            ts = fin['all_times'][:]
+        else:
+            ns = fin["node"][0]
+            ts = fin["time"][0]
     for i, n in enumerate(nodes):
         ix = np.where(ns == i)[0]
         per_district[n] = (ts[ix], None)
