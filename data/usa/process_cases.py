@@ -12,17 +12,29 @@ import re
 from collections import defaultdict
 import itertools
 import shutil
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--smooth', type=int, default=1)
+opt = parser.parse_args()
 
 
 def get_nyt():
     CASES_URL = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv'
-    check_call(['wget', CASES_URL, '-O','us-counties.csv'])
-    df = pandas.read_csv('us-counties.csv')
+    df = pandas.read_csv(CASES_URL)
     df['loc'] = df['state'] + '_' + df['county']
     pivot = df.pivot_table(values='cases', columns=['loc'], index='date')
     pivot = pivot.fillna(0)
     pivot.index = pandas.to_datetime(pivot.index)
-    return pivot
+
+    # Swap out NYTimes NY state data with the NY DOH data.
+    NYSTATE_URL = 'https://health.data.ny.gov/api/views/xdss-u53e/rows.csv?accessType=DOWNLOAD'
+    df = pandas.read_csv(NYSTATE_URL).rename(columns={'Test Date': 'date', 'Cumulative Number of Positives': 'cases'})
+    df['loc'] = 'New York_' + df['County']
+    df = df.pivot_table(values='cases', columns=['loc'], index='date')
+    df.index = pandas.to_datetime(df.index)
+    without_nystate = pivot[[c for c in pivot.columns if not c.startswith('New York')]]    
+    return without_nystate.merge(df, left_index=True, right_index=True, how='outer').fillna(0)
 
 if not os.path.exists('us-state-neighbors.json'):
     check_call(['wget', 'https://gist.githubusercontent.com/PrajitR/0afccfa4dc4febe59276/raw/7a73603f5346210ae34845c43094f0daabfd4d49/us-state-neighbors.json'])
@@ -37,13 +49,22 @@ neighbors = {state_map[k]: [state_map[v] for v in vs] for k, vs in neighbors.ite
 
 df = get_nyt()
 
+# Remove any unknowns
+df = df[[c for c in df.columns if 'Unknown' not in c]]
+
+df.to_csv('ground_truth.csv', index=False)
+
 counter = itertools.count()
 county_ids = defaultdict(counter.__next__)
 
+
+outfile = f'timeseries_smooth_{opt.smooth}_days.h5'
+
+
 # If an h5 file already exists, use a consistent naming
-if os.path.exists('timeseries.h5'):
-    with h5py.File('timeseries.h5', 'r') as hf:
-        shutil.copy('timeseries.h5', f'timeseries_{hf.attrs["basedate"]}.h5')
+if os.path.exists(outfile):
+    with h5py.File(outfile, 'r') as hf:
+        shutil.copy(outfile, f'{outfile}.{hf.attrs["basedate"]}')
         nodes = hf['nodes'][:]
         for county in nodes:
             county_ids[county]
@@ -52,11 +73,11 @@ def mk_episode(counties):
     ats = np.arange(len(df)) + 1
     timestamps = []
     nodes = []
-    county_id = 0
 
     for county in counties:
-        ws = df[county].values
+        ws = df[county].rolling(window=max(1, opt.smooth), min_periods=1).mean().to_numpy()
         ix = np.where(ws > 0)[0]
+
         if len(ix) < 1:
             continue
         ts = ats[ix]
@@ -96,7 +117,7 @@ counties, cids = zip(*list(county_ids.items()))
 
 times, entities = zip(*episodes)
 
-with h5py.File('timeseries.h5', "w") as hf:
+with h5py.File(outfile, "w") as hf:
     hf.create_dataset('nodes', data=np.array(counties, dtype='O')[np.argsort(cids)], dtype=str_dt)
     hf.create_dataset('cascades', data=np.arange(len(episodes)))
     hf.create_dataset('node', data=entities, dtype=ds_dt)
