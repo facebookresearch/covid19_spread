@@ -40,6 +40,7 @@ if __name__ == "__main__":
     # setup input/output paths
     val_in = os.path.join(basedir, cfg["validation"]["input"])
     val_out = os.path.join(basedir, cfg["validation"]["output"])
+    metrics_out = os.path.join(basedir, cfg["metrics"]["output"])
     model_out = os.path.join(basedir, cfg[opt.module]["output"])
 
     # -- filter --
@@ -52,11 +53,12 @@ if __name__ == "__main__":
     mod = importlib.import_module(cfg[opt.module]["module"])
     model = mod.run_train(train_params, model_out)
 
-    # -- simulate
+    # -- simulate --
     with th.no_grad():
-        df_forecast = mod.run_simulate(train_ns, model)
-    df_forecast.to_csv(valout)
+        df_forecast = mod.run_simulate(train_params, model)
+    df_forecast.to_csv(val_out)
 
-    # -- metrics
-    df_val = metrics.compute_metrics(cfg["validation"]["input"], valout)
+    # -- metrics --
+    df_val = metrics.compute_metrics(cfg["data"], val_out)
+    df_val.to_csv(metrics_out)
     print(df_val)
