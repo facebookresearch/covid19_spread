@@ -70,15 +70,27 @@ def run_trial(t_obs, t_max, d, M, tid):
 
 
 def simulate_tl_mhp(
-    t_obs, d, episode, timescale, simulator, nodes, trials, quiet=False, stddev=-1
+    t_obs,
+    d,
+    episode,
+    timescale,
+    simulator,
+    nodes,
+    trials,
+    quiet=False,
+    stddev=-1,
+    max_events=-1,
 ):
     confirmed_cases = np.bincount(episode.entities, minlength=len(nodes))
     t_max = t_obs + (d / timescale)
+    d = int(np.ceil(d))
     counts = np.empty((d + 1, len(nodes), trials))
     counts[0, :, :] = confirmed_cases[:, np.newaxis]
+    all_evts = simulator.simulate(
+        episode.entities, episode.timestamps, t_max, trials, quiet, max_events
+    )
     for trial in range(trials):
-        evts = simulator.simulate(episode.entities, episode.timestamps, t_max, quiet)
-        evts = np.array(evts)
+        evts = np.array(all_evts[trial])
         for i in range(1, d + 1):
             current_evts = evts[evts[:, 1] <= t_obs + (i / timescale)]
             cur_counts = np.bincount(
