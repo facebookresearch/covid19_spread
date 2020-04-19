@@ -5,10 +5,15 @@ sir:  # SIR parameters
   days: 60
   keep: 7
   window: 5
-  doubling_times: [3, 4, 5, 10]
+  doubling_times: [13, 15, 17, 19]
 grid:  # parameter grid for training
-  dim: [5, 10, 15, 20]
+  dim: [10, 15, 20]
   base_intensity: [True, False]
+  alpha_scale: [-10, -15]
+  const_beta: [-1, 10, 15]
+  weight_decay: [0]
+  max_events: [1000000]
+  maxcor: [100]
 forecast:  # forecasting parameters
   days: 7
-  trials: 50
+  trials: 100
