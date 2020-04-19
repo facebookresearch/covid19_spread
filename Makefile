@@ -20,9 +20,11 @@ endef
 
 define _analyze_sweep
 	@echo "---- Naive forecast ---------"
-	python3 naive.py $(fdata) $(DATE)
+	python3 naive.py $(fdata).h5 $(DATE)
+	python3 naive.py $(fdata)_smooth.h5 $(DATE)
+
 	@echo "\n---- Summary ---------"
-	-python3 analyze_sweep.py summary $(sweepdir) $(SARGS)
+	python3 analyze_sweep.py summary $(sweepdir) --sort-by="$(if $(SORT),$(SORT),RMSE_AVG)"
 	@echo "\n---- SIR Similarity ----------"
 	python3 analyze_sweep.py sir-similarity $(sweepdir)
 	@echo "\n---- Remaining Jobs ----------"
@@ -61,7 +63,7 @@ forecast-nj:
 
 
 analyze-nj: sweepdir = $(shell tail -$(LAST) runs/new-jersey/$(DATE).log | head -n1)
-analyze-nj: fdata = data/new-jersey/timeseries.h5
+analyze-nj: fdata = data/new-jersey/timeseries
 analyze-nj:
 	$(call _analyze_sweep)
 
@@ -72,17 +74,26 @@ mae-nj:
 	python3 mae.py data/new-jersey/timeseries.h5 forecasts/new-jersey/forecast $(DATE) _fast
 
 data-nj: data/new-jersey/nj-official-$(shell date "+%m%d" -d $(DATE)).csv
-	cd data/new-jersey && make data-$(DATE).csv && make timeseries.h5
+	cd data/new-jersey && make data-$(DATE).csv && make timeseries.h5 && make timeseries.h5 SMOOTH=1
 
 # --- NY State ---
 
-forecast-nystate: params = -max-events 1000000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 25
-forecast-nystate: doubling-times = 6 7 8 9
-forecast-nystate: dset = data/nystate/timeseries.h5
-forecast-nystate:
-	python3 sir.py -fdat data/nystate/timeseries.h5 -fpop data/population-data/US-states/new-york-population.csv -fsuffix ny-$(DATE) -dout forecasts/nystate -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
+forecast-nys: params = -max-events 1000000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200
+forecast-nys: doubling-times = 12 13 14 15
+forecast-nys: dset = data/nystate/timeseries-nys.h5
+forecast-nys:
+	python3 sir.py -fdat data/nystate/timeseries.h5 -fpop data/population-data/US-states/new-york-population.csv -fsuffix ny-$(DATE) -dout forecasts/nys -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
 	OMP_NUM_THREADS=1 python3 train.py $(params) -dset $(dset) $(TARGS) -checkpoint /tmp/forecast_nystate.bin
 	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -checkpoint /tmp/forecast_nystate.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/nystate/forecast-ny-$(DATE)$(FSUFFIX).csv
+
+forecast-nyc: params = -max-events 1000000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200
+forecast-nyc: doubling-times = 12 13 14 15
+forecast-nyc: dset = data/nystate/timeseries-nyc.h5
+forecast-nyc:
+	python3 sir.py -fdat data/nystate/timeseries.h5 -fpop data/population-data/US-states/new-york-population.csv -fsuffix ny-$(DATE) -dout forecasts/nys -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
+	OMP_NUM_THREADS=1 python3 train.py $(params) -dset $(dset) $(TARGS) -checkpoint /tmp/forecast_nyc.bin
+	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -checkpoint /tmp/forecast_nyc.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/nyc/forecast-$(DATE)$(FSUFFIX).csv
+
 
 grid-nyc: runlog = runs/nyc/$(DATE).log
 grid-nyc:
@@ -92,23 +103,23 @@ grid-nyc:
 
 
 grid-nys: runlog = runs/nys/$(DATE).log
-grid-nys: doubling-times = 10 11 12 13
 grid-nys:
-	python3 sir.py -fdat data/nystate/timeseries.h5 -fpop data/population-data/US-states/new-york-population.csv -fsuffix ny-$(DATE) -dout forecasts/nys -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
 	touch $(runlog)
 	python3 sweep.py grids/nys.yml -remote -ncpus 40 -timeout-min 120 | tail -1 >> $(runlog)
 	tail -1 $(runlog)
 
 
 analyze-nyc: sweepdir = $(shell tail -$(LAST) runs/nyc/$(DATE).log | head -n1)
-analyze-nyc: fdata = data/nystate/timeseries-nyc.h5
+analyze-nyc: fdata = data/nystate/timeseries-nyc
 analyze-nyc:
 	$(call _analyze_sweep)
 
 
 analyze-nys: sweepdir = $(shell tail -$(LAST) runs/nys/$(DATE).log | head -n1)
-analyze-nys: fdata = data/nystate/timeseries-nys.h5
+analyze-nys: fdata = data/nystate/timeseries-nys
+analyze-nys: doubling-times = 10 11 12 13
 analyze-nys:
+	python3 sir.py -fdat data/nystate/timeseries.h5 -fpop data/population-data/US-states/new-york-population.csv -fsuffix ny-$(DATE) -dout forecasts/nys -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
 	$(call _analyze_sweep)
 
 mae-ny:
@@ -118,7 +129,7 @@ mae-ny:
 	python3 mae.py data/nystate/timeseries.h5 forecasts/nystate/forecast $(DATE) _fast
 
 data-ny:
-	cd data/nystate && make data-nj.csv && make timeseries-nyc.h5 timeseries-nys.h5
+	cd data/nystate && make data-nj.csv && make timeseries.h5 timeseries-nyc.h5 timeseries-nys.h5 && make timeseries.h5 timeseries-nyc.h5 timeseries-nys.h5 SMOOTH=1
 
 
 select: fout = forecasts/$(REGION)/forecast-$(DATE)$(SUFFIX).csv
