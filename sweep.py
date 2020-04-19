@@ -27,13 +27,11 @@ DFLT_PARAMS = [
     "-fresh",
     "-epochs",
     200,
-    "-maxcor",
-    25,
 ]
 
 
 def forecast_train(
-    train_params, dataset, basedate, job_dir, days=7, trials=50, log=None
+    train_params, dataset, basedate, job_dir, days=7, trials=100, log=None
 ):
     with contextlib.ExitStack() as stack:
         if log is not None:
@@ -62,6 +60,8 @@ def forecast_train(
             train_params.get("alpha_scale", -10),
             "-weight-decay",
             train_params.get("weight_decay", 0),
+            "-maxcor",
+            train_params.get("maxcor", 50),
         ] + with_intensity
         train_params = list(map(str, DFLT_PARAMS + NON_DFLT))
 
@@ -69,6 +69,7 @@ def forecast_train(
         train(train_params)
 
         forecast_params = [
+            # "-tl-simulate",
             "-dset",
             dataset,
             "-checkpoint",
@@ -173,6 +174,7 @@ if __name__ == "__main__":
             mem_gb=opt.mem_gb,
             array_parallelism=opt.array_parallelism,
             timeout_min=opt.timeout_min,
+            partition="learnfair,scavenge",
         )
         with snapshot.SnapshotManager(
             snapshot_dir=base + "/snapshot", with_submodules=True
