@@ -1,6 +1,7 @@
 import argparse
 import numpy as np
 import pandas as pd
+from datetime import timedelta
 
 import torch as th
 import torch.nn as nn
@@ -11,22 +12,19 @@ from common import load_data
 
 
 def load_confirmed(path):
-    nodes, ns, ts, _ = load_data(path)
-    unk = np.where(nodes == "Unknown")[0]
-    if len(unk) > 0:
-        ix = np.where(ns != unk[0])
-        ts = ts[ix]
+    nodes, ns, ts, basedate, = load_data(path)
+    nodes = np.array(nodes)
     tmax = int(np.ceil(ts.max()))
-    cases = np.zeros((len(nodes) - len(unk), tmax))
+    cases = np.zeros((len(nodes), tmax))
     for n in range(len(nodes)):
-        if nodes[n] == "Unknown":
-            continue
         ix2 = np.where(ns == n)[0]
         for i in range(1, tmax + 1):
             ix1 = np.where(ts < i)[0]
             cases[n, i - 1] = len(np.intersect1d(ix1, ix2))
-    # print(cases)
-    return th.from_numpy(cases), [n for n in nodes if n != "Unknown"]
+    unk = np.where(nodes == "Unknown")[0]
+    cases = np.delete(cases, unk, axis=0)
+    nodes = np.delete(nodes, unk)
+    return th.from_numpy(cases), nodes, basedate
 
 
 def load_population(path, nodes, col=1):
@@ -135,7 +133,6 @@ class MetaSIR(nn.Module):
     def __init__(self, population, beta_net):
         super(MetaSIR, self).__init__()
         self.M = len(population)
-        self.eye = th.eye(self.M).to(device)
         self.alphas = th.nn.Parameter(th.ones((self.M, self.M)))
         self.gamma = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(0.1))
         # self.gamma = th.tensor([1.0 / 14]).to(device)
@@ -150,7 +147,7 @@ class MetaSIR(nn.Module):
                 None.__ne__, [S.view(-1), I.view(-1), R.view(-1), self.beta_net.y0()]
             )
         )
-        return th.cat(elems, dim=0).to(device).float()
+        return th.cat(elems, dim=0).float()
 
     def forward(self, t, y):
         # prepare input
@@ -161,7 +158,6 @@ class MetaSIR(nn.Module):
         assert beta.ndim <= 1, beta.size()
 
         # compute dynamics
-        # W = 0.8 * self.eye + 0.2 * F.softmax(self.alphas, dim=0)
         W = F.softmax(self.alphas, dim=0)
         # W = th.sigmoid(self.alphas)
         # W = W / W.sum()
@@ -235,6 +231,157 @@ class MetaSEIR(nn.Module):
             return f"SEIR | gamma {self.fpos(self.gamma).item():.3f} | {self.beta_net}"
 
 
+def train(model, cases, population, odeint, optimizer, checkpoint, args):
+    M = len(population)
+    device = cases.device
+    tmax = cases.size(1)
+    t = th.arange(tmax).float().to(device) + 1
+
+    I0 = cases.narrow(1, 0, 1)
+    S0 = population.unsqueeze(1) - I0
+    R0 = th.zeros_like(I0)
+    y0 = model.y0(S0, I0, R0).to(device)
+
+    for itr in range(1, args.niters + 1):
+        optimizer.zero_grad()
+        pred_y = odeint(model, y0, t, method=args.method, options={"step_size": 1})
+        # pred_y = odeint(func, y0, t, method=args.method)
+        pred_Is = pred_y.narrow(1, M, M).squeeze().t()
+        pred_Rs = pred_y.narrow(1, 2 * M, M).squeeze().t()
+        pred_Cs = pred_Is + pred_Rs
+
+        predicted = pred_Cs[:, -args.fit_on :]
+        observed = cases[:, -args.fit_on :]
+
+        # compute loss
+        if args.loss == "lsq":
+            loss = th.sum((predicted - observed) ** 2)
+        elif args.loss == "poisson":
+            loss = th.sum(predicted - observed * th.log(predicted))
+        else:
+            raise RuntimeError(f"Unknown loss")
+
+        # back prop
+        loss.backward()
+        optimizer.step()
+
+        # control
+        if itr % 50 == 0:
+            with th.no_grad(), np.printoptions(precision=3, suppress=True):
+                maes = th.abs(cases[:, -3:] - pred_Cs[:, -3:])
+                print(
+                    th.cat([cases[:, -3:], pred_Cs[:, -3:], maes], dim=1)
+                    .cpu()
+                    .numpy()
+                    .round(2)
+                )
+            print(
+                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes[:, -1].mean():.2f} | {model}"
+            )
+            th.save(model.state_dict(), checkpoint)
+    return model
+
+
+def simulate(model, cases, regions, population, odeint, args, dstart=None):
+    M = len(population)
+    device = cases.device
+    tmax = cases.size(1)
+    t = th.arange(tmax).float().to(device) + 1
+
+    I0 = cases.narrow(1, 0, 1)
+    S0 = population.unsqueeze(1) - I0
+    R0 = th.zeros_like(I0)
+    y0 = model.y0(S0, I0, R0).to(device)
+
+    pred_y = odeint(model, y0, t, method=args.method, options={"step_size": 1})
+    pred_Rs = pred_y.narrow(1, 2 * M, M).squeeze().t()
+
+    Rt = pred_Rs.narrow(1, -1, 1)
+    It = cases.narrow(1, -1, 1) - Rt
+    St = population.unsqueeze(1) - It - Rt
+    print(It.size(), Rt.size(), St.size())
+    # Et = pred_y.narrow(1, 2 * M, M).squeeze().t()[:, -1]
+    # yt = func.y0(St, It, Et)
+    yt = model.y0(St, It, Rt)
+    test_preds = odeint(
+        model,
+        yt,
+        th.arange(tmax + 1, tmax + args.test_on + 2).float(),
+        method="euler",
+        options={"step_size": 1},
+    )
+
+    test_preds = test_preds.narrow(1, M, M).squeeze().t().narrow(
+        1, -args.test_on, args.test_on
+    ) + test_preds.narrow(1, 2 * M, M).squeeze().t().narrow(
+        1, -args.test_on, args.test_on
+    )
+    df = pd.DataFrame(test_preds.cpu().numpy().T)
+    df.columns = regions
+    if dstart is not None:
+        base = pd.to_datetime(dstart)
+        ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
+        df["date"] = ds
+        df.set_index("date", inplace=True)
+    return df
+
+
+def initialize(args):
+    device = th.device("cuda" if th.cuda.is_available() else "cpu")
+    cases, regions, basedate = load_confirmed(args.fdat)
+    population = load_population(args.fpop, regions)
+    cases = cases.float().to(device)[:, args.t0 :]
+    population = population.float().to(device)
+
+    if args.adjoint:
+        from torchdiffeq import odeint_adjoint as odeint
+    else:
+        from torchdiffeq import odeint
+
+    return cases, regions, population, basedate, odeint, device
+
+
+def run_train(args, checkpoint):
+    cases, regions, population, _, odeint, device = initialize(args)
+
+    if args.decay == "exp":
+        beta_net = BetaExpDecay(population)
+    elif args.decay == "powerlaw":
+        beta_net = BetaPowerLawDecay(population)
+    elif args.decay == "latent":
+        beta_net = BetaLatent(population, 64)
+
+    func = MetaSIR(population, beta_net).to(device)
+    optimizer = optim.AdamW(
+        func.parameters(),
+        lr=args.lr,
+        betas=[0.9, 0.999],
+        weight_decay=args.weight_decay,
+    )
+
+    model = train(func, cases, population, odeint, optimizer, args)
+
+    return model
+
+
+def run_simulate(args, model=None):
+    if model is None:
+        raise NotImplementedError
+
+    cases, regions, population, basedate, odeint, device = initialize(args)
+
+    forecast = simulate(model, cases, regions, population, odeint, args, basedate)
+
+    adj = th.sigmoid(model.alphas).cpu().numpy()
+    df = pd.DataFrame(adj).round(2)
+    df.columns = regions
+    df["regions"] = regions
+    df.set_index("regions", inplace=True)
+    print(df)
+
+    return forecast
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("ODE demo")
     parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
@@ -253,107 +400,14 @@ if __name__ == "__main__":
     parser.add_argument("-checkpoint", type=str, default="/tmp/metasir_model.bin")
     args = parser.parse_args()
 
-    if args.adjoint:
-        from torchdiffeq import odeint_adjoint as odeint
-    else:
-        from torchdiffeq import odeint
-
-    device = th.device("cuda" if th.cuda.is_available() else "cpu")
-
     # load data
-    cases, regions = load_confirmed(args.fdat)
-    population = load_population(args.fpop, regions)
-    test_cases = cases[:, -args.test_on :]
-    cases = cases.float().to(device)[:, args.t0 : -args.test_on]
-    population = population.float().to(device)
-    tmax = cases.size(1)
-    t = th.arange(tmax).float().to(device) + 1
+    # test_cases = cases[:, -args.test_on :]
 
-    I0 = cases.narrow(1, 0, 1)
-    S0 = population.unsqueeze(1) - I0
-    R0 = th.zeros_like(I0)
-    M = len(population)
-
-    if args.decay == "exp":
-        beta_net = BetaExpDecay(population)
-    elif args.decay == "powerlaw":
-        beta_net = BetaPowerLawDecay(population)
-    elif args.decay == "latent":
-        beta_net = BetaLatent(population, 64)
-    func = MetaSIR(population, beta_net).to(device)
-    y0 = func.y0(S0, I0, R0)
-
-    optimizer = optim.AdamW(
-        func.parameters(),
-        lr=args.lr,
-        betas=[0.9, 0.999],
-        weight_decay=args.weight_decay,
-    )
-    nsteps = args.niters
-
-    for itr in range(1, args.niters + 1):
-        optimizer.zero_grad()
-        pred_y = odeint(func, y0, t, method=args.method, options={"step_size": 1})
-        # pred_y = odeint(func, y0, t, method=args.method)
-        pred_Is = pred_y.narrow(1, M, M).squeeze().t()
-        pred_Rs = pred_y.narrow(1, 2 * M, M).squeeze().t()
-        pred_Cs = pred_Is + pred_Rs
-
-        predicted = pred_Cs[:, -args.fit_on :]
-        observed = cases[:, -args.fit_on :]
-
-        if args.loss == "lsq":
-            loss = th.sum((predicted - observed) ** 2)
-        elif args.loss == "poisson":
-            loss = th.sum(predicted - observed * th.log(predicted))
-        else:
-            raise RuntimeError(f"Unknown loss")
-        loss.backward()
-        optimizer.step()
-        if itr % 50 == 0:
-            with th.no_grad(), np.printoptions(precision=3, suppress=True):
-                maes = th.abs(cases[:, -3:] - pred_Cs[:, -3:])
-                print(
-                    th.cat([cases[:, -3:], pred_Cs[:, -3:], maes], dim=1)
-                    .cpu()
-                    .numpy()
-                    .round(2)
-                )
-            print(
-                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes[:, -1].mean():.2f} | {func}"
-            )
-            th.save(func.state_dict(), args.checkpoint)
+    model = run_train(args, args.checkpoint)
 
     with th.no_grad():
-        adj = th.sigmoid(func.alphas).cpu().numpy()
-        df = pd.DataFrame(adj).round(2)
-        df.columns = regions
-        df["regions"] = regions
-        df.set_index("regions", inplace=True)
-        df.to_csv("regions.csv")
-        print(func.alphas)
-        print(df)
+        forecast = run_simulate(args, model)
 
-    Rt = pred_Rs.narrow(1, -1, 1)  # FIXME!
-    It = cases.narrow(1, -1, 1) - Rt
-    St = population.unsqueeze(1) - It - Rt
-    print(It.size(), Rt.size(), St.size())
-    # Et = pred_y.narrow(1, 2 * M, M).squeeze().t()[:, -1]
-    # yt = func.y0(St, It, Et)
-    yt = func.y0(St, It, Rt)
-    test_preds = odeint(
-        func,
-        yt,
-        th.arange(tmax + 1, tmax + args.test_on + 2).float(),
-        method="euler",
-        options={"step_size": 1},
-    )
-
-    test_preds = test_preds.narrow(1, M, M).squeeze().t().narrow(
-        1, -args.test_on, args.test_on
-    ) + test_preds.narrow(1, 2 * M, M).squeeze().t().narrow(
-        1, -args.test_on, args.test_on
-    )
-    print(test_cases)
-    print(test_preds)
-    print(th.abs(test_cases.to(device) - test_preds).mean(dim=0))
+    # print(test_cases)
+    # print(forecast)
+    # print(np.abs(test_cases.numpy().T - forecast).mean(axis=1))

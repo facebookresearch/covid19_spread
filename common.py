@@ -10,19 +10,19 @@ import datetime
 
 def drop_k_days(dset, outfile, days):
     # We'll need to rename everything in case the number of events for a given dimension
-    # drops to 0 after filtering.  
+    # drops to 0 after filtering.
     counter = itertools.count()
     namer = defaultdict(counter.__next__)
     ds_dt = h5py.special_dtype(vlen=np.dtype("int"))
     ts_dt = h5py.special_dtype(vlen=np.dtype("float32"))
 
-    with h5py.File(dset, 'r') as hin, h5py.File(outfile, 'w') as hout:
-        times = hin['time'][:]
-        nodes = hin['node'][:]
+    with h5py.File(dset, "r") as hin, h5py.File(outfile, "w") as hout:
+        times = hin["time"][:]
+        nodes = hin["node"][:]
         new_nodes = []
         new_times = []
         # Compute the new maxtime
-        max_time = max(*[ts[-1].item() for ts in times]) - days
+        max_time = np.max([ts[-1] for ts in times]) - days
 
         processed = np.array([])
         all_times = []
@@ -38,21 +38,24 @@ def drop_k_days(dset, outfile, days):
             all_times.append(new_times[-1][mask])
             processed = np.concatenate([processed, np.unique(all_nodes[-1])])
 
+        print(new_times)
         old_idxs, new_idxs = map(np.array, zip(*namer.items()))
-        hout['nodes'] = hin['nodes'][:][old_idxs[sorted(new_idxs)]]
-        hout.create_dataset('time', data=new_times, dtype=ts_dt)
-        hout.create_dataset('node', data=new_nodes, dtype=ds_dt)
-        hout['cascades'] = hin['cascades'][:]
-        if 'basedate' in hin.attrs:
-            date = datetime.datetime.strptime(hin.attrs['basedate'], '%Y-%m-%d')
-            hout.attrs['basedate'] = str((date - datetime.timedelta(days=days)).date())
-        
+        hout["nodes"] = hin["nodes"][:][old_idxs[sorted(new_idxs)]]
+        _time = hout.create_dataset("time", (len(new_times),), dtype=ts_dt)
+        _node = hout.create_dataset("node", (len(new_nodes),), dtype=ds_dt)
+        _time[:] = new_times
+        _node[:] = new_nodes
+        hout["cascades"] = hin["cascades"][:]
+        if "basedate" in hin.attrs:
+            date = datetime.datetime.strptime(hin.attrs["basedate"], "%Y-%m-%d")
+            hout.attrs["basedate"] = str((date - datetime.timedelta(days=days)).date())
+
         all_times = np.concatenate(all_times)
         idx = all_times.argsort()
         all_times = all_times[idx]
         all_nodes = np.concatenate(all_nodes)[idx]
-        hout['all_nodes'] = all_nodes
-        hout['all_times'] = all_times
+        hout["all_nodes"] = all_nodes
+        hout["all_times"] = all_times
 
 
 def load_model(model_path, M):
@@ -83,18 +86,15 @@ def load_model(model_path, M):
 def load_data(data_path):
     per_district = {}
     with h5py.File(data_path, "r") as fin:
+        basedate = fin.attrs["basedate"]
         nodes = np.array([m for m in fin["nodes"]])
-        if 'all_nodes' in fin:
-            ns = fin['all_nodes'][:]
-            ts = fin['all_times'][:]
+        if "all_nodes" in fin:
+            ns = fin["all_nodes"][:]
+            ts = fin["all_times"][:]
         else:
             ns = fin["node"][0]
             ts = fin["time"][0]
-    for i, n in enumerate(nodes):
-        ix = np.where(ns == i)[0]
-        per_district[n] = (ts[ix], None)
-    # id_to_ags = {ns[i]: ags[i] for i in range(len(ns))}
-    return nodes, ns, ts, per_district
+    return nodes, ns, ts, basedate
 
 
 def print_model_stats(mus, beta, S, U, V, A):

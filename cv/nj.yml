@@ -1,0 +1,24 @@
+region: new-jersey
+data: &fdat data/new-jersey/timeseries.h5
+population: &fpop data/population-data/US-states/new-jersey-population.csv
+validation:
+  input: &fvdata timeseries_filtered.h5
+  output: validation.csv
+  days: &vdays 7
+metasir:
+  module: metasir
+  output: &fmodel metasir_model.bin
+  train:
+    fdat: *fvdata
+    fpop: *fpop
+    decay: exp
+    lr: 0.005
+    weight_decay: 0
+    niters: 10000
+    method: euler
+    loss: lsq
+    t0: 10
+    fit_on: 5
+    test_on: *vdays
+    adjoint: false
+    
