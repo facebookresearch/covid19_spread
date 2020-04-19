@@ -10,11 +10,8 @@ import torch.optim as optim
 from common import load_data
 
 
-def load_confirmed(path, regions):
-    # df = pd.read_csv(path, usecols=regions)
-    # cases = df.to_numpy().sum(axis=1)
+def load_confirmed(path):
     nodes, ns, ts, _ = load_data(path)
-    regions = np.array(regions)
     unk = np.where(nodes == "Unknown")[0]
     if len(unk) > 0:
         ix = np.where(ns != unk[0])
@@ -25,20 +22,25 @@ def load_confirmed(path, regions):
         if nodes[n] == "Unknown":
             continue
         ix2 = np.where(ns == n)[0]
-        j = np.where(regions == nodes[n])[0][0]
         for i in range(1, tmax + 1):
             ix1 = np.where(ts < i)[0]
-            cases[j, i - 1] = len(np.intersect1d(ix1, ix2))
+            cases[n, i - 1] = len(np.intersect1d(ix1, ix2))
     # print(cases)
-    return th.from_numpy(cases)
+    return th.from_numpy(cases), [n for n in nodes if n != "Unknown"]
 
 
-def load_population(path, col=1):
+def load_population(path, nodes, col=1):
     df = pd.read_csv(path, header=None)
-    pop = df.iloc[:, col].to_numpy()
-    regions = df.iloc[:, 0].to_numpy().tolist()
-    print(regions)
-    return th.from_numpy(pop), regions
+    _pop = df.iloc[:, col].to_numpy()
+    regions = df.iloc[:, 0].to_numpy()
+    pop = []
+    for node in nodes:
+        if node == "Unknown":
+            continue
+        ix = np.where(regions == node)[0][0]
+        pop.append(_pop[ix])
+    print(nodes, pop)
+    return th.from_numpy(np.array(pop))
 
 
 class BetaExpDecay(nn.Module):
@@ -47,13 +49,14 @@ class BetaExpDecay(nn.Module):
         M = len(population)
         # self.a = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
         # self.b = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
-        self.a = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-4))
-        self.b = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-4))
+        self.a = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
+        self.b = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
         self.c = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
         self.fpos = F.softplus
 
     def forward(self, t, y):
-        beta = self.fpos(self.a) * th.exp(-self.fpos(self.b) * t * self.fpos(self.c))
+        # beta = self.fpos(self.a) * th.exp(-self.fpos(self.b) * t) * self.fpos(self.c)
+        beta = self.fpos(self.a) * th.exp(-self.fpos(self.b) * t)
         return beta, None
 
     def __repr__(self):
@@ -99,76 +102,143 @@ class BetaLatent(nn.Module):
         self.dim = dim
         self.Wbeta = nn.Linear(dim, dim, bias=True)
         self.Wbeta2 = nn.Linear(dim, dim, bias=True)
-        self.v = nn.Linear(dim, 3, bias=True)
+        self.v = nn.Linear(dim, 3, bias=False)
+        self.c = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
         self.b0 = nn.Parameter(th.ones(dim, dtype=th.float))
         self.fpos = F.softplus
-        nn.init.xavier_uniform_(self.Wbeta.weight)
-        nn.init.xavier_uniform_(self.Wbeta2.weight)
-        nn.init.xavier_uniform_(self.v.weight)
+        # nn.init.xavier_uniform_(self.Wbeta.weight)
+        # nn.init.xavier_uniform_(self.Wbeta2.weight)
+        # nn.init.xavier_uniform_(self.v.weight)
 
     def forward(self, t, y):
-        beta_last = y.narrow(0, self.M * 2, self.dim)
-        beta_now = self.Wbeta2(th.tanh(self.Wbeta(beta_last)))
+        # beta_last = y.narrow(0, self.M * 3, self.M * self.dim).reshape(self.M, self.dim)
+        beta_last = y.narrow(0, self.M * 3, self.dim)
+        # beta_now = self.Wbeta2(th.tanh(self.Wbeta(beta_last)))
+        beta_now = self.Wbeta(beta_last)
 
-        tmp = self.v(th.tanh(beta_now))
-        a = tmp.narrow(0, 0, 1)
-        b = tmp.narrow(0, 1, 1)
-        c = tmp.narrow(0, 2, 1)
+        tmp = self.v(th.sigmoid(beta_now))
+        a = tmp.narrow(-1, 0, 1)
+        b = tmp.narrow(-1, 1, 1)
+        c = tmp.narrow(-1, 2, 1)
         beta = self.fpos(a) * th.exp(-self.fpos(b) * t - self.fpos(c))
-        # beta = th.sigmoid(tmp)
-        assert beta == beta, (beta_last, beta_now, self.Wbeta.weight)
-        return beta, beta_now
+        # beta = th.sigmoid(tmp.mean()) * F.softplus(self.c)
+        # beta = th.exp(tmp.mean())
+        # beta = self.fpos(a) * th.exp(-self.fpos(b) * t) + self.fpos(c)
+        # assert beta == beta, (beta_last, beta_now, self.Wbeta.weight)
+        return beta.squeeze(), beta_now.view(-1)
 
     def y0(self):
-        return self.b0
+        return self.b0.view(-1)
 
 
 class MetaSIR(nn.Module):
     def __init__(self, population, beta_net):
         super(MetaSIR, self).__init__()
         self.M = len(population)
-        self.alphas = th.nn.Parameter(th.ones((self.M, self.M), dtype=th.float))
-        self.gamma = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-5))
+        self.eye = th.eye(self.M).to(device)
+        self.alphas = th.nn.Parameter(th.ones((self.M, self.M)))
+        self.gamma = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(0.1))
         # self.gamma = th.tensor([1.0 / 14]).to(device)
-        # self.c = th.nn.Parameter(th.zeros(1, dtype=th.float))
+        self.c = th.nn.Parameter(th.zeros(1, dtype=th.float))
         self.fpos = F.softplus
         self.Ns = population
         self.beta_net = beta_net
 
-    def y0(self, S, I):
-        elems = list(filter(None.__ne__, [S.view(-1), I.view(-1), self.beta_net.y0()]))
+    def y0(self, S, I, R):
+        elems = list(
+            filter(
+                None.__ne__, [S.view(-1), I.view(-1), R.view(-1), self.beta_net.y0()]
+            )
+        )
         return th.cat(elems, dim=0).to(device).float()
 
     def forward(self, t, y):
         # prepare input
         Ss = y.narrow(0, 0, self.M)
         Is = y.narrow(0, self.M, self.M)
+        Rs = y.narrow(0, 2 * self.M, self.M)
         beta, dBeta = self.beta_net(t, y)
         assert beta.ndim <= 1, beta.size()
 
         # compute dynamics
+        # W = 0.8 * self.eye + 0.2 * F.softmax(self.alphas, dim=0)
         W = F.softmax(self.alphas, dim=0)
-        WIs = th.mv(W, Is) / self.Ns
-        dSs = -beta * Ss * WIs  # / th.sigmoid(self.c)
-        dIs = beta * Ss * WIs - self.fpos(self.gamma) * Is
+        # W = th.sigmoid(self.alphas)
+        # W = W / W.sum()
+        WIs = beta * th.mv(W, Is) / self.Ns
+        bSIs = beta * Ss * Is / self.Ns
+        gIs = self.fpos(self.gamma) * Is
+        dSs = -bSIs - WIs
+        dIs = bSIs + WIs - gIs
+        dRs = gIs
+        # dSs = -beta * Ss * WIs  # / th.sigmoid(self.c)
+        # dIs = beta * Ss * WIs - self.fpos(self.gamma) * Is
 
         # prepare dy output
-        elems = list(filter(None.__ne__, [dSs, dIs, dBeta]))
+        elems = list(filter(None.__ne__, [dSs, dIs, dRs, dBeta]))
         dy = th.cat(elems, dim=0)
         return dy
 
     def __repr__(self):
         with th.no_grad():
-            return f" gamma {self.fpos(self.gamma).item():.3f} | {self.beta_net}"
+            return f"SIR | gamma {self.fpos(self.gamma).item():.3f} | {self.beta_net}"
+
+
+class MetaSEIR(nn.Module):
+    def __init__(self, population, beta_net):
+        super(MetaSEIR, self).__init__()
+        self.M = len(population)
+        self.alphas = th.nn.Parameter(th.ones((self.M, self.M), dtype=th.float))
+        self.gamma = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-5))
+        self.sigma = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(-5))
+        # self.gamma = th.tensor([1.0 / 14]).to(device)
+        # self.c = th.nn.Parameter(th.zeros(1, dtype=th.float))
+        self.fpos = F.softplus
+        self.Ns = population
+        self.beta_net = beta_net
+
+    def y0(self, S, I, E=None):
+        if E is None:
+            E = th.ones_like(I)
+        elems = list(
+            filter(
+                None.__ne__, [S.view(-1), I.view(-1), E.view(-1), self.beta_net.y0()]
+            )
+        )
+        return th.cat(elems, dim=0).to(device).float()
+
+    def forward(self, t, y):
+        # prepare input
+        Ss = y.narrow(0, 0, self.M)
+        Is = y.narrow(0, self.M, self.M)
+        Es = y.narrow(0, 2 * self.M, self.M)
+        beta, dBeta = self.beta_net(t, y)
+        sigma = self.fpos(self.sigma)
+        assert beta.ndim <= 1, beta.size()
+
+        # compute dynamics
+        W = th.sigmoid(self.alphas)
+        W = W / W.sum()
+        WIs = beta * th.mv(W, Is) / self.Ns
+        bSIs = beta * Ss * Is / self.Ns
+        dSs = -bSIs - WIs
+        dEs = bSIs + WIs - sigma * Es
+        dIs = sigma * Es - self.fpos(self.gamma) * Is
+
+        # prepare dy output
+        elems = list(filter(None.__ne__, [dSs, dIs, dEs, dBeta]))
+        dy = th.cat(elems, dim=0)
+        return dy
+
+    def __repr__(self):
+        with th.no_grad():
+            return f"SEIR | gamma {self.fpos(self.gamma).item():.3f} | {self.beta_net}"
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("ODE demo")
     parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
     parser.add_argument("-fpop", help="Path to population data", required=True)
-    parser.add_argument(
-        "--method", type=str, choices=["dopri5", "adams"], default="dopri5"
-    )
     parser.add_argument("-lr", type=float, default=5e-2)
     parser.add_argument("-weight-decay", type=float, default=0)
     parser.add_argument("-niters", type=int, default=2000)
@@ -191,8 +261,8 @@ if __name__ == "__main__":
     device = th.device("cuda" if th.cuda.is_available() else "cpu")
 
     # load data
-    population, regions = load_population(args.fpop)
-    cases = load_confirmed(args.fdat, regions)
+    cases, regions = load_confirmed(args.fdat)
+    population = load_population(args.fpop, regions)
     test_cases = cases[:, -args.test_on :]
     cases = cases.float().to(device)[:, args.t0 : -args.test_on]
     population = population.float().to(device)
@@ -201,6 +271,7 @@ if __name__ == "__main__":
 
     I0 = cases.narrow(1, 0, 1)
     S0 = population.unsqueeze(1) - I0
+    R0 = th.zeros_like(I0)
     M = len(population)
 
     if args.decay == "exp":
@@ -208,9 +279,9 @@ if __name__ == "__main__":
     elif args.decay == "powerlaw":
         beta_net = BetaPowerLawDecay(population)
     elif args.decay == "latent":
-        beta_net = BetaLatent(population, 10)
+        beta_net = BetaLatent(population, 64)
     func = MetaSIR(population, beta_net).to(device)
-    y0 = func.y0(S0, I0)
+    y0 = func.y0(S0, I0, R0)
 
     optimizer = optim.AdamW(
         func.parameters(),
@@ -223,9 +294,12 @@ if __name__ == "__main__":
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
         pred_y = odeint(func, y0, t, method=args.method, options={"step_size": 1})
+        # pred_y = odeint(func, y0, t, method=args.method)
         pred_Is = pred_y.narrow(1, M, M).squeeze().t()
+        pred_Rs = pred_y.narrow(1, 2 * M, M).squeeze().t()
+        pred_Cs = pred_Is + pred_Rs
 
-        predicted = pred_Is[:, -args.fit_on :]
+        predicted = pred_Cs[:, -args.fit_on :]
         observed = cases[:, -args.fit_on :]
 
         if args.loss == "lsq":
@@ -238,9 +312,9 @@ if __name__ == "__main__":
         optimizer.step()
         if itr % 50 == 0:
             with th.no_grad(), np.printoptions(precision=3, suppress=True):
-                maes = th.abs(cases[:, -3:] - pred_Is[:, -3:])
+                maes = th.abs(cases[:, -3:] - pred_Cs[:, -3:])
                 print(
-                    th.cat([cases[:, -3:], pred_Is[:, -3:], maes], dim=1)
+                    th.cat([cases[:, -3:], pred_Cs[:, -3:], maes], dim=1)
                     .cpu()
                     .numpy()
                     .round(2)
@@ -251,20 +325,35 @@ if __name__ == "__main__":
             th.save(func.state_dict(), args.checkpoint)
 
     with th.no_grad():
-        print(F.softmax(func.alphas, dim=1).cpu().numpy().round(2))
+        adj = th.sigmoid(func.alphas).cpu().numpy()
+        df = pd.DataFrame(adj).round(2)
+        df.columns = regions
+        df["regions"] = regions
+        df.set_index("regions", inplace=True)
+        df.to_csv("regions.csv")
+        print(func.alphas)
+        print(df)
 
-    It = cases.narrow(1, -1, 1)
-    St = population.unsqueeze(1) - I0
-    yt = func.y0(St, It)
+    Rt = pred_Rs.narrow(1, -1, 1)  # FIXME!
+    It = cases.narrow(1, -1, 1) - Rt
+    St = population.unsqueeze(1) - It - Rt
+    print(It.size(), Rt.size(), St.size())
+    # Et = pred_y.narrow(1, 2 * M, M).squeeze().t()[:, -1]
+    # yt = func.y0(St, It, Et)
+    yt = func.y0(St, It, Rt)
     test_preds = odeint(
         func,
         yt,
-        th.arange(tmax + 1, tmax + 7).float(),
+        th.arange(tmax + 1, tmax + args.test_on + 2).float(),
         method="euler",
         options={"step_size": 1},
     )
-    # print(test_preds)
-    test_preds = test_preds.narrow(1, M, M).squeeze().t().narrow(1, -5, 5)
+
+    test_preds = test_preds.narrow(1, M, M).squeeze().t().narrow(
+        1, -args.test_on, args.test_on
+    ) + test_preds.narrow(1, 2 * M, M).squeeze().t().narrow(
+        1, -args.test_on, args.test_on
+    )
     print(test_cases)
     print(test_preds)
     print(th.abs(test_cases.to(device) - test_preds).mean(dim=0))
