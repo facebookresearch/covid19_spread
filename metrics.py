@@ -32,15 +32,17 @@ def compute_metrics(f_ground_truth, f_predictions, mincount=10):
         preds = df_pred.loc[pdate]
 
         pred_triv = {
-            n: c[-(d + 1)] + d * np.abs(c[-(d + 1)] - c[-(d + 2)])
+            n: c[-(d + 2)] + (d + 1) * np.abs(c[-(d + 2)] - c[-(d + 3)])
             for n, c in counts.items()
         }
+        print(preds)
+        print(pred_triv)
 
         gts = np.ones(len(cols))
         errs = np.zeros(len(cols))
         errs_triv = np.zeros(len(cols))
         for i, n in enumerate(cols):
-            _gt = counts[n][-d]
+            _gt = counts[n][-(d + 1)]
             if _gt < mincount:
                 continue
             err = _gt - preds[n]
