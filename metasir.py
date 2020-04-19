@@ -359,7 +359,7 @@ def run_train(args, checkpoint):
         weight_decay=args.weight_decay,
     )
 
-    model = train(func, cases, population, odeint, optimizer, args)
+    model = train(func, cases, population, odeint, optimizer, checkpoint, args)
 
     return model
 
