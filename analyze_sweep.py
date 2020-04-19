@@ -25,12 +25,11 @@ def ll(sweep_dir, verbose: bool = False):
             lines = check_output(
                 f'cat {log} | grep "non_global_ll" | grep -o "\\{{.*\\}}"', shell=True
             )
-            log_ = [json.loads(l) for l in lines.decode('utf-8').strip().split('\n')]
+            log_ = [json.loads(l) for l in lines.decode("utf-8").strip().split("\n")]
             df = pandas.DataFrame(log_)
-            results.append({
-                "job": os.path.dirname(log),
-                "ll": df["non_global_ll"].max(),
-            })
+            results.append(
+                {"job": os.path.dirname(log), "ll": df["non_global_ll"].max()}
+            )
         except Exception as e:
             pass
     results = pandas.DataFrame(results)
@@ -123,6 +122,9 @@ def summary(sweep_dir, sort_by: Optional[str] = None, verbose: bool = False):
             if os.path.exists(f_forecast):
                 forecasts = pandas.read_csv(f_forecast, index_col=0)
                 print(forecasts["ALL REGIONS"].to_frame().transpose())
+                print(
+                    "TREND", np.int_(np.diff(forecasts["ALL REGIONS"].to_numpy()))[:-2]
+                )
             print()
     return results
 
