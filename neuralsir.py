@@ -167,7 +167,7 @@ if __name__ == "__main__":
 
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
-        pred_y = odeint(func, y0, t)
+        pred_y = odeint(func, y0, t, method="euler", options={"step_size": 1})
         pred_y = pred_y.narrow(1, 1, 1)
         print(th.cat([cases[-10:].unsqueeze(1), pred_y[-10:]], dim=1))
 

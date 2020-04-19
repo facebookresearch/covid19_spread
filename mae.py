@@ -8,7 +8,8 @@ import sys
 from datetime import timedelta
 from common import load_data
 
-verbose = False
+
+verbose = True
 
 
 def load_ground_truth(path):
@@ -30,50 +31,83 @@ prefix = sys.argv[2]
 basedate = pd.to_datetime(sys.argv[3])
 suffix = sys.argv[4]
 
-maes = {"Measure": ["MAE", "MAPE", "MASE"]}
+maes = {"Measure": ["MAE", "MAPE", "NAIV", "MASE"]}
 ix = basedate.strftime("%m/%d")
 for d in range(1, 8):
     pdate = basedate - timedelta(d)
     fname = f"{prefix}-{pdate.strftime('%Y%m%d')}{suffix}.csv"
     if not os.path.exists(fname):
         print(f"Skipping {fname}")
-        continue
-    df_pred = pd.read_csv(fname, usecols=cols + ["date"])
-    df_pred = df_pred.set_index("date")
-    vals = df_pred.loc[ix]
+        vals = [np.nan for _ in cols]
+    else:
+        df_pred = pd.read_csv(fname, usecols=cols + ["date"])
+        df_pred = df_pred.set_index("date")
+        df_pred = df_pred[cols]
+        vals = df_pred.loc[ix]
 
-    pred_triv = {n: np.abs(c[-(d + 1)] - c[-d]) * d for n, c in counts.items()}
+    pred_triv = {
+        n: c[-(d + 1)] + d * np.abs(c[-(d + 1)] - c[-(d + 2)])
+        for n, c in counts.items()
+    }
 
     print()
     print(pdate)
-    errs = np.zeros(len(cols))
+    log = []
     gts = np.ones(len(cols))
-    trivs = np.zeros(len(cols))
+    errs = np.zeros(len(cols))
+    errs_triv = np.zeros(len(cols))
     for i, c in enumerate(cols):
-        err = abs(gt[c] - vals[i])
-        trivs[i] = abs(gt[c] - pred_triv[c])
-        if verbose:
-            print(
+        if gt[c] < 10:
+            continue
+        err = gt[c] - vals[i]
+        errs_triv[i] = abs(gt[c] - pred_triv[c])
+        log.append(
+            [
                 d,
                 c,
-                round(err, 2),
+                counts[c][-(d + 2)],
+                counts[c][-(d + 1)],
                 gt[c],
                 vals[i],
-                round(err / gt[c], 3),
-                trivs[i],
                 pred_triv[c],
-            )
-        errs[i] = err
+                err,
+                errs_triv[i],
+                err / errs_triv[i],
+            ]
+        )
+        errs[i] = abs(err)
         # make sure errors and gts are aligned
         gts[i] = max(1, gt[c])
     maes[pdate.strftime("%m/%d")] = [
         np.mean(errs),
         np.mean(errs / gts),
-        np.mean(errs / trivs),
+        np.mean(errs_triv),
+        np.mean(errs) / np.mean(errs_triv),
     ]
+
+    if verbose:
+        print(
+            pd.DataFrame(
+                log,
+                columns=[
+                    "Day",
+                    "County",
+                    "D-2",
+                    "D-1",
+                    "GT",
+                    "Pred",
+                    "Naiv",
+                    "MAE",
+                    "MAE Naiv",
+                    "MAE Ratio",
+                ],
+            ).round(2)
+        )
 
 df = pd.DataFrame(maes).round(2)
 
 print()
 print(df)
+
+print(" | ".join(f"{d+1}d = {m}" for d, m in enumerate(df.iloc[0][1:])))
 # print("MASE", mae / mae_triv)
