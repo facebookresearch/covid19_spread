@@ -51,16 +51,16 @@ def main(args):
         "-std-dev",
         default=-1,
         type=float,
-        help="std deviation threshold for excluding simulations (-1 for none)"
+        help="std deviation threshold for excluding simulations (-1 for none)",
     )
     parser.add_argument("-days", type=int, help="Number of days to forecast")
     parser.add_argument("-fout", type=str, help="Output file for forecasts")
     opt = parser.parse_args(args)
 
     if opt.basedate is None:
-        with h5py.File(opt.dset,'r') as hf:
-            assert 'basedate' in hf.attrs, "Missing basedate!"
-            opt.basedate = hf.attrs['basedate']
+        with h5py.File(opt.dset, "r") as hf:
+            assert "basedate" in hf.attrs, "Missing basedate!"
+            opt.basedate = hf.attrs["basedate"]
 
     nodes, ns, ts, _ = load_data(opt.dset)
     M = len(nodes)
@@ -74,32 +74,44 @@ def main(args):
     # create episode
     nts = (ts - ts.min()) / timescale
     episode = Episode(th.from_numpy(nts).double(), th.from_numpy(ns).long(), False, M)
+    assert episode.timestamps[0] == 0
     t_obs = episode.timestamps[-1].item()
     print("max observation time: ", t_obs)
+
+    n_cases = np.array([len(episode.occurrences_of_dim(i)) - 1 for i in range(M)])
 
     # goodness of fit on observed data
     residuals = goodness_of_fit(episode, 0.001, mus, beta, A, nodes)
     ks, pval = zip(
         *[
-            kstest(residuals[x], "expon") if len(residuals[x]) > 1 else (np.nan, np.nan)
+            kstest(residuals[x], "expon")
+            if len(residuals[x]) > 1 and nodes[x] != "Unknown"
+            else (np.nan, np.nan)
             for x in range(M)
         ]
     )
     ks = np.array(ks)
     pval = np.array(pval)
     crit = [
-        ks_critical_value(len(residuals[x]), 0.05) if len(residuals[x]) > 1 else np.nan
+        ks_critical_value(len(residuals[x]), 0.05)
+        if len(residuals[x]) > 1 and nodes[x] != "Unknown"
+        else np.nan
         for x in range(M)
     ]
+
     print("--- Goodness of fit ---")
-    print(f"Avg. KS   = {np.mean(ks[ks == ks]):.3f}")
-    print(f"Avg. pval = {np.mean(pval[pval == pval]):.3f}")
+    ix = ks == ks
+    print(len(ix), ks[ix].shape, n_cases[ix].shape)
+    print(f"Avg. KS   = {np.average(ks[ix], weights=np.log(1 + n_cases)[ix]):.3f}")
+    ix = pval == pval
+    print(f"Avg. pval = {np.average(pval[ix], weights=np.log(1 + n_cases)[ix]):.3f}")
     print()
 
     assert len(ks) == len(nodes), (len(ks), len(nodes))
     for i, node in enumerate(nodes):
         print(
-            f"{node:15s}: N = {len(episode.occurrences_of_dim(i)) - 1}, KS = {ks[i]:.3f}, Crit = {crit[i]:.3f}, pval = {pval[i]:.3f}"
+            f"{node:15s}: N = {n_cases[i]}, "
+            f"KS = {ks[i]:.3f}, Crit = {crit[i]:.3f}, pval = {pval[i]:.3f}"
         )
 
     if opt.days is None or opt.days < 1:
@@ -115,7 +127,14 @@ def main(args):
         simulator = model.mk_simulator()
         timescale = model_opt.timescale
         sim_d = lambda d: simulate_tl_mhp(
-            t_obs, d, episode, timescale, simulator, nodes, opt.trials, stddev=opt.std_dev
+            t_obs,
+            d,
+            episode,
+            timescale,
+            simulator,
+            nodes,
+            opt.trials,
+            stddev=opt.std_dev,
         )
 
     # collect simulation data and prepare for output
