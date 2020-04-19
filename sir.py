@@ -75,11 +75,11 @@ def simulate(
 
     # compute fit quality
     res = {d: _I for d, _S, _I, _R in gen_sir(S0, I0, R0, beta, gamma, days)}
-    mae = [abs(cases[i] - res[i]) for i in range(5, len(cases))]
-    rmse = [(cases[i] - res[i]) ** 2 for i in range(5, len(cases))]
+    # mae = [abs(cases[i] - res[i]) for i in range(5, len(cases))]
+    # rmse = [(cases[i] - res[i]) ** 2 for i in range(5, len(cases))]
 
-    print(mae)
-    print(rmse)
+    # print(mae)
+    # print(rmse)
 
     # simulate forward
     IN = cases[-1]
@@ -102,11 +102,21 @@ def simulate(
             "gamma": [round(gamma, 3)],
             "Peak days": [peak_days],
             "Peak cases": [int(infected[ix_max])],
-            "MAE": [np.mean(mae)],
-            "RMSE": [np.mean(rmse)],
+            # "MAE": [np.mean(mae)],
+            # "RMSE": [np.mean(rmse)],
         }
     )
     return meta, infs
+
+
+def estimate_growth_const(cases, window=None):
+    growth_rate = np.exp(np.diff(np.log(cases))) - 1
+    if window is not None:
+        growth_rate = growth_rate[-window:]
+    doubling_time = np.log(2) / growth_rate
+    # print(doubling_time, doubling_time.mean())
+    doubling_time = doubling_time.mean()
+    return doubling_time
 
 
 def main(args):
@@ -128,7 +138,7 @@ def main(args):
     )
     parser.add_argument("-recovery-days", type=int, default=14, help="Recovery days")
     parser.add_argument(
-        "-distancing-reduction", type=float, default=0.3, help="Recovery days"
+        "-distancing-reduction", type=float, default=0.2, help="Recovery days"
     )
     parser.add_argument(
         "-fsuffix", type=str, help="prefix to store forecast and metadata"
@@ -141,12 +151,7 @@ def main(args):
     tmax = len(cases)
     t = np.arange(tmax) + 1
 
-    growth_rate = np.exp(np.diff(np.log(cases))) - 1
-    if opt.window is not None:
-        growth_rate = growth_rate[-opt.window :]
-    doubling_time = np.log(2) / growth_rate
-    # print(doubling_time, doubling_time.mean())
-    doubling_time = doubling_time.mean()
+    doubling_time = estimate_growth_const(cases, opt.window)
     print(f"Population size = {population}")
     print(f"Inferred doubling time = {doubling_time}")
 
