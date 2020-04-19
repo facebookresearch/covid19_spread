@@ -59,38 +59,45 @@ def run_trial(t_obs, t_max, d, M, tid):
     simu.track_intensity(-1)
     simu.reset()
     simu.set_timestamps(timestamps[0], t_obs)
-    simu.end_time = t_max
+    simu.end_time = t_max + 1
     simu.simulate()
     simc = {i: np.zeros(M) for i in range(1, d + 1)}
     for i in range(1, d + 1):
         for n in range(M):
-            ix = np.where(simu.timestamps[n] < t_obs + i)[0]
+            ix = np.where(simu.timestamps[n] <= t_obs + i)[0]
             simc[i][n] += len(ix)
     return simc
 
-def simulate_tl_mhp(t_obs, d, episode, timescale, simulator, nodes, trials, quiet=False, stddev=-1):
+
+def simulate_tl_mhp(
+    t_obs, d, episode, timescale, simulator, nodes, trials, quiet=False, stddev=-1
+):
     confirmed_cases = np.bincount(episode.entities, minlength=len(nodes))
     t_max = t_obs + (d / timescale)
-    counts = np.empty((d+1, len(nodes), trials))
-    counts[0, :, :] = confirmed_cases[:,np.newaxis]
+    counts = np.empty((d + 1, len(nodes), trials))
+    counts[0, :, :] = confirmed_cases[:, np.newaxis]
     for trial in range(trials):
         evts = simulator.simulate(episode.entities, episode.timestamps, t_max, quiet)
         evts = np.array(evts)
-        for i in range(1, d+1):
-            current_evts = evts[evts[:, 1] <= t_obs + (i/ timescale)]
-            cur_counts = np.bincount(current_evts[:, 0].astype(int), minlength=len(nodes))
+        for i in range(1, d + 1):
+            current_evts = evts[evts[:, 1] <= t_obs + (i / timescale)]
+            cur_counts = np.bincount(
+                current_evts[:, 0].astype(int), minlength=len(nodes)
+            )
             counts[i, :, trial] = cur_counts
-    std = np.clip(np.std(counts, axis=-1,keepdims=True), 0.0001, None)
+    std = np.clip(np.std(counts, axis=-1, keepdims=True), 0.0001, None)
     z = (counts - np.mean(counts, axis=-1, keepdims=True)) / std
     if stddev > 0:
         mask = np.abs(z) < stddev
         counts[~mask] = 0
-        print(f'Throwing out {np.sum(~mask)} simulations out of {mask.size} ({np.sum(~mask)/mask.size})')
+        print(
+            f"Throwing out {np.sum(~mask)} simulations out of {mask.size} ({np.sum(~mask)/mask.size})"
+        )
     else:
         mask = np.ones_like(counts)
     counts = counts.sum(-1) / mask.sum(-1)
     df = pd.DataFrame(np.transpose(counts))
-    df['county'] = nodes
+    df["county"] = nodes
     return df
 
 
@@ -98,6 +105,7 @@ def simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes, step, trials
     """
     Simulate a MHP from t_obs until t_obs + d
     """
+    assert episode.timestamps[0] == 0
     timestamps = to_tick_data([episode], [None], nodes)
     learner = HawkesExpKern(beta, max_iter=1)
     learner.fit(timestamps)
