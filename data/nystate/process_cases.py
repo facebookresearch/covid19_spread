@@ -3,12 +3,21 @@
 import h5py
 import numpy as np
 import pandas as pd
+import os
 import sys
 
 from collections import defaultdict as ddict
 from itertools import count
 
 fout = sys.argv[1]
+smooth = "SMOOTH" in os.environ and os.environ["SMOOTH"] == "1"
+print("Smoothing data =", smooth)
+
+if smooth:
+    fout += "_smooth.h5"
+else:
+    fout += ".h5"
+
 
 dparser = lambda x: pd.to_datetime(x, format="%m/%d/%Y")
 df = pd.read_csv(
@@ -43,8 +52,14 @@ df_agg = df.groupby(["county"])
 for county, group in df_agg:
     group = group.sort_values(by="date")
     ts = group["date"].values.astype(np.int)
-    ws = group["cases"].values.astype(np.float)
     # ws = np.diff([0] + ws.tolist())
+    if smooth:
+        _ws = group["cases"]  # .values.astype(np.float)
+        ws = _ws.rolling(window=3).mean().to_numpy()
+        ws[ws != ws] = 0
+        ws[0] = _ws.iloc[0]
+    else:
+        ws = group["cases"].values.astype(np.float)
     ncases = ws.sum()
     print(county, ncases, ws, ts)
     es = []
@@ -64,7 +79,7 @@ for county, group in df_agg:
         es += _es
         # tp = ts[i]
         # es += [ts[i]] * w
-    assert len(es) == ncases, (len(es), ncases)
+    # assert len(es) == ncases, (len(es), ncases)
     if len(es) > 0:
         kid = region_ids[county]
         _ts += es

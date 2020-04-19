@@ -34,9 +34,12 @@ data-ny.csv:
 	-mv -vn $@ data-ny-$(PREV).csv
 	curl -o $@ https://health.data.ny.gov/api/views/xdss-u53e/rows.csv?accessType=DOWNLOAD
 
+timeseries.h5: data-ny.csv
+	cat $< | python3 process_cases.py timeseries
+
 timeseries-nyc.h5: data-ny.csv
-	awk 'NR==1 || /$(BOROUGHS)/' $< | python3 process_cases.py $@
+	awk 'NR==1 || /$(BOROUGHS)/' $< | python3 process_cases.py timeseries-nyc
 
 timeseries-nys.h5: data-ny.csv
-	awk 'NR==1 || !/$(BOROUGHS)/' $< | python3 process_cases.py $@
+	awk 'NR==1 || !/$(BOROUGHS)/' $< | python3 process_cases.py timeseries-nys
 # end

@@ -2,6 +2,7 @@
 
 import h5py
 import numpy as np
+import os
 import pandas as pd
 import sys
 
@@ -9,7 +10,6 @@ from collections import defaultdict as ddict
 from datetime import datetime
 from itertools import count
 
-fout = "timeseries.h5"
 
 df = pd.read_csv(
     sys.argv[1],
@@ -42,6 +42,14 @@ df = pd.read_csv(
     ],
 )
 
+smooth = "SMOOTH" in os.environ and os.environ["SMOOTH"] == "1"
+print("Smoothing data =", smooth)
+
+if smooth:
+    fout = "timeseries_smooth.h5"
+else:
+    fout = "timeseries.h5"
+
 last_date = str(pd.to_datetime(df["Date"]).max().date())
 del df["Date"]
 
@@ -63,9 +71,16 @@ print(ats)
 # cmap = {"Morristown": "Morris"}
 
 for county in counties:
-    print(county)
-    ws = df[county].to_numpy()
+    if smooth:
+        _ws = df[county]
+        ws = _ws.rolling(window=3).mean().to_numpy()
+        ws[ws != ws] = 0
+        ws[0] = _ws.iloc[0]
+    else:
+        ws = df[county].to_numpy()
+    # ws = df[county].to_numpy()
     ix = np.where(ws > 0)[0]
+    print(county, ws[-1])
     if len(ix) < 1:
         continue
     ts = ats[ix]
