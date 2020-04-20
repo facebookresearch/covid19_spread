@@ -52,7 +52,9 @@ df = get_nyt()
 # Remove any unknowns
 df = df[[c for c in df.columns if 'Unknown' not in c]]
 
-df.to_csv('ground_truth.csv', index=False)
+t = df.transpose()
+t.columns = [str(x.date()) for x in t.columns]
+t.reset_index().rename(columns={'loc': 'county'}).to_csv('ground_truth.csv', index=False)
 
 counter = itertools.count()
 county_ids = defaultdict(counter.__next__)
