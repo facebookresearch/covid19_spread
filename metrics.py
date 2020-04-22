@@ -26,17 +26,17 @@ def compute_metrics(f_ground_truth, f_predictions, mincount=10):
     df_pred = df_pred.set_index("date")
     df_pred = df_pred[cols]
     print(df_pred)
+    z = len(df_pred)
+
     maes = {"Measure": ["MAE", "MAPE", "NAIV", "MASE"]}
     for d in range(len(df_pred)):
         pdate = basedate - timedelta(d)
         preds = df_pred.loc[pdate]
 
         pred_triv = {
-            n: c[-(d + 2)] + (d + 1) * np.abs(c[-(d + 2)] - c[-(d + 3)])
+            n: c[-(z + 1)] + (z - d) * np.abs(c[-(z + 1)] - c[-(z + 2)])
             for n, c in counts.items()
         }
-        print(preds)
-        print(pred_triv)
 
         gts = np.ones(len(cols))
         errs = np.zeros(len(cols))
