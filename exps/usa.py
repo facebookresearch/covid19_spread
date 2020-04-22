@@ -12,6 +12,7 @@ import rmse
 import train
 import pandas
 import itertools
+import shutil
 from collections import defaultdict
 from itertools import product
 from evaluation import simulate_mhp, goodness_of_fit
@@ -35,9 +36,9 @@ opt = parser.parse_args()
 # construct experiment parameters
 grid = {
     'dim': [20, 30, 50, 100],
-    'lr': [0.001, 0.01, 0.1, 0.5],
+    'lr': [0.0005, 0.001, 0.01, 0.1],
     'momentum': [0.99],
-    'scale': [0.7, 0.8, 1.0, 1.2],
+    'scale': [0.8, 1.0, 1.2, 1.3, 1.5],
     'optim': ['adam'],
     'weight-decay': [0, 0.1, 0.5, 1, 2],
     'lr-scheduler': ['cosine', 'constant'],
@@ -65,7 +66,7 @@ df.loc[(df['lr'] > 0.01) & (df['lr-scheduler'] == 'constant'), 'lr'] = 0.01
 df = df.drop_duplicates()
 dicts = list(df.T.to_dict().values())
 random.shuffle(dicts)
-dicts = dicts[:100]
+dicts = dicts[:200]
 
 def run_experiment(crossval, folder, pdict, local=False, seed=42):
     if not local:
@@ -80,9 +81,9 @@ def run_experiment(crossval, folder, pdict, local=False, seed=42):
 
     if crossval:
         job_dset = os.path.join(job_dir, '../', os.path.basename(pdict['dset']) + f'.minus_{opt.days}_days')
-        job_dset = os.path.realpath(job_dset)
     else:
-        job_dset = pdict.get('dset')
+        job_dset = os.path.join(folder, '../', os.path.basename(pdict['dset']))
+    job_dset = os.path.realpath(job_dset)
 
     train.main([str(x) for x in [
         '-dset', job_dset,
@@ -110,8 +111,11 @@ def launch(crossval, dicts):
     base_dir = f'/checkpoint/{os.environ["USER"]}/exp/{exp_name}/{now}'
     folder = f'{base_dir}/%j'
 
+    os.makedirs(base_dir)
+    for i, dset in enumerate(grid['dset']):
+        shutil.copy(dset, os.path.join(base_dir, os.path.basename(dset)))
+
     if crossval:
-        os.makedirs(base_dir)
         for i, dset in enumerate(grid['dset']):
             outfile = os.path.join(base_dir, os.path.basename(dset) + f'.minus_{opt.days}_days')
             drop_k_days(dset, outfile, opt.days)
@@ -121,7 +125,7 @@ def launch(crossval, dicts):
         executor.update_parameters(
             name=exp_name,
             gpus_per_node=NGPUS,
-            cpus_per_task=10,
+            cpus_per_task=3,
             mem_gb=20,
             slurm_array_parallelism=60,
             timeout_min=12 * 60,

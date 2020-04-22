@@ -68,7 +68,7 @@ def ks_test(episode, step, model, nodes, nprocs=20):
 def rmse(pth, ground_truth, trials = 10):
     mdl, mdl_opt = CovidModel.from_checkpoint(pth, map_location='cpu')
     nodes, ns, ts, _ = load_data(mdl_opt.dset)
-    episode = Episode(th.from_numpy(ts).double(), th.from_numpy(ns).long(), False, mdl.nnodes)
+    episode = Episode(th.from_numpy(ts).double(), th.from_numpy(ns).long(), True, mdl.nnodes)
 
     simulator = mdl.mk_simulator()
     t_obs = ts[-1]
@@ -86,13 +86,13 @@ def rmse(pth, ground_truth, trials = 10):
     avg_pval = float(ks_result['pval'].mean())
     vals = {'pth': pth, 'ks': avg_ks, 'pval': avg_pval}
     for k, v in mapper.items():
+        # number of cases is Day_0 + number of new cases.  If we did some kind of smoothing
+        # on the data, we want to make sure that we are basing our forecasts on the actual known counts
+        sim[k] = merged[mapper[0]] + (sim[k] - merged[k-1])
         if v in merged.columns:
-            # number of cases is Day_0 + number of new cases.  If we did some kind of smoothing
-            # on the data, we want to make sure that we are basing our forecasts on the actual known counts
-            ncases = merged[mapper[0]] + (merged[k] - merged[k-1])
-            vals[f'day_{k}_mean'] = (ncases - merged[v]).abs().mean()
-            vals[f'day_{k}_max'] = (ncases - merged[v]).abs().max()
-            vals[f'day_{k}_median'] = (ncases - merged[v]).abs().median()
+            vals[f'day_{k}_mean'] = (sim[k] - merged[v]).abs().mean()
+            vals[f'day_{k}_max'] = (sim[k] - merged[v]).abs().max()
+            vals[f'day_{k}_median'] = (sim[k] - merged[v]).abs().median()
 
     fout = os.path.join(os.path.dirname(pth), 'forecasts.csv')
     sim.rename(columns=mapper).to_csv(fout, index=False)
