@@ -67,7 +67,7 @@ for county, group in df_agg:
     #    continue
     # tp = ts[0] - 1
     for i in range(len(ts)):
-        w = int(ws[i])
+        w = int(np.ceil(ws[i]))
         if w <= 0:
             continue
         tp = ts[i] - 1
