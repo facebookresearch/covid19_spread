@@ -54,12 +54,13 @@ grid-nj:
 	tail -1 $(runlog)
 
 forecast-nj: params = -max-events 500000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 25
-forecast-nj: doubling-times = 4 5 6 10
-forecast-nj: dset = data/new-jersey/timeseries.h5
+forecast-nj: doubling-times = 14 15 16 17
+forecast-nj: dset-true = data/new-jersey/timeseries.h5
+forecast-nj: dset = data/new-jersey/timeseries_smooth.h5
 forecast-nj:
 	python3 sir.py -fdat data/new-jersey/timeseries.h5 -fpop data/population-data/US-states/new-jersey-population.csv -fsuffix nj-$(DATE) -dout forecasts/new-jersey -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
 	OMP_NUM_THREADS=1 python3 train.py $(params) -dset $(dset) -checkpoint /tmp/forecast_nj.bin  $(TARGS)
-	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -checkpoint /tmp/forecast_nj.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/new-jersey/forecast-nj-$(DATE)$(FSUFFIX).csv
+	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -dset-true $(dset-true) -checkpoint /tmp/forecast_nj.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/new-jersey/forecast-nj-$(DATE)$(FSUFFIX).csv
 
 
 analyze-nj: sweepdir = $(shell tail -$(LAST) runs/new-jersey/$(DATE).log | head -n1)
@@ -79,20 +80,22 @@ data-nj: data/new-jersey/nj-official-$(shell date "+%m%d" -d $(DATE)).csv
 # --- NY State ---
 
 forecast-nys: params = -max-events 1000000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200
-forecast-nys: doubling-times = 12 13 14 15
-forecast-nys: dset = data/nystate/timeseries-nys.h5
+forecast-nys: doubling-times = 19 20 21 22
+forecast-nys: dset-true = data/nystate/timeseries-nys.h5
+forecast-nys: dset = data/nystate/timeseries-nys_smooth.h5
 forecast-nys:
 	python3 sir.py -fdat data/nystate/timeseries.h5 -fpop data/population-data/US-states/new-york-population.csv -fsuffix ny-$(DATE) -dout forecasts/nys -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
 	OMP_NUM_THREADS=1 python3 train.py $(params) -dset $(dset) $(TARGS) -checkpoint /tmp/forecast_nystate.bin
-	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -checkpoint /tmp/forecast_nystate.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/nystate/forecast-ny-$(DATE)$(FSUFFIX).csv
+	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -dset-true $(dset-true) -checkpoint /tmp/forecast_nystate.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/nystate/forecast-ny-$(DATE)$(FSUFFIX).csv
 
 forecast-nyc: params = -max-events 1000000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200
-forecast-nyc: doubling-times = 12 13 14 15
-forecast-nyc: dset = data/nystate/timeseries-nyc.h5
+forecast-nyc: doubling-times = 25 30 35 40
+forecast-nyc: dset-true = data/nystate/timeseries-nyc.h5
+forecast-nyc: dset = data/nystate/timeseries-nyc_smooth.h5
 forecast-nyc:
 	python3 sir.py -fdat data/nystate/timeseries.h5 -fpop data/population-data/US-states/new-york-population.csv -fsuffix ny-$(DATE) -dout forecasts/nys -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
 	OMP_NUM_THREADS=1 python3 train.py $(params) -dset $(dset) $(TARGS) -checkpoint /tmp/forecast_nyc.bin
-	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -checkpoint /tmp/forecast_nyc.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/nyc/forecast-$(DATE)$(FSUFFIX).csv
+	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -dset-true $(dset-true) -checkpoint /tmp/forecast_nyc.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/nyc/forecast-$(DATE)$(FSUFFIX).csv
 
 
 grid-nyc: runlog = runs/nyc/$(DATE).log
