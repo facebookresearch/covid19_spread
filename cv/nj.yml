@@ -13,9 +13,9 @@ metasir:
   train:
     fdat: *fvdata
     fpop: *fpop
-    decay: latent
-    lr: 0.001
-    weight_decay: 0.01
+    decay: exp
+    lr: 0.005
+    weight_decay: 0
     niters: 10000
     method: euler
     loss: lsq

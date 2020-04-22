@@ -65,31 +65,6 @@ class BetaExpDecay(nn.Module):
         return None
 
 
-class BetaPolynomial(nn.Module):
-    def __init__(self, population, tmax):
-        super(BetaPolynomial, self).__init__()
-        M = len(population)
-        self.tmax = tmax
-        self.a = th.nn.Parameter(th.ones(M, dtype=th.float))
-        self.b = th.nn.Parameter(th.ones(M, dtype=th.float))
-        self.c = th.nn.Parameter(th.ones(M, dtype=th.float))
-        self.d = th.nn.Parameter(th.ones(M, dtype=th.float))
-        self.fpos = F.softplus
-
-    def forward(self, t, y):
-        # beta = self.fpos(self.a) * th.exp(-self.fpos(self.b) * t) * self.fpos(self.c)
-        _t = t / self.tmax
-        beta = th.sigmoid(self.a * _t ** 3 + self.b * _t ** 2 + self.c * _t + self.d)
-        return beta, None
-
-    def __repr__(self):
-        with th.no_grad():
-            return f"Exp = ({self.fpos(self.a).mean().item():.3f}, {self.fpos(self.b).mean().item():.3f})"
-
-    def y0(self):
-        return None
-
-
 class BetaPowerLawDecay(nn.Module):
     def __init__(self, population):
         super(BetaPowerLawDecay, self).__init__()
@@ -126,27 +101,28 @@ class BetaLatent(nn.Module):
         self.dim = dim
         self.Wbeta = nn.Linear(dim, dim, bias=True)
         self.Wbeta2 = nn.Linear(dim, dim, bias=True)
-        self.v = nn.Linear(dim, 3, bias=False)
+        self.v = nn.Linear(dim, 1, bias=False)
         self.b0 = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
+        self.c = nn.Parameter(th.randn(1, 1, dtype=th.float))
         self.fpos = F.softplus
-        # nn.init.xavier_uniform_(self.Wbeta.weight)
-        # nn.init.xavier_uniform_(self.Wbeta2.weight)
-        # nn.init.xavier_uniform_(self.v.weight)
+        nn.init.xavier_uniform_(self.Wbeta.weight)
+        nn.init.xavier_uniform_(self.Wbeta2.weight)
+        nn.init.xavier_uniform_(self.v.weight)
 
     def forward(self, t, y):
         beta_last = y.narrow(0, self.M * 3, self.M * self.dim).reshape(self.M, self.dim)
         # beta_last = y.narrow(0, self.M * 3, self.dim)
         # beta_now = self.Wbeta2(th.tanh(self.Wbeta(beta_last)))
-        beta_now = self.Wbeta(beta_last)
+        # beta_now = self.Wbeta(beta_last)
 
-        tmp = self.v(th.tanh(beta_now))
-        a = tmp.narrow(-1, 0, 1)
-        b = tmp.narrow(-1, 1, 1)
-        c = tmp.narrow(-1, 2, 1)
+        beta_now = th.tanh(self.Wbeta(beta_last) + self.c * t)
+        # a = tmp.narrow(-1, 0, 1)
+        # b = tmp.narrow(-1, 1, 1)
+        # c = tmp.narrow(-1, 2, 1)
         # beta = th.sigmoid(a) * th.exp(-self.fpos(b) * t)
         # beta = th.sigmoid(a * t + b * (t - 1) + c * (t - 2))
         # beta = th.sigmoid(tmp.mean()) * F.softplus(self.c)
-        beta = th.sigmoid(tmp.sum())
+        beta = th.sigmoid(self.v(beta_now))
         # beta = self.fpos(a) * th.exp(-self.fpos(b) * t) + self.fpos(c)
         # assert beta == beta, (beta_last, beta_now, self.Wbeta.weight)
         return beta.squeeze(), beta_now.view(-1)
@@ -161,7 +137,7 @@ class MetaSIR(nn.Module):
         self.M = len(population)
         self.alphas = th.nn.Parameter(th.ones((self.M, self.M)))
         self.gamma = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(0.1))
-        # self.gamma = th.tensor([1.0 / 14]).to(device)
+        # self.gamma = th.tensor([1.0 / 14]).to(population.device)
         self.c = th.nn.Parameter(th.zeros(1, dtype=th.float))
         self.fpos = F.softplus
         self.Ns = population
@@ -185,6 +161,7 @@ class MetaSIR(nn.Module):
 
         # compute dynamics
         # W = F.softmax(self.alphas, dim=0)
+        # W = F.softplus(self.alphas)
         W = th.sigmoid(self.alphas)
         # W = W / W.sum()
         WIs = beta * th.mv(W, Is) / self.Ns
@@ -378,8 +355,6 @@ def run_train(args, checkpoint):
     elif args.decay == "latent":
         beta_net = BetaLatent(population, 16)
         weight_decay = args.weight_decay
-    elif args.decay == "poly":
-        beta_net = BetaPolynomial(population, len(cases))
 
     func = MetaSIR(population, beta_net).to(device)
     optimizer = optim.AdamW(
