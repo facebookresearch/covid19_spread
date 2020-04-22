@@ -5,15 +5,17 @@ validation:
   input: &fvdata timeseries_filtered.h5
   output: validation.csv
   days: &vdays 7
+metrics:
+  output: metrics.csv
 metasir:
   module: metasir
   output: &fmodel metasir_model.bin
   train:
     fdat: *fvdata
     fpop: *fpop
-    decay: exp
-    lr: 0.005
-    weight_decay: 0
+    decay: latent
+    lr: 0.001
+    weight_decay: 0.01
     niters: 10000
     method: euler
     loss: lsq
