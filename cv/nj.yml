@@ -5,6 +5,8 @@ validation:
   input: &fvdata timeseries_filtered.h5
   output: validation.csv
   days: &vdays 7
+metrics: 
+  output: metrics.csv
 metasir:
   module: metasir
   output: &fmodel metasir_model.bin
@@ -21,4 +23,17 @@ metasir:
     fit_on: 5
     test_on: *vdays
     adjoint: false
+sir:
+  module: sir
+  output: sir_model.npy
+  train:
+    fdat: *fvdata
+    fpop: *fpop
+    window: 14
+    recovery_days: 14
+    distancing_reduction: 0.2
+    days: *vdays
+    keep: 5
+    
+
     

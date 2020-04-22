@@ -119,6 +119,32 @@ def estimate_growth_const(cases, window=None):
     return doubling_time
 
 
+def run_train(train_params, model_out):
+    """Infers doubling time for sir model. 
+    API match that of cv.py for cross validation
+
+    Args:
+        train_params (dict)
+        model_out (str): path for saving training checkpoints
+
+    Returns: (np.float64) estimate of doubling_time
+    """
+    # get cases
+    _, regions = load_population(train_params["fpop"])
+    cases = load_confirmed(train_params["fdat"], regions)
+    # estimate_growth_const
+    doubling_time = estimate_growth_const(cases, train_params["window"])
+    # save estimate
+    np.save(model_out, doubling_time)
+    return doubling_time
+
+
+def run_simulate(train_params, model):
+    """Forecasts
+    API match that of cv.py for cross validation"""
+    pass
+
+
 def main(args):
     parser = argparse.ArgumentParser(description="Forecasting with SIR model")
     parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
