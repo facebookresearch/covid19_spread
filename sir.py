@@ -248,7 +248,7 @@ def main(args):
     opt = parser.parse_args(args)
 
     population, regions = load_population(opt.fpop)
-    cases, _, _ = load_confirmed(opt.fdat, regions)
+    cases = load_confirmed(opt.fdat, regions)
     tmax = len(cases)
     t = np.arange(tmax) + 1
 
