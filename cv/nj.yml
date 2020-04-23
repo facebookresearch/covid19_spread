@@ -33,8 +33,8 @@ sir:
     recovery_days: 14
     distancing_reduction: 0.2
     days: *vdays
-    # number of days to forecast
-    keep: 5
+    # number of days to keep for forecast
+    keep: *vdays
     
 
     
