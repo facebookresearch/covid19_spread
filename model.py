@@ -14,8 +14,9 @@ class CovidModel(SparseEmbeddingSoftplus):
         global_ll: bool = True,
         with_base_intensity: bool = True,
         const_beta: float = -1,
+        sparse_grads: bool = False,
     ):
-        super().__init__(nnodes, dim, scale, global_ll)
+        super().__init__(nnodes, dim, scale, global_ll, sparse_grads=sparse_grads)
         self.with_base_intensity = with_base_intensity
         self.const_beta = const_beta
 

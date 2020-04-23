@@ -31,6 +31,7 @@ class CovidTrainer(trainer.Trainer):
             True,
             self.opt.baseint,
             self.opt.const_beta,
+            sparse_grads=self.opt.sparse_grads,
         )
         self.model.initialize_weights(self.opt.alpha_scale)
         self.model = self.model.to(self.device)

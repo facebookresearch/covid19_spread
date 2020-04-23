@@ -1,5 +1,6 @@
 # Location of dataset (relative to covid19_spread repository base)
-data: data/nystate/timeseries-nys.h5
+data_true: data/nystate/timeseries-nys.h5
+data: data/nystate/timeseries-nys_smooth.h5
 sir:  # SIR parameters
   population: data/population-data/US-states/new-york-population.csv
   days: 60
@@ -17,4 +18,4 @@ grid:  # parameter grid for training
   maxcor: [100]
 forecast:  # forecasting parameters
   days: 7
-  trials: 50
+  trials: 100

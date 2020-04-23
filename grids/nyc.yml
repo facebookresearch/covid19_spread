@@ -1,18 +1,18 @@
 # Location of dataset (relative to covid19_spread repository base)
-data_true: data/new-jersey/timeseries.h5
-data: data/new-jersey/timeseries_smooth.h5
+data_true: data/nystate/timeseries-nyc.h5
+data: data/nystate/timeseries-nyc_smooth.h5
 sir:  # SIR parameters
-  population: data/population-data/US-states/new-jersey-population.csv
+  population: data/population-data/US-states/new-york-population.csv
   days: 60
   keep: 7
   window: 5
-  doubling_times: [13, 15, 17, 19]
+  doubling_times: [10, 11, 12, 13]
 grid:  # parameter grid for training
-  dim: [10, 15, 20]
+  dim: [2, 3, 4, 5]
   base_intensity: [True, False]
+  const_beta: [-1, 10, 15]
   alpha_scale: [-10, -15]
-  const_beta: [8, 10, 15]
-  weight_decay: [0]
+  weight_decay: [0] 
   max_events: [1000000]
   maxcor: [100]
 forecast:  # forecasting parameters

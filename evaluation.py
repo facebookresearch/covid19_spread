@@ -113,18 +113,26 @@ def simulate_tl_mhp(
     return df
 
 
-def simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes, step, trials):
+def simulate_mhp(
+    t_obs, d, episode, mus, beta, A, timescale, nodes, step, trials, episode_true=None
+):
     """
     Simulate a MHP from t_obs until t_obs + d
     """
     assert episode.timestamps[0] == 0
     timestamps = to_tick_data([episode], [None], nodes)
+    if episode_true is not None:
+        timestamps_true = to_tick_data([episode_true], [None], nodes)
+    else:
+        timestamps_true = timestamps
+    confirmed_cases = np.array([len(t) for t in timestamps[0]])
+    confirmed_cases_true = np.array([len(t) for t in timestamps_true[0]])
+
     learner = HawkesExpKern(beta, max_iter=1)
     learner.fit(timestamps)
     learner.adjacency[:] = A[:]
     learner.baseline[:] = mus[:]
 
-    confirmed_cases = [len(t) for t in timestamps[0]]
     t_max = (t_obs + d) / timescale
     t_obs /= timescale
     # simu = learner._corresponding_simu()
@@ -145,7 +153,11 @@ def simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes, step, trials
         for k, v in _simc.items():
             simc[k].append(v)
     for k, v in simc.items():
-        simc[k] = np.median(np.stack(v, axis=0), axis=0)
+        simc[k] = (
+            np.median(np.stack(v, axis=0), axis=0)
+            - confirmed_cases
+            + confirmed_cases_true
+        )
 
     # simu.set_timestamps(timestamps[0], t_obs)
     # simu.end_time = t_max
@@ -168,5 +180,5 @@ def simulate_mhp(t_obs, d, episode, mus, beta, A, timescale, nodes, step, trials
     # simc = {k: v / trials for k, v in simc.items()}
 
     simc["county"] = nodes
-    simc[0] = confirmed_cases
+    simc[0] = confirmed_cases_true
     return pd.DataFrame(simc)

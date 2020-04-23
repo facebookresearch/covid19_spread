@@ -5,7 +5,7 @@ validation:
   input: &fvdata timeseries_filtered.h5
   output: validation.csv
   days: &vdays 7
-metrics: 
+metrics:
   output: metrics.csv
 metasir:
   module: metasir
