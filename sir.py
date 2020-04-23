@@ -31,6 +31,12 @@ def load_population(path, col=1):
     print(regions)
     return pop, regions
 
+def load_region_populations(path, col=1):
+    """Returns region-level populations"""
+    df = pd.read_csv(path, header=None)
+    pop = df.iloc[:, col].to_numpy().tolist()
+    regions = df.iloc[:, 0].to_numpy().tolist()
+    return pop, regions
 
 def sir(s: float, i: float, r: float, beta: float, gamma: float, n: float):
     """The SIR model, one time step."""
@@ -109,13 +115,15 @@ def simulate(
     return meta, infs
 
 
-def estimate_growth_const(cases, window=None):
+def estimate_growth_const(cases, window=None, regions=False):
+    """Estimates doubling time. If regions is True, estimate is per region"""
     growth_rate = np.exp(np.diff(np.log(cases))) - 1
     if window is not None:
         growth_rate = growth_rate[-window:]
     doubling_time = np.log(2) / growth_rate
     # print(doubling_time, doubling_time.mean())
-    doubling_time = doubling_time.mean()
+    if not regions:
+        doubling_time = doubling_time.mean()
     return doubling_time
 
 
@@ -130,19 +138,40 @@ def run_train(train_params, model_out):
     Returns: (np.float64) estimate of doubling_time
     """
     # get cases
-    _, regions = load_population(train_params["fpop"])
+    _, regions = load_region_populations(train_params["fpop"])
     cases = load_confirmed(train_params["fdat"], regions)
     # estimate_growth_const
-    doubling_time = estimate_growth_const(cases, train_params["window"])
+    doubling_times = estimate_growth_const(cases, train_params["window"], regions=True)
     # save estimate
-    np.save(model_out, doubling_time)
-    return doubling_time
+    np.save(model_out, doubling_times)
+    return doubling_times
 
 
 def run_simulate(train_params, model):
-    """Forecasts
-    API match that of cv.py for cross validation"""
-    pass
+    """Forecasts region-level infections using
+    API of cv.py for cross validation
+
+    Returns: (pd.DataFrame) of forecasts per region
+    """
+    # regions are columns; dates are indices
+    populations, regions = load_region_populations(train_params["fpop"])
+    cases = load_confirmed(train_params["fdat"], regions)
+    doubling_times = model
+    recovery_days = train_params["recovery_days"]
+    distancing_reduction = train_params["distancing_reduction"]
+    days, keep = train_params["days"], train_params["keep"]
+
+    predictions = []
+    for population, doubling_time in zip(populations, doubling_times):
+        _, infs = simulate(
+            cases, population, doubling_time, recovery_days, distancing_reduction, days, keep
+        )
+        # predictions are in the second column
+        prediction = infs.to_numpy()[:,1]
+        predictions.append(prediction)
+    region_to_prediction = dict(zip(regions, predictions))
+    df = pd.DataFrame(region_to_prediction)
+    return df
 
 
 def main(args):

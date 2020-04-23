@@ -33,9 +33,21 @@ class TestSIRCrossValidation:
             pass
 
     def test_run_train(self, checkpoint_path):
-        """Verifies doubling time is a float > 0"""
-        doubling_time = sir.run_train(TRAIN_PARAMS, checkpoint_path)    
-        assert isinstance(doubling_time, np.float64)
-        assert doubling_time > 0
+        """Verifies doubling times are floats > 0"""
+        doubling_times = sir.run_train(TRAIN_PARAMS, checkpoint_path)    
+        assert doubling_times.dtype == "float64"
+        assert (doubling_times > 0).all()
 
+    def test_run_simulate(self, checkpoint_path):
+        """Verifies doubling time is a float > 0"""
+        doubling_times = sir.run_train(TRAIN_PARAMS, checkpoint_path)    
+        # model is doubling_times
+        predictions_df = sir.run_simulate(TRAIN_PARAMS, doubling_times)
+        assert predictions_df.shape[0] == TRAIN_PARAMS["keep"]
+
+    def test_load_region_populations(self):
+        """Verifies populations match regions in length"""
+        path = TRAIN_PARAMS["fpop"]
+        populations, regions = sir.load_region_populations(path)
+        assert len(regions) == len(populations)
 
