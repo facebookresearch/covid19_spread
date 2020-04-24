@@ -4,56 +4,8 @@ import argparse
 import numpy as np
 import pandas as pd
 import sys
-from common import load_data
 from datetime import timedelta
-
-
-def load_confirmed(path, regions):
-    # df = pd.read_csv(path, usecols=regions)
-    # cases = df.to_numpy().sum(axis=1)
-    nodes, ns, ts, _ = load_data(path)
-    unk = np.where(nodes == "Unknown")[0]
-    if len(unk) > 0:
-        ix = np.where(ns != unk[0])
-        ts = ts[ix]
-    cases = []
-    for i in range(1, int(np.ceil(ts.max())) + 1):
-        ix = np.where(ts < i)[0]
-        cases.append((i, len(ix)))
-    days, cases = zip(*cases)
-    return np.array(cases)
-
-
-def load_confirmed_by_region(path):
-    nodes, ns, ts, basedate, = load_data(path)
-    nodes = np.array(nodes)
-    tmax = int(np.ceil(ts.max()))
-    cases = np.zeros((len(nodes), tmax))
-    for n in range(len(nodes)):
-        ix2 = np.where(ns == n)[0]
-        for i in range(1, tmax + 1):
-            ix1 = np.where(ts < i)[0]
-            cases[n, i - 1] = len(np.intersect1d(ix1, ix2))
-    unk = np.where(nodes == "Unknown")[0]
-    cases = np.delete(cases, unk, axis=0)
-    nodes = np.delete(nodes, unk)
-    return cases, nodes, basedate
-
-
-def load_population(path, col=1):
-    df = pd.read_csv(path, header=None)
-    pop = df.iloc[:, col].sum()
-    regions = df.iloc[:, 0].to_numpy().tolist()
-    print(regions)
-    return pop, regions
-
-
-def load_population_by_region(path, col=1):
-    """Returns region-level populations"""
-    df = pd.read_csv(path, header=None)
-    pop = df.iloc[:, col].to_numpy().tolist()
-    regions = df.iloc[:, 0].to_numpy().tolist()
-    return pop, regions
+import load
 
 
 def sir(s: float, i: float, r: float, beta: float, gamma: float, n: float):
@@ -154,7 +106,7 @@ def run_train(train_params, model_out):
     Returns: (np.float64) estimate of doubling_time
     """
     # get cases
-    cases_by_region, _, _ = load_confirmed_by_region(train_params.fdat)
+    cases_by_region, _, _ = load.load_confirmed_by_region(train_params.fdat)
     # estimate doubling times per region
     doubling_times = []
     for cases in cases_by_region:
@@ -174,8 +126,8 @@ def run_simulate(train_params, model):
     Returns: (pd.DataFrame) of forecasts per region
     """
     # regions are columns; dates are indices
-    populations, regions = load_population_by_region(train_params.fpop)
-    region_cases, _, base_date = load_confirmed_by_region(train_params.fdat)
+    populations, regions = load.load_populations_by_region(train_params.fpop)
+    region_cases, _, base_date = load.load_confirmed_by_region(train_params.fdat)
     doubling_times = model
     recovery_days, distancing_reduction, days, keep = initialize(train_params)
 
@@ -247,8 +199,8 @@ def main(args):
     parser.add_argument("-dout", type=str, default=".", help="Output directory")
     opt = parser.parse_args(args)
 
-    population, regions = load_population(opt.fpop)
-    cases = load_confirmed(opt.fdat, regions)
+    population, regions = load.load_population(opt.fpop)
+    cases = load.load_confirmed(opt.fdat, regions)
     tmax = len(cases)
     t = np.arange(tmax) + 1
 

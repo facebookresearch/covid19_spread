@@ -3,10 +3,13 @@ To run tests:
 $ python -m pytest tests/test_sir_cv.py
 """
 
-import sir
 import os
-import pytest
+
 import numpy as np
+import pytest
+
+import load
+import sir
 
 
 class TrainParams:
@@ -20,6 +23,7 @@ class TrainParams:
 
 
 class TestSIRCrossValidation:
+
     @pytest.fixture(scope="module")
     def checkpoint_path(self):
         """Fixture to cleanup checkpoint file"""
@@ -30,24 +34,9 @@ class TestSIRCrossValidation:
         except OSError:
             pass
 
-    def test_load_region_populations(self, checkpoint_path):
-        """Verifies populations match regions in length"""
-        path = TrainParams.fpop
-        populations, regions = sir.load_population_by_region(path)
-        assert len(regions) == len(populations)
-
-    def test_cases(self, checkpoint_path):
-        """Confirms cases loaded are per region"""
-        populations, regions = sir.load_population_by_region(TrainParams.fpop)
-        region_cases, _, _ = sir.load_confirmed_by_region(TrainParams.fdat)
-        assert region_cases.shape[0] == len(regions)
-        # confirm length of cases per region is correct
-        cases = sir.load_confirmed(TrainParams.fdat, regions)
-        assert region_cases[0].shape == cases.shape
-
     def test_run_train(self, checkpoint_path):
         """Verifies doubling times are floats > 0"""
-        populations, regions = sir.load_population_by_region(TrainParams.fpop)
+        _, regions = load.load_populations_by_region(TrainParams.fpop)
         doubling_times = sir.run_train(TrainParams, checkpoint_path)
         assert doubling_times.dtype == "float64"
         assert (doubling_times > 0).all()

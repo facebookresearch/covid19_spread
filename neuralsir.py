@@ -7,7 +7,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from common import load_data
+from load import load_data
+from load import load_population
 
 
 def load_confirmed(path, regions):
@@ -25,14 +26,6 @@ def load_confirmed(path, regions):
     print(cases)
     days, cases = zip(*cases)
     return np.array(cases)
-
-
-def load_population(path, col=1):
-    df = pd.read_csv(path, header=None)
-    pop = df.iloc[:, col].sum()
-    regions = df.iloc[:, 0].to_numpy().tolist()
-    print(regions)
-    return pop, regions
 
 
 class SIR(nn.Module):
