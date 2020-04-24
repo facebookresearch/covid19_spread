@@ -172,18 +172,31 @@ class BetaRBF(nn.Module):
 
 
 class AR(nn.Module):
-    def __init__(self, population, beta_net):
+    def __init__(self, population, beta_net, dist):
         super(AR, self).__init__()
         self.M = len(population)
         self.alphas = th.nn.Parameter(th.zeros((self.M, self.M)))
+        self.repro = th.nn.Parameter(th.ones(self.M))
         self.beta = beta_net
         self.nu = th.nn.Parameter(th.ones((self.M, 1)))
         self.fpos = F.softplus
+        self._dist = dist
+
+    def dist(self, scores):
+        if self._dist == "poisson":
+            return Poisson(scores)
+        elif self._dist == "nb":
+            return NegativeBinomial(scores, logits=self.nu)
+        else:
+            raise RuntimeError(f"Unknown loss")
 
     def metapopulation_weights(self):
-        # W = F.softmax(self.alphas, dim=0)
+        with th.no_grad():
+            self.alphas.fill_diagonal_(-1e10)
+        # W = F.softmax(self.alphas, dim=1)
         W = th.sigmoid(self.alphas)
         # W = W / W.sum()
+        W = W + th.diag(self.fpos(self.repro))
         return W
 
     def score(self, t, ys):
@@ -196,7 +209,7 @@ class AR(nn.Module):
         preds = [ys.narrow(1, -1, 1)]
         for d in range(1, days + 1):
             s = self.score(t + d, preds[-1])
-            y = Poisson(s).mean
+            y = self.dist(s).mean
             preds.append(y)
         return th.cat(preds, dim=1)
 
@@ -214,10 +227,7 @@ def train(model, cases, population, optimizer, checkpoint, args):
         scores = model.score(t, new_cases.narrow(1, 0, tmax - 1))
 
         # compute loss
-        if args.loss == "poisson":
-            dist = Poisson(scores)
-        else:
-            raise RuntimeError(f"Unknown loss")
+        dist = model.dist(scores)
         loss = -dist.log_prob(new_cases.narrow(1, 1, tmax - 1)).mean()
 
         # back prop
@@ -289,7 +299,7 @@ def run_train(args, checkpoint):
         beta_net = BetaLatent(population, 16, float(len(cases)))
         weight_decay = args.weight_decay
 
-    func = AR(population, beta_net).to(device)
+    func = AR(population, beta_net, args.loss).to(device)
     optimizer = optim.AdamW(
         func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
     )
