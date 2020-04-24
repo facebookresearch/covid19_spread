@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from datetime import timedelta
-from common import load_data
+from load import load_data
 
 
 def load_ground_truth(path):

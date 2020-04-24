@@ -7,7 +7,7 @@ import re
 from functools import partial
 from evaluation import simulate_tl_mhp, goodness_of_fit, ks_critical_value, resid
 from model import CovidModel
-from common import load_data
+from load import load_data
 from tlc import Episode
 import h5py
 import numpy as np

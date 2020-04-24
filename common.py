@@ -58,43 +58,6 @@ def drop_k_days(dset, outfile, days):
         hout["all_times"] = all_times
 
 
-def load_model(model_path, M):
-    data = th.load(model_path)
-    opt = data["opt"]
-    dim, scale, timescale = opt.dim, opt.scale, opt.timescale
-    mus = data["model"]["mus_.weight"].cpu()[:-1, :]
-    alpha_s = data["model"]["self_A.weight"].cpu()[:-1, :]
-    beta = data["model"]["beta_"]
-    U = data["model"]["U.weight"].cpu()[:-1, :]
-    V = data["model"]["V.weight"].cpu()[:-1, :]
-
-    assert U.size(0) == M, (U.size(0), M)
-    assert V.size(0) == M, (V.size(0), M)
-
-    fpos = lambda x: th.nn.functional.softplus(x, beta=1 / scale)
-    beta_ = fpos(beta).item()
-    U_ = fpos(U).numpy()
-    V_ = fpos(V).numpy()
-    S_ = fpos(alpha_s).numpy().flatten()
-    A = np.dot(U_, V_.T) / dim
-    for i in range(M):
-        A[i, i] = S_[i]
-    mus_ = fpos(mus).numpy().flatten()
-    return mus_, beta_, S_, U_, V_, A, scale, timescale
-
-
-def load_data(data_path):
-    per_district = {}
-    with h5py.File(data_path, "r") as fin:
-        basedate = fin.attrs["basedate"]
-        nodes = np.array([m for m in fin["nodes"]])
-        if "all_nodes" in fin:
-            ns = fin["all_nodes"][:]
-            ts = fin["all_times"][:]
-        else:
-            ns = fin["node"][0]
-            ts = fin["time"][0]
-    return nodes, ns, ts, basedate
 
 
 def print_model_stats(mus, beta, S, U, V, A):

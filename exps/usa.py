@@ -16,7 +16,6 @@ import shutil
 from collections import defaultdict
 from itertools import product
 from evaluation import simulate_mhp, goodness_of_fit
-from common import load_data, load_model
 from tlc import Episode
 from scipy.stats import kstest
 import argparse

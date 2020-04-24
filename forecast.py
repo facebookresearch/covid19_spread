@@ -18,7 +18,8 @@ import pandas as pd
 import torch as th
 from datetime import timedelta
 from scipy.stats import kstest
-from common import load_data, load_model, print_model_stats
+from common import print_model_stats
+from load import load_data, load_model
 from evaluation import simulate_mhp, goodness_of_fit, simulate_tl_mhp, ks_critical_value
 from tlc import Episode
 from timelord.ll import SparseEmbeddingSoftplus
