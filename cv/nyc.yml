@@ -1,0 +1,24 @@
+region: nyc
+data: &fdat data/nystate/timeseries-nyc.h5
+population: &fpop data/population-data/US-states/new-york-population.csv
+validation:
+  input: &fvdata timeseries_filtered.h5
+  output: validation.csv
+  days: &vdays 7
+metrics:
+  output: metrics.csv
+ar:
+  module: ar
+  output: ar_model.bin
+  train:
+    fdat: *fvdata
+    fpop: *fpop
+    decay: powerlaw
+    lr: 0.005
+    weight_decay: 0
+    niters: 20000
+    loss: poisson
+    t0: 10
+    fit_on: -10
+    test_on: *vdays
+    

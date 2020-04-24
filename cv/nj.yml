@@ -9,18 +9,33 @@ metrics:
   output: metrics.csv
 metasir:
   module: metasir
-  output: &fmodel metasir_model.bin
+  output: metasir_model.bin
   train:
     fdat: *fvdata
     fpop: *fpop
-    decay: exp
+    decay: latent
     lr: 0.005
     weight_decay: 0
     niters: 10000
     method: euler
     loss: lsq
     t0: 10
-    fit_on: 5
+    fit_on: -10
+    test_on: *vdays
+    adjoint: false    
+ar:
+  module: ar
+  output: ar_model.bin
+  train:
+    fdat: *fvdata
+    fpop: *fpop
+    decay: powerlaw
+    lr: 0.005
+    weight_decay: 0
+    niters: 20000
+    loss: poisson
+    t0: 10
+    fit_on: -10
     test_on: *vdays
     adjoint: false
 sir:
@@ -35,6 +50,5 @@ sir:
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
-    
 
     
