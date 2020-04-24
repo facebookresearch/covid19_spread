@@ -33,7 +33,10 @@ def get_nyt():
     df['loc'] = 'New York_' + df['County']
     df = df.pivot_table(values='cases', columns=['loc'], index='date')
     df.index = pandas.to_datetime(df.index)
-    without_nystate = pivot[[c for c in pivot.columns if not c.startswith('New York')]]    
+    without_nystate = pivot[[c for c in pivot.columns if not c.startswith('New York')]]   
+    assert df.index.max() == without_nystate.index.max(), "NYT and DOH data don't matchup yet!"
+    # Only take NYT data up to the date for which we have nystate data 
+    without_nystate[without_nystate.index <= df.index.max()]
     return without_nystate.merge(df, left_index=True, right_index=True, how='outer').fillna(0)
 
 if not os.path.exists('us-state-neighbors.json'):
