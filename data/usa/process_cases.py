@@ -63,14 +63,6 @@ county_ids = defaultdict(counter.__next__)
 outfile = f'timeseries_smooth_{opt.smooth}_days.h5'
 
 
-# If an h5 file already exists, use a consistent naming
-if os.path.exists(outfile):
-    with h5py.File(outfile, 'r') as hf:
-        shutil.copy(outfile, f'{outfile}.{hf.attrs["basedate"]}')
-        nodes = hf['nodes'][:]
-        for county in nodes:
-            county_ids[county]
-
 def mk_episode(counties):
     ats = np.arange(len(df)) + 1
     timestamps = []
