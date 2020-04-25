@@ -4,32 +4,8 @@ import argparse
 import numpy as np
 import pandas as pd
 import sys
-from common import load_data
-
-
-def load_confirmed(path, regions):
-    # df = pd.read_csv(path, usecols=regions)
-    # cases = df.to_numpy().sum(axis=1)
-    nodes, ns, ts, _ = load_data(path)
-    unk = np.where(nodes == "Unknown")[0]
-    if len(unk) > 0:
-        ix = np.where(ns != unk[0])
-        ts = ts[ix]
-    cases = []
-    for i in range(1, int(np.ceil(ts.max())) + 1):
-        ix = np.where(ts < i)[0]
-        cases.append((i, len(ix)))
-    print(cases)
-    days, cases = zip(*cases)
-    return np.array(cases)
-
-
-def load_population(path, col=1):
-    df = pd.read_csv(path, header=None)
-    pop = df.iloc[:, col].sum()
-    regions = df.iloc[:, 0].to_numpy().tolist()
-    print(regions)
-    return pop, regions
+from datetime import timedelta
+import load
 
 
 def sir(s: float, i: float, r: float, beta: float, gamma: float, n: float):
@@ -110,13 +86,90 @@ def simulate(
 
 
 def estimate_growth_const(cases, window=None):
+    """Estimates doubling time."""
     growth_rate = np.exp(np.diff(np.log(cases))) - 1
     if window is not None:
         growth_rate = growth_rate[-window:]
     doubling_time = np.log(2) / growth_rate
-    # print(doubling_time, doubling_time.mean())
     doubling_time = doubling_time.mean()
     return doubling_time
+
+
+def run_train(train_params, model_out):
+    """Infers doubling time for sir model. 
+    API match that of cv.py for cross validation
+
+    Args:
+        train_params (dict)
+        model_out (str): path for saving training checkpoints
+
+    Returns: (np.float64) estimate of doubling_time
+    """
+    # get cases
+    cases_by_region, _, _ = load.load_confirmed_by_region(train_params.fdat)
+    # estimate doubling times per region
+    doubling_times = []
+    for cases in cases_by_region:
+        doubling_time = estimate_growth_const(cases, train_params.window)
+        doubling_times.append(doubling_time)
+
+    doubling_times = np.array(doubling_times)
+    # save estimate
+    np.save(model_out, doubling_times)
+    return doubling_times
+
+
+def run_simulate(train_params, model):
+    """Forecasts region-level infections using
+    API of cv.py for cross validation
+
+    Returns: (pd.DataFrame) of forecasts per region
+    """
+    # regions are columns; dates are indices
+    populations, regions = load.load_populations_by_region(train_params.fpop)
+    region_cases, _, base_date = load.load_confirmed_by_region(train_params.fdat)
+    doubling_times = model
+    recovery_days, distancing_reduction, days, keep = initialize(train_params)
+
+    predictions = []
+    for cases, population, doubling_time in zip(
+        region_cases, populations, doubling_times
+    ):
+        _, infs = simulate(
+            cases,
+            population,
+            doubling_time,
+            recovery_days,
+            distancing_reduction,
+            days,
+            keep,
+        )
+        # predictions are in the second column
+        prediction = infs.to_numpy()[:, 1]
+        predictions.append(prediction)
+    region_to_prediction = dict(zip(regions, predictions))
+    df = pd.DataFrame(region_to_prediction)
+    # set dates
+    df = _set_dates(df, base_date, train_params.keep)
+    return df
+
+
+def initialize(train_params):
+    """Unpacks arguments needed from config"""
+    recovery_days = train_params.recovery_days
+    distancing_reduction = train_params.distancing_reduction
+    days, keep = train_params.days, train_params.keep
+
+    return recovery_days, distancing_reduction, days, keep
+
+
+def _set_dates(df, base_date, days):
+    """Adds dates to prediciton dataframe"""
+    base = pd.to_datetime(base_date)
+    ds = [base + timedelta(i) for i in range(1, days + 1)]
+    df["date"] = ds
+    df.set_index("date", inplace=True)
+    return df
 
 
 def main(args):
@@ -146,8 +199,8 @@ def main(args):
     parser.add_argument("-dout", type=str, default=".", help="Output directory")
     opt = parser.parse_args(args)
 
-    population, regions = load_population(opt.fpop)
-    cases = load_confirmed(opt.fdat, regions)
+    population, regions = load.load_population(opt.fpop)
+    cases = load.load_confirmed(opt.fdat, regions)
     tmax = len(cases)
     t = np.arange(tmax) + 1
 

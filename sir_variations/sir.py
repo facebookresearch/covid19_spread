@@ -13,31 +13,7 @@ currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentfram
 parentdir = os.path.dirname(currentdir)
 sys.path.insert(0,parentdir) 
 
-from common import load_data
-
-
-def load_confirmed(path, regions):
-    
-    nodes, ns, ts, hop = load_data(path)
-    
-    unk = np.where(nodes == "Unknown")[0]
-    if len(unk) > 0:
-        ix = np.where(ns != unk[0])
-        ts = ts[ix]
-    cases = []
-    for i in range(1, int(np.ceil(ts.max())) + 1):
-        ix = np.where(ts < i)[0]
-        cases.append((i, len(ix)))
-    days, cases = zip(*cases)
-
-    return np.array(cases)
-
-
-def load_population(path, col=1):
-    df = pd.read_csv(path, header=None)
-    pop = df.iloc[:, col].sum()
-    regions = df.iloc[:, 0].to_numpy().tolist()
-    return pop, regions
+import load
 
 
 def convolve(x, k=1):
@@ -207,8 +183,8 @@ def main(args):
     opt = parser.parse_args(args)
 
     # load data
-    n, regions = load_population(opt.fpop)
-    cases = load_confirmed(opt.fdat, regions)
+    n, regions = load.load_population(opt.fpop)
+    cases = load.load_confirmed(opt.fdat, regions)
     
     # initialize s, i, r as sequences of length T
     r = cases.copy() * 0.0 # zero IC for recovered

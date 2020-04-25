@@ -33,7 +33,10 @@ def get_nyt():
     df['loc'] = 'New York_' + df['County']
     df = df.pivot_table(values='cases', columns=['loc'], index='date')
     df.index = pandas.to_datetime(df.index)
-    without_nystate = pivot[[c for c in pivot.columns if not c.startswith('New York')]]    
+    without_nystate = pivot[[c for c in pivot.columns if not c.startswith('New York')]]   
+    assert df.index.max() == without_nystate.index.max(), "NYT and DOH data don't matchup yet!"
+    # Only take NYT data up to the date for which we have nystate data 
+    without_nystate[without_nystate.index <= df.index.max()]
     return without_nystate.merge(df, left_index=True, right_index=True, how='outer').fillna(0)
 
 if not os.path.exists('us-state-neighbors.json'):
@@ -62,14 +65,6 @@ county_ids = defaultdict(counter.__next__)
 
 outfile = f'timeseries_smooth_{opt.smooth}_days.h5'
 
-
-# If an h5 file already exists, use a consistent naming
-if os.path.exists(outfile):
-    with h5py.File(outfile, 'r') as hf:
-        shutil.copy(outfile, f'{outfile}.{hf.attrs["basedate"]}')
-        nodes = hf['nodes'][:]
-        for county in nodes:
-            county_ids[county]
 
 def mk_episode(counties):
     ats = np.arange(len(df)) + 1

@@ -1,44 +1,13 @@
 import argparse
 import numpy as np
 import pandas as pd
+import load
 from datetime import timedelta
 
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-
-from common import load_data
-
-
-def load_confirmed(path):
-    nodes, ns, ts, basedate, = load_data(path)
-    nodes = np.array(nodes)
-    tmax = int(np.ceil(ts.max()))
-    cases = np.zeros((len(nodes), tmax))
-    for n in range(len(nodes)):
-        ix2 = np.where(ns == n)[0]
-        for i in range(1, tmax + 1):
-            ix1 = np.where(ts < i)[0]
-            cases[n, i - 1] = len(np.intersect1d(ix1, ix2))
-    unk = np.where(nodes == "Unknown")[0]
-    cases = np.delete(cases, unk, axis=0)
-    nodes = np.delete(nodes, unk)
-    return th.from_numpy(cases), nodes, basedate
-
-
-def load_population(path, nodes, col=1):
-    df = pd.read_csv(path, header=None)
-    _pop = df.iloc[:, col].to_numpy()
-    regions = df.iloc[:, 0].to_numpy()
-    pop = []
-    for node in nodes:
-        if node == "Unknown":
-            continue
-        ix = np.where(regions == node)[0][0]
-        pop.append(_pop[ix])
-    print(nodes, pop)
-    return th.from_numpy(np.array(pop))
 
 
 class BetaExpDecay(nn.Module):
@@ -367,17 +336,19 @@ def simulate(model, cases, regions, population, odeint, args, dstart=None):
 
 def initialize(args):
     device = th.device("cuda" if th.cuda.is_available() else "cpu")
-    cases, regions, basedate = load_confirmed(args.fdat)
-    population = load_population(args.fpop, regions)
+    cases, regions, basedate = load.load_confirmed_by_region(args.fdat)
+    populations, _ = load.load_populations_by_region(args.fpop, regions)
+    cases = th.from_numpy(cases)
     cases = cases.float().to(device)[:, args.t0 :]
-    population = population.float().to(device)
+    populations = th.from_numpy(np.array(populations))
+    populations = populations.float().to(device)
 
     if args.adjoint:
         from torchdiffeq import odeint_adjoint as odeint
     else:
         from torchdiffeq import odeint
 
-    return cases, regions, population, basedate, odeint, device
+    return cases, regions, populations, basedate, odeint, device
 
 
 def run_train(args, checkpoint):

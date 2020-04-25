@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
+import torch as th
 import argparse
 import os
 import re
 from functools import partial
 from evaluation import simulate_tl_mhp, goodness_of_fit, ks_critical_value, resid
 from model import CovidModel
-from common import load_data
+from load import load_data
 from tlc import Episode
-import torch as th
 import h5py
 import numpy as np
 import submitit
@@ -66,6 +66,8 @@ def ks_test(episode, step, model, nodes, nprocs=20):
 
 
 def rmse(pth, ground_truth, trials = 10):
+    import torch
+    print(pth)
     mdl, mdl_opt = CovidModel.from_checkpoint(pth, map_location='cpu')
     nodes, ns, ts, _ = load_data(mdl_opt.dset)
     episode = Episode(th.from_numpy(ts).double(), th.from_numpy(ns).long(), True, mdl.nnodes)
@@ -75,27 +77,32 @@ def rmse(pth, ground_truth, trials = 10):
     sim = simulate_tl_mhp(t_obs, opt.days, episode, mdl_opt.timescale, simulator, nodes, trials, max_events=opt.max_events)
     sim[-1] = sim[0]
 
-    ks_result = ks_test(episode, 0.001, mdl, nodes)
-    ks_result.to_csv(os.path.join(os.path.dirname(pth), 'kstest.csv'), index=False)
-
     with h5py.File(mdl_opt.dset,'r') as hf:
         basedate = pandas.Timestamp(hf.attrs['basedate'])
     mapper = {d: str((basedate + pandas.Timedelta(d, 'D')).date()) for d in sim.columns if isinstance(d, int) and d >= 0}
     merged = sim.merge(ground_truth, on='county')
+    vals = {'pth': pth}
+
+    ks_result = ks_test(episode, 0.001, mdl, nodes)
+    ks_result.to_csv(os.path.join(os.path.dirname(pth), 'kstest.csv'), index=False)
     avg_ks = float(ks_result['ks'].mean())
     avg_pval = float(ks_result['pval'].mean())
     vals = {'pth': pth, 'ks': avg_ks, 'pval': avg_pval}
+    
+    forecasts = {'location': sim['county'].values}
     for k, v in mapper.items():
         # number of cases is Day_0 + number of new cases.  If we did some kind of smoothing
         # on the data, we want to make sure that we are basing our forecasts on the actual known counts
-        sim[k] = merged[mapper[0]] + (sim[k] - merged[k-1])
+        new_cases = merged[mapper[0]] + (merged[k] - merged[0])
+        forecasts[v] = new_cases.values
         if v in merged.columns:
-            vals[f'day_{k}_mean'] = (sim[k] - merged[v]).abs().mean()
-            vals[f'day_{k}_max'] = (sim[k] - merged[v]).abs().max()
-            vals[f'day_{k}_median'] = (sim[k] - merged[v]).abs().median()
+            vals[f'day_{k}_mean'] = (new_cases - merged[v]).abs().mean()
+            vals[f'day_{k}_max'] = (new_cases - merged[v]).abs().max()
+            vals[f'day_{k}_median'] = (new_cases - merged[v]).abs().median()
 
     fout = os.path.join(os.path.dirname(pth), 'forecasts.csv')
-    sim.rename(columns=mapper).to_csv(fout, index=False)
+    forecasts = pandas.DataFrame.from_dict(forecasts)
+    forecasts.to_csv(fout, index=False)
     with open(os.path.join(os.path.dirname(pth), 'eval.json'), 'w') as fout:
         print(json.dumps(vals), file=fout)
     return vals
@@ -117,9 +124,9 @@ executor.update_parameters(
     gpus_per_node=0,
     cpus_per_task=10,
     mem_gb=30,
-    slurm_array_parallelism=40,
+    slurm_array_parallelism=100,
     timeout_min=2 * 60,
-    exclude=exclude,
+    slurm_exclude=exclude,
 )
 
 chkpnts = []

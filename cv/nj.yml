@@ -38,4 +38,18 @@ ar:
     t0: 10
     fit_on: -10
     test_on: *vdays
+    adjoint: false
+sir:
+  module: sir
+  output: sir_model.npy
+  train:
+    fdat: *fvdata
+    fpop: *fpop
+    window: 14
+    recovery_days: 14
+    distancing_reduction: 0.2
+    days: *vdays
+    # number of days to keep for forecast
+    keep: *vdays
+
     
