@@ -85,7 +85,7 @@ class BetaLogistic(nn.Module):
 
     def forward(self, t):
         return self.fpos(self.C) / (
-            1 + th.exp(-self.fpos(self.k) * (t - self.fpos(self.m)))
+            1 + th.exp(self.fpos(self.k) * (t - self.fpos(self.m)))
         )
 
 
@@ -172,15 +172,16 @@ class BetaRBF(nn.Module):
 
 
 class AR(nn.Module):
-    def __init__(self, population, beta_net, dist):
+    def __init__(self, population, beta_net, dist, window_size):
         super(AR, self).__init__()
         self.M = len(population)
         self.alphas = th.nn.Parameter(th.zeros((self.M, self.M)))
-        self.repro = th.nn.Parameter(th.ones(self.M))
+        self.repro = th.nn.Parameter(th.ones((self.M, window_size)))
         self.beta = beta_net
         self.nu = th.nn.Parameter(th.ones((self.M, 1)))
         self.fpos = F.softplus
         self._dist = dist
+        self.window = window_size
 
     def dist(self, scores):
         if self._dist == "poisson":
@@ -196,39 +197,56 @@ class AR(nn.Module):
         # W = F.softmax(self.alphas, dim=1)
         W = th.sigmoid(self.alphas)
         # W = W / W.sum()
-        W = W + th.diag(self.fpos(self.repro))
         return W
 
     def score(self, t, ys):
         W = self.metapopulation_weights()
-        beta = self.beta(t)
-        return beta * th.mm(W, ys)  # + self.fpos(self.nu)
+        # Z = th.cat(
+        #     [
+        #         F.conv1d(
+        #             ys.narrow(0, i, 1).unsqueeze(0),
+        #             self.fpos(self.repro.narrow(0, i, 1)).unsqueeze(0),
+        #         )
+        #         for i in range(self.M)
+        #     ],
+        #     dim=0,
+        # ).squeeze()
+        Z = F.conv1d(ys.unsqueeze(0), self.repro.unsqueeze(1), groups=self.M).squeeze()
+        offset = self.window - 1
+        ys = ys.narrow(1, offset, ys.size(1) - offset)
+        beta = self.beta(t).narrow(1, offset, ys.size(1))
+        return beta * (self.fpos(Z) + th.mm(W, ys))  # + self.fpos(self.nu)
 
     def simulate(self, ys, days):
-        t = th.tensor([ys.size(1)]).to(ys.device)
-        preds = [ys.narrow(1, -1, 1)]
-        for d in range(1, days + 1):
-            s = self.score(t + d, preds[-1])
+        t = th.arange(ys.size(1)).to(ys.device) + 1
+        preds = [ys]
+        for d in range(days):
+            cases = preds[-1]
+            s = self.score(t + d, cases)
             y = self.dist(s).mean
             preds.append(y)
+        preds = [p.narrow(1, -1, 1) for p in preds]
         return th.cat(preds, dim=1)
 
 
 def train(model, cases, population, optimizer, checkpoint, args):
     M = len(population)
     device = cases.device
-    fit_on = args.fit_on
     new_cases = cases[:, 1:] - cases[:, :-1]
     tmax = new_cases.size(1)
-    t = th.arange(tmax - 1).to(device) + 1
+    t = th.arange(tmax).to(device) + 1
 
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
-        scores = model.score(t, new_cases.narrow(1, 0, tmax - 1))
+        scores = model.score(t, new_cases)
+        # print(new_cases.size(), scores.size())
+        # print(scores)
 
         # compute loss
-        dist = model.dist(scores)
-        loss = -dist.log_prob(new_cases.narrow(1, 1, tmax - 1)).mean()
+        dist = model.dist(scores.narrow(1, 0, tmax - args.window))
+        loss = -dist.log_prob(
+            new_cases.narrow(1, args.window, tmax - args.window)
+        ).mean()
 
         # back prop
         loss.backward()
@@ -299,7 +317,7 @@ def run_train(args, checkpoint):
         beta_net = BetaLatent(population, 16, float(len(cases)))
         weight_decay = args.weight_decay
 
-    func = AR(population, beta_net, args.loss).to(device)
+    func = AR(population, beta_net, args.loss, args.window).to(device)
     optimizer = optim.AdamW(
         func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
     )
