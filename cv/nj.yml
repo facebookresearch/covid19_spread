@@ -30,10 +30,11 @@ ar:
     fdat: *fvdata
     fpop: *fpop
     decay: powerlaw
+    window: 3
     lr: 0.005
     weight_decay: 0
     niters: 20000
-    loss: poisson
+    loss: nb
     t0: 10
     fit_on: -10
     test_on: *vdays
