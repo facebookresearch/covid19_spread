@@ -95,14 +95,15 @@ class BetaPowerLawDecay(nn.Module):
 
 
 class BetaLatent(nn.Module):
-    def __init__(self, population, dim):
+    def __init__(self, population, dim, tmax):
         super(BetaLatent, self).__init__()
         self.M = len(population)
         self.dim = dim
+        self.tmax = tmax
         self.Wbeta = nn.Linear(dim, dim, bias=True)
         self.Wbeta2 = nn.Linear(dim, dim, bias=True)
         self.v = nn.Linear(dim, 1, bias=False)
-        self.b0 = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
+        self.b0 = nn.Parameter(th.tanh(th.randn(dim, dtype=th.float)))
         self.c = nn.Parameter(th.randn(1, 1, dtype=th.float))
         self.fpos = F.softplus
         nn.init.xavier_uniform_(self.Wbeta.weight)
@@ -110,12 +111,13 @@ class BetaLatent(nn.Module):
         nn.init.xavier_uniform_(self.v.weight)
 
     def forward(self, t, y):
-        beta_last = y.narrow(0, self.M * 3, self.M * self.dim).reshape(self.M, self.dim)
+        # beta_last = y.narrow(0, self.M * 3, self.M * self.dim).reshape(self.M, self.dim)
+        beta_last = y.narrow(0, self.M * 3, self.dim)
         # beta_last = y.narrow(0, self.M * 3, self.dim)
         # beta_now = self.Wbeta2(th.tanh(self.Wbeta(beta_last)))
         # beta_now = self.Wbeta(beta_last)
 
-        beta_now = th.tanh(self.Wbeta(beta_last) + self.c * t)
+        beta_now = th.tanh(self.Wbeta(beta_last) + self.c * t / self.tmax)
         # a = tmp.narrow(-1, 0, 1)
         # b = tmp.narrow(-1, 1, 1)
         # c = tmp.narrow(-1, 2, 1)
@@ -131,13 +133,35 @@ class BetaLatent(nn.Module):
         return self.b0.view(-1)
 
 
+class BetaRBF(nn.Module):
+    def __init__(self, population, dim):
+        super(BetaRBF, self).__init__()
+        self.M = len(population)
+        self.dim = dim
+        # self.bs = nn.Parameter(th.ones(self.M, dim, dtype=th.float).fill_(-4))
+        # self.bs = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
+        self.v = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
+        self.c = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
+        self.temp = nn.Parameter(th.ones(self.M, 1, dtype=th.float))
+        self.fpos = F.softplus
+
+    def forward(self, t, y):
+        d = (t - self.c) ** 2  # / self.fpos(self.temp)
+        beta = th.sigmoid(th.sum(self.v * th.exp(-d), dim=1))
+        # beta = self.fpos(self.bs.narrow(-1, int(t), 1))
+        return beta.squeeze(), None
+
+    def y0(self):
+        return None
+
+
 class MetaSIR(nn.Module):
     def __init__(self, population, beta_net):
         super(MetaSIR, self).__init__()
         self.M = len(population)
         self.alphas = th.nn.Parameter(th.ones((self.M, self.M)))
-        self.gamma = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(0.1))
-        # self.gamma = th.tensor([1.0 / 14]).to(population.device)
+        # self.gamma = th.nn.Parameter(th.ones(1, dtype=th.float).fill_(0.1))
+        self.gamma = th.tensor([1.0 / 14]).to(population.device)
         self.c = th.nn.Parameter(th.zeros(1, dtype=th.float))
         self.fpos = F.softplus
         self.Ns = population
@@ -151,6 +175,18 @@ class MetaSIR(nn.Module):
         )
         return th.cat(elems, dim=0).float()
 
+    def metapopulation_weights(self):
+        # with th.no_grad():
+        #    self.alphas.data.fill_diagonal_(-1e10)
+        W = F.softmax(self.alphas, dim=0)
+        # W = F.softplus(self.alphas)
+        # W = th.sigmoid(self.alphas)
+        # W = W / W.sum()
+        return W
+
+    def comp_length(self):
+        return 3 * self.M
+
     def forward(self, t, y):
         # prepare input
         Ss = y.narrow(0, 0, self.M)
@@ -158,15 +194,11 @@ class MetaSIR(nn.Module):
         Rs = y.narrow(0, 2 * self.M, self.M)
         beta, dBeta = self.beta_net(t, y)
         assert beta.ndim <= 1, beta.size()
-
         # compute dynamics
-        # W = F.softmax(self.alphas, dim=0)
-        # W = F.softplus(self.alphas)
-        W = th.sigmoid(self.alphas)
-        # W = W / W.sum()
+        W = self.metapopulation_weights()
         WIs = beta * th.mv(W, Is) / self.Ns
         bSIs = beta * Ss * Is / self.Ns
-        gIs = self.fpos(self.gamma) * Is
+        gIs = self.gamma * Is
         dSs = -bSIs - WIs
         dIs = bSIs + WIs - gIs
         dRs = gIs
@@ -196,12 +228,16 @@ class MetaSEIR(nn.Module):
         self.Ns = population
         self.beta_net = beta_net
 
-    def y0(self, S, I, E=None):
+    def comp_length(self):
+        return 4 * self.M
+
+    def y0(self, S, I, R, E=None):
         if E is None:
             E = th.ones_like(I)
         elems = list(
             filter(
-                None.__ne__, [S.view(-1), I.view(-1), E.view(-1), self.beta_net.y0()]
+                None.__ne__,
+                [S.view(-1), I.view(-1), R.view(-1), E.view(-1), self.beta_net.y0()],
             )
         )
         return th.cat(elems, dim=0).to(device).float()
@@ -225,7 +261,7 @@ class MetaSEIR(nn.Module):
         dIs = sigma * Es - self.fpos(self.gamma) * Is
 
         # prepare dy output
-        elems = list(filter(None.__ne__, [dSs, dIs, dEs, dBeta]))
+        elems = list(filter(None.__ne__, [dSs, dIs, dRs, dEs, dBeta]))
         dy = th.cat(elems, dim=0)
         return dy
 
@@ -247,7 +283,7 @@ def train(model, cases, population, odeint, optimizer, checkpoint, args):
 
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
-        pred_y = odeint(model, y0, t, method=args.method, options={"step_size": 1})
+        pred_y = odeint(model, y0, t, method=args.method)  # , options={"step_size": 1})
         # pred_y = odeint(func, y0, t, method=args.method)
         pred_Is = pred_y.narrow(1, M, M).squeeze().t()
         pred_Rs = pred_y.narrow(1, 2 * M, M).squeeze().t()
@@ -346,20 +382,25 @@ def initialize(args):
 
 def run_train(args, checkpoint):
     cases, regions, population, _, odeint, device = initialize(args)
+    tmax = np.max([len(ts) for ts in cases])
 
     weight_decay = 0
     if args.decay == "exp":
         beta_net = BetaExpDecay(population)
     elif args.decay == "powerlaw":
         beta_net = BetaPowerLawDecay(population)
+    elif args.decay == "rbf":
+        beta_net = BetaRBF(population, 10)
     elif args.decay == "latent":
-        beta_net = BetaLatent(population, 16)
+        beta_net = BetaLatent(population, 16, float(len(cases)))
         weight_decay = args.weight_decay
 
     func = MetaSIR(population, beta_net).to(device)
-    optimizer = optim.AdamW(
-        func.parameters(), lr=args.lr, betas=[0.9, 0.999], weight_decay=weight_decay
-    )
+    # optimizer = optim.AdamW(
+    #     func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
+    # )
+
+    optimizer = optim.RMSprop(func.parameters(), lr=args.lr, weight_decay=weight_decay)
 
     model = train(func, cases, population, odeint, optimizer, checkpoint, args)
 
@@ -374,7 +415,7 @@ def run_simulate(args, model=None):
 
     forecast = simulate(model, cases, regions, population, odeint, args, basedate)
 
-    adj = th.sigmoid(model.alphas).cpu().numpy()
+    adj = model.metapopulation_weights().cpu().numpy()
     df = pd.DataFrame(adj).round(2)
     df.columns = regions
     df["regions"] = regions
@@ -402,14 +443,7 @@ if __name__ == "__main__":
     parser.add_argument("-checkpoint", type=str, default="/tmp/metasir_model.bin")
     args = parser.parse_args()
 
-    # load data
-    # test_cases = cases[:, -args.test_on :]
-
     model = run_train(args, args.checkpoint)
 
     with th.no_grad():
         forecast = run_simulate(args, model)
-
-    # print(test_cases)
-    # print(forecast)
-    # print(np.abs(test_cases.numpy().T - forecast).mean(axis=1))
