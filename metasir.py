@@ -272,9 +272,14 @@ def train(model, cases, population, odeint, optimizer, checkpoint, args):
         # back prop
         loss.backward()
         optimizer.step()
-
+        
+        # sometimes infected goes below 0 - prevent that
+        # check if initial betas are large enough ...
+        # perhaps start from large beta and minimize it??
+        
         # control
         if itr % 50 == 0 or loss == 0:
+            # target betas and estimated ones
             with th.no_grad(), np.printoptions(precision=3, suppress=True):
                 maes = th.abs(cases[:, -3:] - pred_Cs[:, -3:])
                 # print(cases[:, -3:].cpu().numpy().round(2))
@@ -285,7 +290,10 @@ def train(model, cases, population, odeint, optimizer, checkpoint, args):
                 f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes[:, -1].mean():.2f} | {model} | {args.decay} "
             )
             th.save(model.state_dict(), checkpoint)
-            if loss == 0: break
+            if loss == 0: 
+                print((cases[0][1:] - cases[0][:-1])/cases[0][:-1])
+                for i in range(16): print(model.beta_net(i, y0)[0].item())
+                break
     return model
 
 
@@ -378,16 +386,16 @@ def run_train(args, checkpoint):
         beta_net = BetaLatent(population, args.width, float(len(cases)))
         weight_decay = args.weight_decay
 
-    # todo fix seed for initialization...
     func = MetaSIR(population, beta_net).to(device)
     # optimizer = optim.AdamW(
     #     func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
     # )
-
+    # optimization is unstable, quickly it tends to explode
+    # check norm_grad weight norm etc...
     optimizer = optim.RMSprop(func.parameters(), lr=args.lr, weight_decay=weight_decay)
 
     model = train(func, cases, population, odeint, optimizer, checkpoint, args)
-
+    
     return model
 
 
