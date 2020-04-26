@@ -277,12 +277,9 @@ def train(model, cases, population, odeint, optimizer, checkpoint, args):
         if itr % 50 == 0 or loss == 0:
             with th.no_grad(), np.printoptions(precision=3, suppress=True):
                 maes = th.abs(cases[:, -3:] - pred_Cs[:, -3:])
-                print(
-                    th.cat([cases[:, -3:], pred_Cs[:, -3:], maes], dim=1)
-                    .cpu()
-                    .numpy()
-                    .round(2)
-                )
+                # print(cases[:, -3:].cpu().numpy().round(2))
+                # print(pred_Cs[:, -3:].cpu().numpy().round(2))
+                # print(maes.cpu().numpy().round(2))
             # the printed MAE is on the last day
             print(
                 f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes[:, -1].mean():.2f} | {model} | {args.decay} "
@@ -381,6 +378,7 @@ def run_train(args, checkpoint):
         beta_net = BetaLatent(population, args.width, float(len(cases)))
         weight_decay = args.weight_decay
 
+    # todo fix seed for initialization...
     func = MetaSIR(population, beta_net).to(device)
     # optimizer = optim.AdamW(
     #     func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
@@ -429,8 +427,10 @@ if __name__ == "__main__":
     parser.add_argument("-checkpoint", type=str, default="/tmp/metasir_model.bin")
     parser.add_argument("-keep-counties", type=int, default=0)
     parser.add_argument("-width", type=int, default=16)
+    parser.add_argument("-seed", type=int, default=0)
     args = parser.parse_args()
 
+    th.manual_seed(args.seed)
     model = run_train(args, args.checkpoint)
 
     with th.no_grad():
