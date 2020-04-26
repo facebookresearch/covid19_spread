@@ -1,0 +1,25 @@
+region: us
+data: &fdat data/united-states/data.csv
+population: &fpop data/population-data/US-states/new-york-population.csv
+basegraph: &fgraph data/united-states/state_graph.pt
+validation:
+  input: &fvdata us_filtered.csv
+  output: validation.csv
+  days: &vdays 7
+metrics:
+  output: metrics.csv
+ar:
+  module: ar
+  output: ar_model.bin
+  train:
+    fdat: *fvdata
+    fpop: *fpop
+    #graph: *fgraph
+    decay: exp
+    window: 1
+    lr: 0.005
+    weight_decay: 0
+    niters: 20000
+    loss: nb
+    t0: 10
+    test_on: *vdays
