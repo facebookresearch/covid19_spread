@@ -1,5 +1,10 @@
-data.csv:
+.PHONY: data.csv timeseries.csv
+
+raw.csv:
 	curl --output $@ https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv 
+
+data.csv: raw.csv
+	python3 convert.py
 
 timeseries.h5: data.csv
 	python3 process_cases.py
