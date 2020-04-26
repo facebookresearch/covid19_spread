@@ -42,11 +42,10 @@ if __name__ == "__main__":
     val_out = os.path.join(basedir, cfg["validation"]["output"])
     metrics_out = os.path.join(basedir, cfg["metrics"]["output"])
     model_out = os.path.join(basedir, cfg[opt.module]["output"])
+    cfg[opt.module]["train"]["fdat"] = val_in
 
     # -- filter --
-    common.drop_k_days(
-        cfg["data"], cfg["validation"]["input"], cfg["validation"]["days"]
-    )
+    common.drop_k_days_csv(cfg["data"], val_in, cfg["validation"]["days"])
 
     # -- train --
     train_params = Namespace(**cfg[opt.module]["train"])
@@ -59,6 +58,6 @@ if __name__ == "__main__":
     df_forecast.to_csv(val_out)
 
     # -- metrics --
-    df_val = metrics.compute_metrics(cfg["data"], val_out)
+    df_val = metrics.compute_metrics(cfg["data"], val_out).round(2)
     df_val.to_csv(metrics_out)
     print(df_val)

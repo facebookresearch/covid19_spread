@@ -20,7 +20,61 @@ def load_ground_truth(path):
     return gt, nodes, counts, pd.to_datetime(basedate)
 
 
+def load_ground_truth_csv(path):
+    df = pd.read_csv(path)
+    df = df.rename(columns={"region": "date"})
+    df.set_index("date", inplace=True)
+    df = df.transpose()
+    df.index = pd.to_datetime(df.index)
+    return df
+
+
 def compute_metrics(f_ground_truth, f_predictions, mincount=10):
+    df_true = load_ground_truth_csv(f_ground_truth)
+    cols = df_true.columns.to_numpy().tolist()
+    df_pred = pd.read_csv(f_predictions, usecols=cols + ["date"], parse_dates=["date"])
+    df_pred = df_pred.set_index("date")
+    df_pred = df_pred[cols]
+    z = len(df_pred)
+    print(df_pred.round(2))
+
+    basedate = df_pred.index[0]
+    pdate = basedate - timedelta(1)
+    # print(basedate, pdate)
+    diff = df_true.loc[pdate] - df_true.loc[basedate - timedelta(2)]
+    naive = [df_true.loc[pdate] + d * diff for d in range(1, z + 1)]
+    naive = pd.DataFrame(naive)
+    naive.index = df_pred.index
+    # print(naive)
+
+    gt = df_true.loc[df_pred.index]
+    # print(df_true.loc[pdate], gt, df_pred)
+    err = df_pred - gt
+    rmse = (err ** 2).mean(axis=1).pow(1. / 2)
+    mae = err.abs().mean(axis=1)
+    mae_naive = (naive - gt).abs().mean(axis=1)
+    rmse_naive = (naive - gt).pow(2).mean(axis=1).pow(1. / 2)
+    mape = (err.abs() / gt.clip(1)).mean(axis=1)
+    mae_mase = mae / mae_naive
+    rmse_mase = rmse / rmse_naive
+    metrics = pd.DataFrame(
+        [rmse, mae, mape, rmse_naive, mae_naive, mae_mase, rmse_mase],
+        columns=df_pred.index.to_numpy(),
+    )
+    metrics["Measure"] = [
+        "RMSE",
+        "MAE",
+        "MAPE",
+        "RMSE_NAIVE",
+        "MAE_NAIVE",
+        "MAE_MASE",
+        "RMSE_MASE",
+    ]
+    metrics.set_index("Measure", inplace=True)
+    return metrics
+
+
+def _compute_metrics(f_ground_truth, f_predictions, mincount=0):
     gt, cols, counts, basedate = load_ground_truth(f_ground_truth)
     df_pred = pd.read_csv(f_predictions, usecols=cols + ["date"], parse_dates=["date"])
     df_pred = df_pred.set_index("date")

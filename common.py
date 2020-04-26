@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import h5py
 import numpy as np
+import pandas as pd
 import torch as th
 from numpy.linalg import norm
 import itertools
@@ -58,6 +59,10 @@ def drop_k_days(dset, outfile, days):
         hout["all_times"] = all_times
 
 
+def drop_k_days_csv(dset, outfile, days):
+    df = pd.read_csv(dset, index_col="region")
+    df = df[df.columns[:-days]]
+    df.to_csv(outfile)
 
 
 def print_model_stats(mus, beta, S, U, V, A):

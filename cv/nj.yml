@@ -30,7 +30,7 @@ ar:
     fdat: *fvdata
     fpop: *fpop
     decay: powerlaw
-    window: 3
+    window: 1
     lr: 0.005
     weight_decay: 0
     niters: 20000
