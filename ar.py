@@ -294,7 +294,19 @@ def initialize(args):
     population = load_population(args.fpop, regions)
     cases = cases.float().to(device)[:, args.t0 :]
     population = population.float().to(device)
-
+    
+    # cheat to test compatibility
+    # if zero (def value) it'll continue
+    if args.keep_counties == -1:
+        cases = cases.sum(0).reshape(1, -1)
+        population = population.sum(0).reshape(1)
+        regions = ['all']
+    elif args.keep_counties > 0:
+        # can also sort on case numbers and pick top-k
+        cases = cases[:k]
+        populations = populations[:k]
+        regions = regions[:k]
+        
     return cases, regions, population, basedate, device
 
 
@@ -362,6 +374,7 @@ if __name__ == "__main__":
     parser.add_argument("-test-on", default=5, type=int)
     parser.add_argument("-window", default=5, type=int)
     parser.add_argument("-checkpoint", type=str, default="/tmp/metasir_model.bin")
+    parser.add_argument("-keep-counties", type=int, default=0)
     args = parser.parse_args()
 
     model = run_train(args, args.checkpoint)
