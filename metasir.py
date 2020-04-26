@@ -81,7 +81,8 @@ class BetaLatent(nn.Module):
 
     def forward(self, t, y):
         # beta_last = y.narrow(0, self.M * 3, self.M * self.dim).reshape(self.M, self.dim)
-        beta_last = y.narrow(0, self.M * 3, self.dim)
+        beta_last = y.narrow(0, self.M * 3, self.dim) #dbeta??
+#         beta_last = self.b0
         # beta_last = y.narrow(0, self.M * 3, self.dim)
         # beta_now = self.Wbeta2(th.tanh(self.Wbeta(beta_last)))
         # beta_now = self.Wbeta(beta_last)
@@ -96,10 +97,13 @@ class BetaLatent(nn.Module):
         beta = th.sigmoid(self.v(beta_now))
         # beta = self.fpos(a) * th.exp(-self.fpos(b) * t) + self.fpos(c)
         # assert beta == beta, (beta_last, beta_now, self.Wbeta.weight)
+        # return beta.squeeze(), None
         return beta.squeeze(), beta_now.view(-1)
 
     def y0(self):
+        # is this the random initial point?
         return self.b0.view(-1)
+        # return None
 
 
 class BetaRBF(nn.Module):
@@ -291,6 +295,7 @@ def train(model, cases, population, odeint, optimizer, checkpoint, args):
             )
             th.save(model.state_dict(), checkpoint)
             if loss == 0 or itr == args.niters: 
+                # perhaps add sn/n correction but this is just to get an idea
                 print((cases[0][1:] - cases[0][:-1])/cases[0][:-1])
                 for i in range(16): print(model.beta_net(i, y0)[0].item())
                 break
@@ -429,7 +434,7 @@ if __name__ == "__main__":
     parser.add_argument("-amsgrad", default=False, action="store_true")
     parser.add_argument("-method", default="euler", choices=["euler", "rk4", "dopri5"])
     parser.add_argument("-loss", default="lsq", choices=["lsq", "poisson"])
-    parser.add_argument("-decay", default="exp", choices=["exp", "powerlaw", "latent"])
+    parser.add_argument("-decay", default="exp", choices=["exp", "powerlaw", "latent", "rbf"])
     parser.add_argument("-t0", default=10, type=int)
     parser.add_argument("-fit-on", default=5, type=int)
     parser.add_argument("-test-on", default=5, type=int)
