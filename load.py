@@ -1,6 +1,7 @@
 import h5py
 import numpy as np
 import pandas as pd
+import torch as th
 
 
 def load_confirmed(path, regions):
@@ -57,9 +58,10 @@ def load_populations_by_region(path, nodes=None, col=1):
 
     return populations.tolist(), regions.tolist()
 
+
 def filter_populations(populations, regions, nodes):
     """Removes populations and regions with unknown nodes"""
-    populations_filtered, regions_filtered= [], []
+    populations_filtered, regions_filtered = [], []
     for node in nodes:
         if node == "Unknown":
             continue
