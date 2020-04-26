@@ -326,7 +326,7 @@ def simulate(model, cases, regions, population, odeint, args, dstart=None):
     ) + test_preds.narrow(1, 2 * M, M).t().narrow(
         1, -args.test_on, args.test_on
     )
-    df = pd.DataFrame(test_preds.cpu().numpy().T)
+    df = pd.DataFrame(test_preds.cpu().int().numpy().T)
     df.columns = regions
     if dstart is not None:
         base = pd.to_datetime(dstart)
@@ -378,7 +378,7 @@ def run_train(args, checkpoint):
     elif args.decay == "rbf":
         beta_net = BetaRBF(population, 10)
     elif args.decay == "latent":
-        beta_net = BetaLatent(population, 16, float(len(cases)))
+        beta_net = BetaLatent(population, args.width, float(len(cases)))
         weight_decay = args.weight_decay
 
     func = MetaSIR(population, beta_net).to(device)
@@ -428,6 +428,7 @@ if __name__ == "__main__":
     parser.add_argument("-test-on", default=5, type=int)
     parser.add_argument("-checkpoint", type=str, default="/tmp/metasir_model.bin")
     parser.add_argument("-keep-counties", type=int, default=0)
+    parser.add_argument("-width", type=int, default=16)
     args = parser.parse_args()
 
     model = run_train(args, args.checkpoint)
