@@ -81,7 +81,8 @@ class BetaLatent(nn.Module):
 
     def forward(self, t, y):
         # beta_last = y.narrow(0, self.M * 3, self.M * self.dim).reshape(self.M, self.dim)
-        beta_last = y.narrow(0, self.M * 3, self.dim)
+        beta_last = y.narrow(0, self.M * 3, self.dim) #dbeta??
+#         beta_last = self.b0
         # beta_last = y.narrow(0, self.M * 3, self.dim)
         # beta_now = self.Wbeta2(th.tanh(self.Wbeta(beta_last)))
         # beta_now = self.Wbeta(beta_last)
@@ -96,17 +97,22 @@ class BetaLatent(nn.Module):
         beta = th.sigmoid(self.v(beta_now))
         # beta = self.fpos(a) * th.exp(-self.fpos(b) * t) + self.fpos(c)
         # assert beta == beta, (beta_last, beta_now, self.Wbeta.weight)
+        # return beta.squeeze(), None
         return beta.squeeze(), beta_now.view(-1)
 
     def y0(self):
+        # is this the random initial point?
         return self.b0.view(-1)
+        # return None
 
 
 class BetaRBF(nn.Module):
-    def __init__(self, population, dim):
+    def __init__(self, population, dim, tmax):
         super(BetaRBF, self).__init__()
         self.M = len(population)
         self.dim = dim
+        self.tmax = tmax
+        print(tmax)
         # self.bs = nn.Parameter(th.ones(self.M, dim, dtype=th.float).fill_(-4))
         # self.bs = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
         self.v = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
@@ -115,7 +121,7 @@ class BetaRBF(nn.Module):
         self.fpos = F.softplus
 
     def forward(self, t, y):
-        d = (t - self.c) ** 2  # / self.fpos(self.temp)
+        d = (t / self.tmax - self.c) ** 2  # / self.fpos(self.temp)
         beta = th.sigmoid(th.sum(self.v * th.exp(-d), dim=1))
         # beta = self.fpos(self.bs.narrow(-1, int(t), 1))
         return beta.squeeze(), None
@@ -181,7 +187,7 @@ class MetaSIR(nn.Module):
 
     def __repr__(self):
         with th.no_grad():
-            return f"SIR | gamma {self.fpos(self.gamma).item():.3f} | {self.beta_net}"
+            return f"SIR | gamma {self.fpos(self.gamma).item():.3f} "
 
 
 class MetaSEIR(nn.Module):
@@ -236,7 +242,7 @@ class MetaSEIR(nn.Module):
 
     def __repr__(self):
         with th.no_grad():
-            return f"SEIR | gamma {self.fpos(self.gamma).item():.3f} | {self.beta_net}"
+            return f"SEIR | gamma {self.fpos(self.gamma).item():.3f} "
 
 
 def train(model, cases, population, odeint, optimizer, checkpoint, args):
@@ -254,8 +260,8 @@ def train(model, cases, population, odeint, optimizer, checkpoint, args):
         optimizer.zero_grad()
         pred_y = odeint(model, y0, t, method=args.method)  # , options={"step_size": 1})
         # pred_y = odeint(func, y0, t, method=args.method)
-        pred_Is = pred_y.narrow(1, M, M).squeeze().t()
-        pred_Rs = pred_y.narrow(1, 2 * M, M).squeeze().t()
+        pred_Is = pred_y.narrow(1, M, M).t()
+        pred_Rs = pred_y.narrow(1, 2 * M, M).t()
         pred_Cs = pred_Is + pred_Rs
 
         predicted = pred_Cs[:, -args.fit_on :]
@@ -272,21 +278,29 @@ def train(model, cases, population, odeint, optimizer, checkpoint, args):
         # back prop
         loss.backward()
         optimizer.step()
-
+        
+        # sometimes infected goes below 0 - prevent that
+        # check if initial betas are large enough ...
+        # perhaps start from large beta and minimize it??
+        
         # control
-        if itr % 50 == 0:
+        if itr % 50 == 0 or loss == 0:
+            # target betas and estimated ones
             with th.no_grad(), np.printoptions(precision=3, suppress=True):
                 maes = th.abs(cases[:, -3:] - pred_Cs[:, -3:])
-                print(
-                    th.cat([cases[:, -3:], pred_Cs[:, -3:], maes], dim=1)
-                    .cpu()
-                    .numpy()
-                    .round(2)
-                )
+                # print(cases[:, -3:].cpu().numpy().round(2))
+                # print(pred_Cs[:, -3:].cpu().numpy().round(2))
+                # print(maes.cpu().numpy().round(2))
+            # the printed MAE is on the last day
             print(
-                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes[:, -1].mean():.2f} | {model}"
+                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes[:, -1].mean():.2f} | {model} | {args.decay} "
             )
             th.save(model.state_dict(), checkpoint)
+            if loss == 0 or itr == args.niters: 
+                # perhaps add sn/n correction but this is just to get an idea
+                print((cases[0][1:] - cases[0][:-1])/cases[0][:-1])
+                for i in range(16): print(model.beta_net(i, y0)[0].item())
+                break
     return model
 
 
@@ -302,12 +316,12 @@ def simulate(model, cases, regions, population, odeint, args, dstart=None):
     y0 = model.y0(S0, I0, R0).to(device)
 
     pred_y = odeint(model, y0, t, method=args.method, options={"step_size": 1})
-    pred_Rs = pred_y.narrow(1, 2 * M, M).squeeze().t()
+    pred_Rs = pred_y.narrow(1, 2 * M, M).t()
 
     Rt = pred_Rs.narrow(1, -1, 1)
     It = cases.narrow(1, -1, 1) - Rt
     St = population.unsqueeze(1) - It - Rt
-    print(It.size(), Rt.size(), St.size())
+    # print(It.size(), Rt.size(), St.size())
     # Et = pred_y.narrow(1, 2 * M, M).squeeze().t()[:, -1]
     # yt = func.y0(St, It, Et)
     yt = model.y0(St, It, Rt)
@@ -319,12 +333,12 @@ def simulate(model, cases, regions, population, odeint, args, dstart=None):
         options={"step_size": 1},
     )
 
-    test_preds = test_preds.narrow(1, M, M).squeeze().t().narrow(
-        1, -args.test_on, args.test_on
-    ) + test_preds.narrow(1, 2 * M, M).squeeze().t().narrow(
-        1, -args.test_on, args.test_on
-    )
-    df = pd.DataFrame(test_preds.cpu().numpy().T)
+    # report the total I and R
+    test_Is = test_preds.narrow(1, M, M).t().narrow(1, -args.test_on, args.test_on)
+    test_Rs = test_preds.narrow(1, 2 * M, M).t().narrow(1, -args.test_on, args.test_on)
+    test_preds = test_Is + test_Rs
+    
+    df = pd.DataFrame(test_preds.cpu().int().numpy().T)
     df.columns = regions
     if dstart is not None:
         base = pd.to_datetime(dstart)
@@ -339,6 +353,7 @@ def initialize(args):
     cases, regions, basedate = load.load_confirmed_by_region(args.fdat)
     populations, _ = load.load_populations_by_region(args.fpop, regions)
     cases = th.from_numpy(cases)
+    # initialize at time t0
     cases = cases.float().to(device)[:, args.t0 :]
     populations = th.from_numpy(np.array(populations))
     populations = populations.float().to(device)
@@ -348,6 +363,19 @@ def initialize(args):
     else:
         from torchdiffeq import odeint
 
+    # cheat to test compatibility
+    # if zero (def value) it'll continue
+    if args.keep_counties == -1:
+        cases = cases.sum(0).reshape(1, -1)
+        populations = populations.sum(0).reshape(1)
+        regions = ['all']
+    elif args.keep_counties > 0:
+        k = args.keep_counties
+        # can also sort on case numbers and pick top-k
+        cases = cases[:k]
+        populations = populations[:k]
+        regions = regions[:k]
+        
     return cases, regions, populations, basedate, odeint, device
 
 
@@ -361,20 +389,22 @@ def run_train(args, checkpoint):
     elif args.decay == "powerlaw":
         beta_net = BetaPowerLawDecay(population)
     elif args.decay == "rbf":
-        beta_net = BetaRBF(population, 10)
+        beta_net = BetaRBF(population, 10, float(len(cases[0])))
     elif args.decay == "latent":
-        beta_net = BetaLatent(population, 16, float(len(cases)))
+        beta_net = BetaLatent(population, args.width, float(len(cases[0])))
         weight_decay = args.weight_decay
 
     func = MetaSIR(population, beta_net).to(device)
-    # optimizer = optim.AdamW(
-    #     func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
-    # )
-
-    optimizer = optim.RMSprop(func.parameters(), lr=args.lr, weight_decay=weight_decay)
+    optimizer = optim.AdamW(
+        func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
+    )
+    
+    # optimization is unstable, quickly it tends to explode
+    # check norm_grad weight norm etc...
+    # optimizer = optim.RMSprop(func.parameters(), lr=args.lr, weight_decay=weight_decay)
 
     model = train(func, cases, population, odeint, optimizer, checkpoint, args)
-
+    
     return model
 
 
@@ -407,14 +437,19 @@ if __name__ == "__main__":
     parser.add_argument("-amsgrad", default=False, action="store_true")
     parser.add_argument("-method", default="euler", choices=["euler", "rk4", "dopri5"])
     parser.add_argument("-loss", default="lsq", choices=["lsq", "poisson"])
-    parser.add_argument("-decay", default="exp", choices=["exp", "powerlaw", "latent"])
+    parser.add_argument("-decay", default="exp", choices=["exp", "powerlaw", "latent", "rbf"])
     parser.add_argument("-t0", default=10, type=int)
     parser.add_argument("-fit-on", default=5, type=int)
     parser.add_argument("-test-on", default=5, type=int)
     parser.add_argument("-checkpoint", type=str, default="/tmp/metasir_model.bin")
+    parser.add_argument("-keep-counties", type=int, default=0)
+    parser.add_argument("-width", type=int, default=16)
+    parser.add_argument("-seed", type=int, default=0)
     args = parser.parse_args()
 
+    th.manual_seed(args.seed)
     model = run_train(args, args.checkpoint)
 
     with th.no_grad():
         forecast = run_simulate(args, model)
+        print(forecast)

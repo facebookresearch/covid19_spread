@@ -316,7 +316,7 @@ def train(model, cases, regions, optimizer, checkpoint, args):
                 gt = new_cases[:, -3:]
                 maes = th.abs(gt - pred)
             print(
-                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes.mean():.2f} | {model}"
+                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes.mean():.2f} | {model} | {args.loss}"
             )
             th.save(model.state_dict(), checkpoint)
     return model
@@ -348,6 +348,19 @@ def initialize(args):
     device = th.device("cuda" if th.cuda.is_available() else "cpu")
     cases, regions, basedate = load_confirmed(args.fdat)
     cases = cases.float().to(device)[:, args.t0 :]
+
+    # cheat to test compatibility
+    # if zero (def value) it'll continue
+    if not hasattr(args, "keep_counties"):
+        pass
+    elif args.keep_counties == -1:
+        cases = cases.sum(0).reshape(1, -1)
+        regions = ["all"]
+    elif args.keep_counties > 0:
+        k = args.keep_counties
+        # can also sort on case numbers and pick top-k
+        cases = cases[:k]
+        regions = regions[:k]
 
     return cases, regions, basedate, device
 
@@ -411,6 +424,15 @@ def run_simulate(args, model=None):
     return forecast
 
 
+def run_prediction_interval(args, model=None):
+    if model is None:
+        raise NotImplementedError
+
+    cases, regions, basedate, device = initialize(args)
+
+    forecast = simulate(model, cases, regions, args, basedate)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("ODE demo")
     parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
@@ -425,6 +447,7 @@ if __name__ == "__main__":
     parser.add_argument("-fit-on", default=5, type=int)
     parser.add_argument("-test-on", default=5, type=int)
     parser.add_argument("-checkpoint", type=str, default="/tmp/ar_model.bin")
+    parser.add_argument("-keep-counties", type=int, default=0)
     args = parser.parse_args()
 
     model = run_train(args, args.checkpoint)
