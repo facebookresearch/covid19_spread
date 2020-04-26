@@ -101,14 +101,14 @@ forecast-nyc:
 grid-nyc: runlog = runs/nyc/$(DATE).log
 grid-nyc:
 	touch $(runlog)
-	python3 sweep.py grids/nyc.yml -remote -ncpus 40 -timeout-min 30 | tail -1 >> $(runlog)
+	python3 sweep.py grids/nyc.yml -remote -ncpus 40 -timeout-min 15 | tail -1 >> $(runlog)
 	tail -1 $(runlog)
 
 
 grid-nys: runlog = runs/nys/$(DATE).log
 grid-nys:
 	touch $(runlog)
-	python3 sweep.py grids/nys.yml -remote -ncpus 40 -timeout-min 120 | tail -1 >> $(runlog)
+	python3 sweep.py grids/nys.yml -remote -ncpus 40 -timeout-min 40 | tail -1 >> $(runlog)
 	tail -1 $(runlog)
 
 
