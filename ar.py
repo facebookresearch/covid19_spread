@@ -260,7 +260,7 @@ def train(model, cases, population, optimizer, checkpoint, args):
                 maes = th.abs(gt - pred)
                 # print(th.cat([gt, pred, maes], dim=1).cpu().numpy())
             print(
-                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes.mean()} | {args.loss}"
+                f"Iter {itr:04d} | Loss {loss.item() / M:.4f} | MAE {maes.mean()} | {args.loss}"
             )
             th.save(model.state_dict(), checkpoint)
     return model
@@ -278,7 +278,7 @@ def simulate(model, cases, regions, population, args, dstart=None):
     test_preds = np.cumsum(test_preds, axis=1)
     test_preds = test_preds + cases.narrow(1, -1, 1).cpu().numpy()
 
-    df = pd.DataFrame(test_preds.T)
+    df = pd.DataFrame(test_preds.T.astype(int))
     df.columns = regions
     if dstart is not None:
         base = pd.to_datetime(dstart)
@@ -356,7 +356,7 @@ if __name__ == "__main__":
     parser.add_argument("-amsgrad", default=False, action="store_true")
     parser.add_argument("-method", default="euler", choices=["euler", "rk4", "dopri5"])
     parser.add_argument("-loss", default="poisson", choices=["nb", "poisson"])
-    parser.add_argument("-decay", default="exp", choices=["exp", "powerlaw", "latent"])
+    parser.add_argument("-decay", default="exp")
     parser.add_argument("-t0", default=10, type=int)
     parser.add_argument("-fit-on", default=5, type=int)
     parser.add_argument("-test-on", default=5, type=int)
@@ -368,3 +368,4 @@ if __name__ == "__main__":
 
     with th.no_grad():
         forecast = run_simulate(args, model)
+        print(forecast)
