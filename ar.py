@@ -260,7 +260,7 @@ def train(model, cases, population, optimizer, checkpoint, args):
                 maes = th.abs(gt - pred)
                 # print(th.cat([gt, pred, maes], dim=1).cpu().numpy())
             print(
-                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes.mean()} | {model}"
+                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes.mean()} | {args.loss}"
             )
             th.save(model.state_dict(), checkpoint)
     return model
