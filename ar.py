@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import NegativeBinomial, Poisson
 
-from common import load_data
+from load import load_data
 
 
 def load_confirmed(path):
@@ -355,11 +355,12 @@ if __name__ == "__main__":
     parser.add_argument("-adjoint", default=False, action="store_true")
     parser.add_argument("-amsgrad", default=False, action="store_true")
     parser.add_argument("-method", default="euler", choices=["euler", "rk4", "dopri5"])
-    parser.add_argument("-loss", default="lsq", choices=["lsq", "poisson"])
+    parser.add_argument("-loss", default="poisson", choices=["nb", "poisson"])
     parser.add_argument("-decay", default="exp", choices=["exp", "powerlaw", "latent"])
     parser.add_argument("-t0", default=10, type=int)
     parser.add_argument("-fit-on", default=5, type=int)
     parser.add_argument("-test-on", default=5, type=int)
+    parser.add_argument("-window", default=5, type=int)
     parser.add_argument("-checkpoint", type=str, default="/tmp/metasir_model.bin")
     args = parser.parse_args()
 
