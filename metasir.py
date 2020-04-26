@@ -290,7 +290,7 @@ def train(model, cases, population, odeint, optimizer, checkpoint, args):
                 f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes[:, -1].mean():.2f} | {model} | {args.decay} "
             )
             th.save(model.state_dict(), checkpoint)
-            if loss == 0: 
+            if loss == 0 or itr == args.niters: 
                 print((cases[0][1:] - cases[0][:-1])/cases[0][:-1])
                 for i in range(16): print(model.beta_net(i, y0)[0].item())
                 break
@@ -326,11 +326,11 @@ def simulate(model, cases, regions, population, odeint, args, dstart=None):
         options={"step_size": 1},
     )
 
-    test_preds = test_preds.narrow(1, M, M).t().narrow(
-        1, -args.test_on, args.test_on
-    ) + test_preds.narrow(1, 2 * M, M).t().narrow(
-        1, -args.test_on, args.test_on
-    )
+    # report the total I and R
+    test_Is = test_preds.narrow(1, M, M).t().narrow(1, -args.test_on, args.test_on)
+    test_Rs = test_preds.narrow(1, 2 * M, M).t().narrow(1, -args.test_on, args.test_on)
+    test_preds = test_Is + test_Rs
+    
     df = pd.DataFrame(test_preds.cpu().int().numpy().T)
     df.columns = regions
     if dstart is not None:
@@ -387,12 +387,13 @@ def run_train(args, checkpoint):
         weight_decay = args.weight_decay
 
     func = MetaSIR(population, beta_net).to(device)
-    # optimizer = optim.AdamW(
-    #     func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
-    # )
+    optimizer = optim.AdamW(
+        func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
+    )
+    
     # optimization is unstable, quickly it tends to explode
     # check norm_grad weight norm etc...
-    optimizer = optim.RMSprop(func.parameters(), lr=args.lr, weight_decay=weight_decay)
+    # optimizer = optim.RMSprop(func.parameters(), lr=args.lr, weight_decay=weight_decay)
 
     model = train(func, cases, population, odeint, optimizer, checkpoint, args)
     
