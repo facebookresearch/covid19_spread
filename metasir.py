@@ -107,10 +107,12 @@ class BetaLatent(nn.Module):
 
 
 class BetaRBF(nn.Module):
-    def __init__(self, population, dim):
+    def __init__(self, population, dim, tmax):
         super(BetaRBF, self).__init__()
         self.M = len(population)
         self.dim = dim
+        self.tmax = tmax
+        print(tmax)
         # self.bs = nn.Parameter(th.ones(self.M, dim, dtype=th.float).fill_(-4))
         # self.bs = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
         self.v = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
@@ -119,7 +121,7 @@ class BetaRBF(nn.Module):
         self.fpos = F.softplus
 
     def forward(self, t, y):
-        d = (t - self.c) ** 2  # / self.fpos(self.temp)
+        d = (t / self.tmax - self.c) ** 2  # / self.fpos(self.temp)
         beta = th.sigmoid(th.sum(self.v * th.exp(-d), dim=1))
         # beta = self.fpos(self.bs.narrow(-1, int(t), 1))
         return beta.squeeze(), None
@@ -386,9 +388,9 @@ def run_train(args, checkpoint):
     elif args.decay == "powerlaw":
         beta_net = BetaPowerLawDecay(population)
     elif args.decay == "rbf":
-        beta_net = BetaRBF(population, 10)
+        beta_net = BetaRBF(population, 10, float(len(cases[0])))
     elif args.decay == "latent":
-        beta_net = BetaLatent(population, args.width, float(len(cases)))
+        beta_net = BetaLatent(population, args.width, float(len(cases[0])))
         weight_decay = args.weight_decay
 
     func = MetaSIR(population, beta_net).to(device)

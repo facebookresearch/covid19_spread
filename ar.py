@@ -314,7 +314,7 @@ def run_train(args, checkpoint):
     elif args.decay == "rbf":
         beta_net = BetaRBF(population, 10)
     elif args.decay == "latent":
-        beta_net = BetaLatent(population, 16, float(len(cases)))
+        beta_net = BetaLatent(population, 16, float(len(cases[0])))
         weight_decay = args.weight_decay
 
     func = AR(population, beta_net, args.loss, args.window).to(device)
