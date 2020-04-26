@@ -302,6 +302,7 @@ def initialize(args):
         population = population.sum(0).reshape(1)
         regions = ['all']
     elif args.keep_counties > 0:
+        k = args.keep_counties
         # can also sort on case numbers and pick top-k
         cases = cases[:k]
         populations = populations[:k]
