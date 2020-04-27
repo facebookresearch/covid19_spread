@@ -8,6 +8,10 @@ validation:
   days: &vdays 7
 metrics:
   output: metrics.csv
+prediction_interval:
+  nsamples: 1000
+  output_mean: us_mean.csv
+  output_std: us_std.csv
 ar:
   module: ar
   output: ar_model.bin
@@ -16,7 +20,7 @@ ar:
     fpop: *fpop
     #graph: *fgraph
     decay: exp
-    window: 1
+    window: 3
     lr: 0.005
     weight_decay: 0
     niters: 20000

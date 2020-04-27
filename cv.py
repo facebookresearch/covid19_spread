@@ -37,11 +37,12 @@ if __name__ == "__main__":
     else:
         basedir = "/tmp"
 
+    def _path(path):
+        return os.path.join(basedir, path)
+
     # setup input/output paths
-    val_in = os.path.join(basedir, cfg["validation"]["input"])
-    val_out = os.path.join(basedir, cfg["validation"]["output"])
-    metrics_out = os.path.join(basedir, cfg["metrics"]["output"])
-    model_out = os.path.join(basedir, cfg[opt.module]["output"])
+    val_in = _path(cfg["validation"]["input"])
+    val_out = _path(cfg["validation"]["output"])
     cfg[opt.module]["train"]["fdat"] = val_in
 
     # -- filter --
@@ -50,7 +51,7 @@ if __name__ == "__main__":
     # -- train --
     train_params = Namespace(**cfg[opt.module]["train"])
     mod = importlib.import_module(cfg[opt.module]["module"])
-    model = mod.run_train(train_params, model_out)
+    model = mod.run_train(train_params, _path(cfg[opt.module]["output"]))
 
     # -- simulate --
     with th.no_grad():
@@ -59,5 +60,13 @@ if __name__ == "__main__":
 
     # -- metrics --
     df_val = metrics.compute_metrics(cfg["data"], val_out).round(2)
-    df_val.to_csv(metrics_out)
+    df_val.to_csv(_path(cfg["metrics"]["output"]))
     print(df_val)
+
+    # -- prediction interval --
+    with th.no_grad():
+        df_mean, df_std = mod.run_prediction_interval(
+            train_params, cfg["prediction_interval"]["nsamples"], model
+        )
+    df_mean.to_csv(_path(cfg["prediction_interval"]["output_mean"]))
+    df_std.to_csv(_path(cfg["prediction_interval"]["output_std"]))

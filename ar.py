@@ -331,8 +331,7 @@ def simulate(model, cases, regions, args, dstart=None):
     test_preds = np.cumsum(test_preds, axis=1)
     test_preds = test_preds + cases.narrow(1, -1, 1).cpu().numpy()
 
-    df = pd.DataFrame(test_preds.T)
-    df.columns = regions
+    df = pd.DataFrame(test_preds.T, columns=regions)
     if dstart is not None:
         base = pd.to_datetime(dstart)
         ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
@@ -342,6 +341,34 @@ def simulate(model, cases, regions, args, dstart=None):
 
     print(model.beta(th.arange(tmax + args.test_on).to(cases.device) + 1))
     return df
+
+
+def prediction_interval(model, cases, regions, nsamples, args, dstart=None):
+    new_cases = cases[:, 1:] - cases[:, :-1]
+    tmax = new_cases.size(1)
+    samples = []
+
+    for i in range(nsamples):
+        test_preds = model.simulate(tmax, new_cases, args.test_on, False)
+        test_preds = test_preds.cpu().numpy()
+        test_preds = np.cumsum(test_preds, axis=1)
+        test_preds = test_preds + cases.narrow(1, -1, 1).cpu().numpy()
+        samples.append(test_preds)
+    samples = np.stack(samples, axis=0)
+    print(samples.shape)
+    test_preds_mean = np.mean(samples, axis=0)
+    test_preds_std = np.std(samples, axis=0)
+    df_mean = pd.DataFrame(test_preds_mean.T, columns=regions)
+    df_std = pd.DataFrame(test_preds_std.T, columns=regions)
+    if dstart is not None:
+        base = pd.to_datetime(dstart)
+        ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
+        df_mean["date"] = ds
+        df_std["date"] = ds
+
+        df_mean.set_index("date", inplace=True)
+        df_std.set_index("date", inplace=True)
+    return df_mean, df_std
 
 
 def initialize(args):
@@ -424,13 +451,15 @@ def run_simulate(args, model=None):
     return forecast
 
 
-def run_prediction_interval(args, model=None):
+def run_prediction_interval(args, nsamples, model=None):
     if model is None:
         raise NotImplementedError
 
     cases, regions, basedate, device = initialize(args)
-
-    forecast = simulate(model, cases, regions, args, basedate)
+    df_mean, df_std = prediction_interval(
+        model, cases, regions, nsamples, args, basedate
+    )
+    return df_mean, df_std
 
 
 if __name__ == "__main__":
