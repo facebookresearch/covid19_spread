@@ -31,6 +31,8 @@ def drop_k_days(dset, outfile, days):
 
         for idx, ts in enumerate(times):
             mask = ts < max_time
+            if not mask.any():
+                continue
             new_nodes.append(np.array([namer[x] for x in nodes[idx][mask]]))
             new_times.append(ts[mask])
 
@@ -46,7 +48,7 @@ def drop_k_days(dset, outfile, days):
         _node = hout.create_dataset("node", (len(new_nodes),), dtype=ds_dt)
         _time[:] = new_times
         _node[:] = new_nodes
-        hout["cascades"] = hin["cascades"][:]
+        hout["cascades"] = np.arange(len(new_nodes))
         if "basedate" in hin.attrs:
             date = datetime.datetime.strptime(hin.attrs["basedate"], "%Y-%m-%d")
             hout.attrs["basedate"] = str((date - datetime.timedelta(days=days)).date())
