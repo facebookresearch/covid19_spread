@@ -4,6 +4,15 @@ import pandas as pd
 import torch as th
 
 
+def load_confirmed_csv(path):
+    df = pd.read_csv(path)
+    df.set_index("region", inplace=True)
+    basedate = df.columns[-1]
+    nodes = df.index.to_numpy()
+    cases = df.to_numpy()
+    return th.from_numpy(cases), nodes, basedate
+
+
 def load_confirmed(path, regions):
     """Loads confirmed total confirmed cases"""
     # df = pd.read_csv(path, usecols=regions)
@@ -41,7 +50,6 @@ def load_population(path, col=1):
     df = pd.read_csv(path, header=None)
     pop = df.iloc[:, col].sum()
     regions = df.iloc[:, 0].to_numpy().tolist()
-    print(regions)
     return pop, regions
 
 
