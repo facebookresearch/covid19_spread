@@ -17,7 +17,9 @@ def load_ground_truth(path):
         for i, n in enumerate(nodes):
             ix1 = np.where(ns == i)[0]
             counts[n][t - 1] = len(np.intersect1d(ix1, ix2))
-    return gt, nodes, counts, pd.to_datetime(basedate)
+    df = pd.DataFrame(counts)
+    df.index = pd.date_range(end=basedate, periods=len(df))
+    return df
 
 
 def load_ground_truth_csv(path):
@@ -30,7 +32,12 @@ def load_ground_truth_csv(path):
 
 
 def compute_metrics(f_ground_truth, f_predictions, mincount=10):
-    df_true = load_ground_truth_csv(f_ground_truth)
+    if f_ground_truth.endswith('.h5'):
+        df_true = load_ground_truth(f_ground_truth)
+    elif f_ground_truth.endswith('.csv'):
+        df_true = load_ground_truth_csv(f_ground_truth)
+    else:
+        raise RuntimeError(f"Unrecognized extension: {f_ground_truth}")
     cols = df_true.columns.to_numpy().tolist()
     df_pred = pd.read_csv(f_predictions, usecols=cols + ["date"], parse_dates=["date"])
     df_pred = df_pred.set_index("date")

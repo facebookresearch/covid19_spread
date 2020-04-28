@@ -18,7 +18,7 @@ from functools import partial
 import submitit
 
 
-def cv(basedir: str, cfg: Dict[str, Any]):
+def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
     try:
         basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
     except Exception:
@@ -30,29 +30,34 @@ def cv(basedir: str, cfg: Dict[str, Any]):
         return os.path.join(basedir, path)
 
     # setup input/output paths
-    val_in = _path(cfg["validation"]["input"])
-    val_out = _path(cfg["validation"]["output"])
+    dset = cfg[opt.module]["data"]
+    val_in = _path("filtered_" + os.path.basename(dset))
+    val_out = _path("validation.csv")
     cfg[opt.module]["train"]["fdat"] = val_in
 
     # -- filter --
-    common.drop_k_days_csv(cfg["data"], val_in, cfg["validation"]["days"])
+    if dset.endswith(".csv"):
+        common.drop_k_days_csv(dset, val_in, cfg["validation_days"])
+    elif dset.endswith(".h5"):
+        common.drop_k_days(dset, val_in, cfg["validation_days"])
+    else:
+        raise RuntimeError(f"Unrecognized dataset extension: {dset}")
 
     # -- train --
     train_params = Namespace(**cfg[opt.module]["train"])
-    mod = importlib.import_module(cfg[opt.module]["module"])
-    model = mod.run_train(train_params, _path(cfg[opt.module]["output"]))
+    mod = importlib.import_module(opt.module)
+    model = mod.run_train(val_in, train_params, _path(cfg[opt.module]["output"]))
 
     # -- simulate --
     with th.no_grad():
-        df_forecast = mod.run_simulate(train_params, model)
+        df_forecast = mod.run_simulate(val_in, train_params, model)
     print(f"Storing forecast in {val_out}")
     df_forecast.to_csv(val_out)
 
     # -- metrics --
-    if "metrics" in cfg:
-        df_val = metrics.compute_metrics(cfg["data"], val_out).round(2)
-        df_val.to_csv(_path(cfg["metrics"]["output"]))
-        print(df_val)
+    df_val = metrics.compute_metrics(cfg[opt.module]["data"], val_out).round(2)
+    df_val.to_csv(_path("metrics.csv"))
+    print(df_val)
 
     # -- prediction interval --
     if "prediction_interval" in cfg:
@@ -128,5 +133,5 @@ if __name__ == "__main__":
         basedirs = [os.path.join(basedir, f"job_{i}") for i in range(len(cfgs))]
         launcher = map
 
-    list(launcher(cv, basedirs, cfgs))
+    list(launcher(partial(cv, opt), basedirs, cfgs))
     print(basedir)
