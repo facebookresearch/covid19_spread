@@ -17,7 +17,7 @@ df = pd.read_csv(
     usecols=["date", "county", "fips", "cases"],
 )
 df = df.dropna()
-df['fips'] = df['fips'].astype(int)
+df["fips"] = df["fips"].astype(int)
 
 print(df)
 
@@ -63,10 +63,10 @@ for (name, aid), group in df_agg:
 # _ags = df["AGS"]
 # _ws = df["Count"]
 
-# convert timestamps to number of days since first outbreak:	
-min_ts = min(_ts)	
-_ts = [t - min_ts for t in _ts]	
-_ts = [t / (24 * 60 * 60.) for t in _ts]	
+# convert timestamps to number of days since first outbreak:
+min_ts = min(_ts)
+_ts = [t - min_ts for t in _ts]
+_ts = [t / (24 * 60 * 60.) for t in _ts]
 
 assert len(_ts) == nevents, (len(_ts), nevents)
 knames = [None for _ in range(len(kreis_ids))]
