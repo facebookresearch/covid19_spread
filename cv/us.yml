@@ -1,7 +1,7 @@
 region: us
-data: &fdat data/united-states/data.csv
-population: &fpop data/united-states/population.csv
-basegraph: &fgraph data/united-states/state_graph.pt
+data: &fdat data/usa/data.csv
+population: &fpop data/usa/population.csv
+basegraph: &fgraph data/usa/state_graph.pt
 validation:
   input: &fvdata us_filtered.csv
   output: validation.csv
