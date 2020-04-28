@@ -18,7 +18,7 @@ metasir:
   train:
     fdat: *fvdata
     fpop: *fpop
-    decay: exp
+    decay: rbf
     lr: 0.005
     weight_decay: 0
     niters: 10000
@@ -34,9 +34,9 @@ ar:
   train:
     fdat: *fvdata
     fpop: *fpop
-    graph: *fgraph
-    decay: powerlaw
-    window: 14
+    # graph: *fgraph
+    decay: exp
+    window: 7
     lr: 0.005
     weight_decay: 0
     niters: 40000
