@@ -1,29 +1,45 @@
 region: us
 data: &fdat data/united-states/data.csv
-population: &fpop data/population-data/US-states/new-york-population.csv
+population: &fpop data/united-states/population.csv
 basegraph: &fgraph data/united-states/state_graph.pt
 validation:
   input: &fvdata us_filtered.csv
   output: validation.csv
-  days: &vdays 7
+  days: &vdays 21
 metrics:
   output: metrics.csv
-prediction_interval:
-  nsamples: 1000
+prediction_interval_:
+  nsamples: 10
   output_mean: us_mean.csv
   output_std: us_std.csv
+metasir:
+  module: metasir
+  output: metasir_model.bin
+  train:
+    fdat: *fvdata
+    fpop: *fpop
+    decay: exp
+    lr: 0.005
+    weight_decay: 0
+    niters: 10000
+    method: euler
+    loss: lsq
+    t0: 10
+    fit_on: -10
+    test_on: *vdays
+    adjoint: false    
 ar:
   module: ar
   output: ar_model.bin
   train:
     fdat: *fvdata
     fpop: *fpop
-    #graph: *fgraph
-    decay: exp
-    window: 3
+    graph: *fgraph
+    decay: powerlaw
+    window: 14
     lr: 0.005
     weight_decay: 0
-    niters: 20000
+    niters: 40000
     loss: nb
     t0: 10
     test_on: *vdays
