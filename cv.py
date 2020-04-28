@@ -20,11 +20,12 @@ import submitit
 
 def cv(basedir: str, cfg: Dict[str, Any]):
     try:
-        basedir = basedir.replace('%j', submitit.JobEnvironment().job_id)
+        basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
     except Exception:
         pass  # running locally, basedir is fine...
 
     os.makedirs(basedir, exist_ok=True)
+
     def _path(path):
         return os.path.join(basedir, path)
 
@@ -44,20 +45,23 @@ def cv(basedir: str, cfg: Dict[str, Any]):
     # -- simulate --
     with th.no_grad():
         df_forecast = mod.run_simulate(train_params, model)
+    print(f"Storing forecast in {val_out}")
     df_forecast.to_csv(val_out)
 
     # -- metrics --
-    df_val = metrics.compute_metrics(cfg["data"], val_out).round(2)
-    df_val.to_csv(_path(cfg["metrics"]["output"]))
-    print(df_val)
+    if "metrics" in cfg:
+        df_val = metrics.compute_metrics(cfg["data"], val_out).round(2)
+        df_val.to_csv(_path(cfg["metrics"]["output"]))
+        print(df_val)
 
-        # -- prediction interval --
-    with th.no_grad():
-        df_mean, df_std = mod.run_prediction_interval(
-            train_params, cfg["prediction_interval"]["nsamples"], model
-        )
-    df_mean.to_csv(_path(cfg["prediction_interval"]["output_mean"]))
-    df_std.to_csv(_path(cfg["prediction_interval"]["output_std"]))
+    # -- prediction interval --
+    if "prediction_interval" in cfg:
+        with th.no_grad():
+            df_mean, df_std = mod.run_prediction_interval(
+                train_params, cfg["prediction_interval"]["nsamples"], model
+            )
+            df_mean.to_csv(_path(cfg["prediction_interval"]["output_mean"]))
+            df_std.to_csv(_path(cfg["prediction_interval"]["output_std"]))
 
 
 if __name__ == "__main__":
@@ -80,33 +84,38 @@ if __name__ == "__main__":
 
     cfg = yaml.load(open(opt.config), Loader=yaml.FullLoader)
     region = cfg["region"]
-    
+
     if opt.remote:
         basedir = f"/checkpoint/{user}/covid19/forecasts/{region}/{now}"
     else:
         basedir = "/tmp"
 
-
     cfgs = []
-    sweep_params = [k for k, v in cfg[opt.module]['train'].items() if isinstance(v, list)]
+    sweep_params = [
+        k for k, v in cfg[opt.module]["train"].items() if isinstance(v, list)
+    ]
     if len(sweep_params) == 0:
         cfgs.append(cfg)
     else:
         random.seed(0)
-        for vals in itertools.product(*[cfg[opt.module]['train'][k] for k in sweep_params]):
+        for vals in itertools.product(
+            *[cfg[opt.module]["train"][k] for k in sweep_params]
+        ):
             clone = copy.deepcopy(cfg)
-            clone[opt.module]['train'].update({k: v for k, v in zip(sweep_params, vals)})
+            clone[opt.module]["train"].update(
+                {k: v for k, v in zip(sweep_params, vals)}
+            )
             cfgs.append(clone)
         random.shuffle(cfgs)
-        cfgs = cfgs[:opt.max_jobs]
+        cfgs = cfgs[: opt.max_jobs]
 
     if opt.remote:
-        ngpus = cfg[opt.module].get('resources', {}).get('gpus', 0)
-        ncpus = cfg[opt.module].get('resources', {}).get('cpus', 3)
-        memgb = cfg[opt.module].get('resources', {}).get('memgb', 20)
-        executor = submitit.AutoExecutor(folder=basedir + '/%j')
+        ngpus = cfg[opt.module].get("resources", {}).get("gpus", 0)
+        ncpus = cfg[opt.module].get("resources", {}).get("cpus", 3)
+        memgb = cfg[opt.module].get("resources", {}).get("memgb", 20)
+        executor = submitit.AutoExecutor(folder=basedir + "/%j")
         executor.update_parameters(
-            name=f'cv_{region}',
+            name=f"cv_{region}",
             gpus_per_node=ngpus,
             cpus_per_task=ncpus,
             mem_gb=memgb,
@@ -114,9 +123,9 @@ if __name__ == "__main__":
             timeout_min=12 * 60,
         )
         launcher = executor.map_array
-        basedirs = [f'{basedir}/%j' for _ in cfgs]
+        basedirs = [f"{basedir}/%j" for _ in cfgs]
     else:
-        basedirs = [os.path.join(basedir, f'job_{i}') for i in range(len(cfgs))]
+        basedirs = [os.path.join(basedir, f"job_{i}") for i in range(len(cfgs))]
         launcher = map
 
     list(launcher(cv, basedirs, cfgs))
