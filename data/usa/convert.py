@@ -49,7 +49,7 @@ df_pop = pd.DataFrame.from_dict(
 df_pop.to_csv("population.csv", index=False, header=False)
 df = df.transpose()  # row for each county, columns correspond to dates...
 county_id = {c: i for i, c in enumerate(df.index)}
-df.to_csv("data.csv")
+df.to_csv("data.csv", index_label='region')
 
 # Build state graph...
 adj = np.zeros((len(df), len(df)))
