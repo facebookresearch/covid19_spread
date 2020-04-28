@@ -349,7 +349,8 @@ def initialize(args):
     return cases, regions, basedate, device
 
 
-def run_train(args, checkpoint):
+def run_train(dset, args, checkpoint):
+    args.fdat = dset
     cases, regions, _, device = initialize(args)
     tmax = cases.size(1) + 1
 
@@ -390,7 +391,8 @@ def run_train(args, checkpoint):
     return model
 
 
-def run_simulate(args, model=None):
+def run_simulate(dset, args, model=None):
+    args.fdat = dset
     if model is None:
         raise NotImplementedError
 

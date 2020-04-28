@@ -1,22 +1,15 @@
 region: us
-data: &fdat data/usa/data.csv
 population: &fpop data/usa/population.csv
 basegraph: &fgraph data/usa/state_graph.pt
-validation:
-  input: &fvdata us_filtered.csv
-  output: validation.csv
-  days: &vdays 21
-metrics:
-  output: metrics.csv
+validation_days: &vdays 21
 prediction_interval_:
   nsamples: 10
   output_mean: us_mean.csv
   output_std: us_std.csv
 metasir:
-  module: metasir
+  data: data/usa/data.csv
   output: metasir_model.bin
   train:
-    fdat: *fvdata
     fpop: *fpop
     decay: exp
     lr: 0.005
@@ -29,10 +22,9 @@ metasir:
     test_on: *vdays
     adjoint: false    
 ar:
-  module: ar
   output: ar_model.bin
+  data: data/usa/data.csv
   train:
-    fdat: *fvdata
     fpop: *fpop
     graph: *fgraph
     decay: powerlaw

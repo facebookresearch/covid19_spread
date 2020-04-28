@@ -1,17 +1,10 @@
 region: new-jersey
-data: &fdat data/new-jersey/timeseries.h5
 population: &fpop data/population-data/US-states/new-jersey-population.csv
-validation:
-  input: &fvdata timeseries_filtered.h5
-  output: validation.csv
-  days: &vdays 7
-metrics:
-  output: metrics.csv
+validation_days: &vdays 7
 metasir:
-  module: metasir
   output: metasir_model.bin
+  data: data/new-jersey/timeseries.h5
   train:
-    fdat: *fvdata
     fpop: *fpop
     decay: latent
     lr: 0.005
@@ -24,10 +17,9 @@ metasir:
     test_on: *vdays
     adjoint: false    
 ar:
-  module: ar
+  data: data/new-jersey/timeseries.h5
   output: ar_model.bin
   train:
-    fdat: *fvdata
     fpop: *fpop
     decay: powerlaw
     window: 1
@@ -40,10 +32,9 @@ ar:
     test_on: *vdays
     adjoint: false
 sir:
-  module: sir
+  data: data/new-jersey/timeseries.h5
   output: sir_model.npy
   train:
-    fdat: *fvdata
     fpop: *fpop
     window: 14
     recovery_days: 14

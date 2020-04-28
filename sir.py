@@ -95,7 +95,7 @@ def estimate_growth_const(cases, window=None):
     return doubling_time
 
 
-def run_train(train_params, model_out):
+def run_train(dset, train_params, model_out):
     """Infers doubling time for sir model. 
     API match that of cv.py for cross validation
 
@@ -106,7 +106,7 @@ def run_train(train_params, model_out):
     Returns: (np.float64) estimate of doubling_time
     """
     # get cases
-    cases_by_region, _, _ = load.load_confirmed_by_region(train_params.fdat)
+    cases_by_region, _, _ = load.load_confirmed_by_region(dset)
     # estimate doubling times per region
     doubling_times = []
     for cases in cases_by_region:
@@ -119,7 +119,7 @@ def run_train(train_params, model_out):
     return doubling_times
 
 
-def run_simulate(train_params, model):
+def run_simulate(dset, train_params, model):
     """Forecasts region-level infections using
     API of cv.py for cross validation
 
@@ -127,7 +127,7 @@ def run_simulate(train_params, model):
     """
     # regions are columns; dates are indices
     populations, regions = load.load_populations_by_region(train_params.fpop)
-    region_cases, _, base_date = load.load_confirmed_by_region(train_params.fdat)
+    region_cases, _, base_date = load.load_confirmed_by_region(dset)
     doubling_times = model
     recovery_days, distancing_reduction, days, keep = initialize(train_params)
 
