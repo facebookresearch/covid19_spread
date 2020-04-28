@@ -12,25 +12,13 @@ from datetime import datetime
 import common
 import metrics
 
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("config", help="config file (yaml)")
-    parser.add_argument("module", help="config file (yaml)")
-    parser.add_argument("-basedate", help="Base date for forecasting")
-    parser.add_argument(
-        "-remote", action="store_true", help="Run jobs remotely on SLURM"
-    )
-    parser.add_argument("-timeout-min", type=int, default=12 * 60)
-    parser.add_argument("-array-parallelism", type=int, default=50)
-    parser.add_argument("-mem-gb", type=int, default=20)
-    parser.add_argument("-ncpus", type=int, default=20)
-    opt = parser.parse_args()
-
+def cross_validate(opt, cfg=None):
+    """Returns dataframe of metrics on validation set"""
     now = datetime.now().strftime("%Y_%m_%d_%H_%M")
     user = os.environ["USER"]
 
-    cfg = yaml.load(open(opt.config), Loader=yaml.FullLoader)
+    if cfg is None:
+        cfg = yaml.load(open(opt.config), Loader=yaml.FullLoader)
 
     if opt.remote:
         basedir = f"/checkpoint/{user}/covid19/forecasts/{region}/{now}"
@@ -61,4 +49,22 @@ if __name__ == "__main__":
     # -- metrics --
     df_val = metrics.compute_metrics(cfg["data"], val_out)
     df_val.to_csv(metrics_out)
+    return df_val
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("config", help="config file (yaml)")
+    parser.add_argument("module", help="config file (yaml)")
+    parser.add_argument("-basedate", help="Base date for forecasting")
+    parser.add_argument(
+        "-remote", action="store_true", help="Run jobs remotely on SLURM"
+    )
+    parser.add_argument("-timeout-min", type=int, default=12 * 60)
+    parser.add_argument("-array-parallelism", type=int, default=50)
+    parser.add_argument("-mem-gb", type=int, default=20)
+    parser.add_argument("-ncpus", type=int, default=20)
+    opt = parser.parse_args()
+
+    df_val = cross_validate(opt)
     print(df_val)
