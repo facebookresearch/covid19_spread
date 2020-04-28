@@ -4,11 +4,37 @@ import numpy as np
 import pandas as pd
 import torch as th
 from collections import defaultdict
+from os import listdir
+from os.path import isfile, join
 
 
 def county_id(county, state):
     return f"{county}, {state}"
 
+
+def standardize_county(county):
+    return (
+        county.replace(" County", "")
+        .replace(" Parish", "")
+        .replace(" Municipality", "")
+    )
+
+
+poppath = "../population-data/US-states"
+fpops = [f for f in listdir(poppath) if isfile(join(poppath, f))]
+
+population = {}
+for fpop in fpops:
+    state = fpop.split("-")[:-1]
+    state = " ".join(map(lambda s: s.capitalize(), state))
+    state = state.replace(" Of ", " of ")
+    df = pd.read_csv(join(poppath, fpop), header=None)
+    counties = df.iloc[:, 0].values
+    counties = map(lambda c: county_id(standardize_county(c), state), counties)
+    pop = df.iloc[:, 1].values
+    population.update(zip(counties, pop))
+
+# print(population)
 
 dparser = lambda x: pd.to_datetime(x, format="%Y-%m-%d")
 df = pd.read_csv(
@@ -28,6 +54,11 @@ df_agg = df.groupby(["county", "fips", "state"])
 for (name, _, state), group in df_agg:
     counties.append(county_id(name, state))
 
+
+df_pop = pd.DataFrame(
+    {"county": counties, "population": [population[c] for c in counties]}
+)
+df_pop.to_csv("population.csv", index=False, header=False)
 index = []
 
 cols = {
