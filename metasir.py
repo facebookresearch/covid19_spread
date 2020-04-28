@@ -375,7 +375,8 @@ def initialize(args):
     return cases, regions, populations, basedate, odeint, device
 
 
-def run_train(args, checkpoint):
+def run_train(dset, args, checkpoint):
+    args.fdat = dset
     cases, regions, population, _, odeint, device = initialize(args)
     tmax = np.max([len(ts) for ts in cases])
 
@@ -404,10 +405,10 @@ def run_train(args, checkpoint):
     return model
 
 
-def run_simulate(args, model=None):
+def run_simulate(dset, args, model=None):
     if model is None:
         raise NotImplementedError
-
+    args.fdat = dset
     cases, regions, population, basedate, odeint, device = initialize(args)
 
     forecast = simulate(model, cases, regions, population, odeint, args, basedate)

@@ -1,19 +1,11 @@
 region: nyc
-# data: &fdat data/nystate/timeseries-nyc.h5
-data: &fdat data/nystate/data-nyc.csv
 population: &fpop data/population-data/US-states/new-york-population.csv
-validation:
-  input: &fvdata nyc_filtered.csv
-  # input: &fvdata nyc_filtered.h5
-  output: validation.csv
-  days: &vdays 7
-metrics:
-  output: metrics.csv
+validation_days: &vdays 7
 ar:
+  data: data/nystate/data-nyc.csv
   module: ar
   output: ar_model.bin
   train:
-    fdat: *fvdata
     fpop: *fpop
     decay: powerlaw
     window: 1
@@ -23,4 +15,3 @@ ar:
     loss: nb
     t0: 10
     test_on: *vdays
-    
