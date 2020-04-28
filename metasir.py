@@ -81,8 +81,8 @@ class BetaLatent(nn.Module):
 
     def forward(self, t, y):
         # beta_last = y.narrow(0, self.M * 3, self.M * self.dim).reshape(self.M, self.dim)
-        beta_last = y.narrow(0, self.M * 3, self.dim) #dbeta??
-#         beta_last = self.b0
+        beta_last = y.narrow(0, self.M * 3, self.dim)  # dbeta??
+        #         beta_last = self.b0
         # beta_last = y.narrow(0, self.M * 3, self.dim)
         # beta_now = self.Wbeta2(th.tanh(self.Wbeta(beta_last)))
         # beta_now = self.Wbeta(beta_last)
@@ -166,7 +166,6 @@ class MetaSIR(nn.Module):
         # prepare input
         Ss = y.narrow(0, 0, self.M)
         Is = y.narrow(0, self.M, self.M)
-        Rs = y.narrow(0, 2 * self.M, self.M)
         beta, dBeta = self.beta_net(t, y)
         assert beta.ndim <= 1, beta.size()
         # compute dynamics
@@ -278,11 +277,11 @@ def train(model, cases, population, odeint, optimizer, checkpoint, args):
         # back prop
         loss.backward()
         optimizer.step()
-        
+
         # sometimes infected goes below 0 - prevent that
         # check if initial betas are large enough ...
         # perhaps start from large beta and minimize it??
-        
+
         # control
         if itr % 50 == 0 or loss == 0:
             # target betas and estimated ones
@@ -296,11 +295,6 @@ def train(model, cases, population, odeint, optimizer, checkpoint, args):
                 f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes[:, -1].mean():.2f} | {model} | {args.decay} "
             )
             th.save(model.state_dict(), checkpoint)
-            if loss == 0 or itr == args.niters: 
-                # perhaps add sn/n correction but this is just to get an idea
-                print((cases[0][1:] - cases[0][:-1])/cases[0][:-1])
-                for i in range(16): print(model.beta_net(i, y0)[0].item())
-                break
     return model
 
 
@@ -337,7 +331,7 @@ def simulate(model, cases, regions, population, odeint, args, dstart=None):
     test_Is = test_preds.narrow(1, M, M).t().narrow(1, -args.test_on, args.test_on)
     test_Rs = test_preds.narrow(1, 2 * M, M).t().narrow(1, -args.test_on, args.test_on)
     test_preds = test_Is + test_Rs
-    
+
     df = pd.DataFrame(test_preds.cpu().int().numpy().T)
     df.columns = regions
     if dstart is not None:
@@ -350,9 +344,9 @@ def simulate(model, cases, regions, population, odeint, args, dstart=None):
 
 def initialize(args):
     device = th.device("cuda" if th.cuda.is_available() else "cpu")
-    cases, regions, basedate = load.load_confirmed_by_region(args.fdat)
+    # cases, regions, basedate = load.load_confirmed_by_region(args.fdat)
+    cases, regions, basedate = load.load_confirmed_csv(args.fdat)
     populations, _ = load.load_populations_by_region(args.fpop, regions)
-    cases = th.from_numpy(cases)
     # initialize at time t0
     cases = cases.float().to(device)[:, args.t0 :]
     populations = th.from_numpy(np.array(populations))
@@ -365,17 +359,19 @@ def initialize(args):
 
     # cheat to test compatibility
     # if zero (def value) it'll continue
-    if args.keep_counties == -1:
+    if not hasattr(args, "keep_counties"):
+        pass
+    elif args.keep_counties == -1:
         cases = cases.sum(0).reshape(1, -1)
         populations = populations.sum(0).reshape(1)
-        regions = ['all']
+        regions = ["all"]
     elif args.keep_counties > 0:
         k = args.keep_counties
         # can also sort on case numbers and pick top-k
         cases = cases[:k]
         populations = populations[:k]
         regions = regions[:k]
-        
+
     return cases, regions, populations, basedate, odeint, device
 
 
@@ -398,13 +394,13 @@ def run_train(args, checkpoint):
     optimizer = optim.AdamW(
         func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
     )
-    
+
     # optimization is unstable, quickly it tends to explode
     # check norm_grad weight norm etc...
     # optimizer = optim.RMSprop(func.parameters(), lr=args.lr, weight_decay=weight_decay)
 
     model = train(func, cases, population, odeint, optimizer, checkpoint, args)
-    
+
     return model
 
 
@@ -437,7 +433,9 @@ if __name__ == "__main__":
     parser.add_argument("-amsgrad", default=False, action="store_true")
     parser.add_argument("-method", default="euler", choices=["euler", "rk4", "dopri5"])
     parser.add_argument("-loss", default="lsq", choices=["lsq", "poisson"])
-    parser.add_argument("-decay", default="exp", choices=["exp", "powerlaw", "latent", "rbf"])
+    parser.add_argument(
+        "-decay", default="exp", choices=["exp", "powerlaw", "latent", "rbf"]
+    )
     parser.add_argument("-t0", default=10, type=int)
     parser.add_argument("-fit-on", default=5, type=int)
     parser.add_argument("-test-on", default=5, type=int)
