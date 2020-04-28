@@ -8,61 +8,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import NegativeBinomial, Poisson
-
-from load import load_data
-
-
-def _load_confirmed(path):
-    nodes, ns, ts, basedate, = load_data(path)
-    nodes = np.array(nodes)
-    tmax = int(np.ceil(ts.max()))
-    cases = np.zeros((len(nodes), tmax))
-    for n in range(len(nodes)):
-        ix2 = np.where(ns == n)[0]
-        for i in range(1, tmax + 1):
-            ix1 = np.where(ts < i)[0]
-            cases[n, i - 1] = len(np.intersect1d(ix1, ix2))
-    unk = np.where(nodes == "Unknown")[0]
-    cases = np.delete(cases, unk, axis=0)
-    nodes = np.delete(nodes, unk)
-    return th.from_numpy(cases), nodes, basedate
-
-
-def load_confirmed(path):
-    df = pd.read_csv(path)
-    df.set_index("region", inplace=True)
-    basedate = df.columns[-1]
-    nodes = df.index.to_numpy()
-    cases = df.to_numpy()
-    print(nodes)
-    print(cases.shape)
-    print(basedate)
-    return th.from_numpy(cases), nodes, basedate
-
-
-def load_population(path, nodes, col=1):
-    df = pd.read_csv(path, header=None)
-    _pop = df.iloc[:, col].to_numpy()
-    regions = df.iloc[:, 0].to_numpy()
-    pop = []
-    for node in nodes:
-        if node == "Unknown":
-            continue
-        ix = np.where(regions == node)[0][0]
-        pop.append(_pop[ix])
-    print(nodes, pop)
-    return th.from_numpy(np.array(pop))
+import load
 
 
 class BetaConst(nn.Module):
     def __init__(self, regions):
         super(BetaConst, self).__init__()
-        M = len(regions)
-        self.b = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
+        self.M = len(regions)
+        self.b = th.nn.Parameter(th.ones(self.M, 1, dtype=th.float).fill_(-4))
         self.fpos = F.softplus
 
     def forward(self, t):
-        return self.fpos(self.b)
+        return self.fpos(self.b).expand(self.M, t.size(-1))
 
 
 class BetaExpDecay(nn.Module):
@@ -245,9 +202,9 @@ class AR(nn.Module):
     def metapopulation_weights(self):
         with th.no_grad():
             self.alphas.fill_diagonal_(-1e10)
-        # W = F.softmax(self.alphas, dim=1)
+        W = F.softmax(self.alphas, dim=1)
         # W = th.sigmoid(self.alphas)
-        W = F.softplus(self.alphas)
+        # W = F.softplus(self.alphas)
         # W = W / W.sum()
         if self.graph is not None:
             W = W * self.graph
@@ -373,7 +330,7 @@ def prediction_interval(model, cases, regions, nsamples, args, dstart=None):
 
 def initialize(args):
     device = th.device("cuda" if th.cuda.is_available() else "cpu")
-    cases, regions, basedate = load_confirmed(args.fdat)
+    cases, regions, basedate = load.load_confirmed_csv(args.fdat)
     cases = cases.float().to(device)[:, args.t0 :]
 
     # cheat to test compatibility
