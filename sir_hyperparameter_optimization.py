@@ -5,7 +5,8 @@ import pandas as pd
 import numpy as np
 
 class Opt:
-    config = "cv/nj.yml"
+    location = "ny"
+    config = f"cv/{location}.yml"
     module = "sir"
     remote = False
 
@@ -49,5 +50,5 @@ def optimize_hyperparameters():
 
 if __name__ == "__main__":
     maes_df = optimize_hyperparameters()
-    maes_df.to_csv("sir_hyperparameter_optimization.csv")
+    maes_df.to_csv(f"sir_hyperparameter_optimization_{Opt.location}.csv")
 
