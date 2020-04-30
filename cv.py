@@ -15,11 +15,11 @@ import itertools
 import copy
 import random
 from functools import partial
-# import submitit
 
 
 def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
     try:
+        import submitit
         basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
     except Exception:
         pass  # running locally, basedir is fine...
