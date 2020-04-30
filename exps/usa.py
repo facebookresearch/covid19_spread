@@ -43,9 +43,9 @@ grid = {
     'lr-scheduler': ['cosine', 'constant'],
     # 'const-beta': [-1, 20, 40],
     'dset': [
-        os.path.realpath(os.path.join(os.path.dirname(__file__), '../data/usa/timeseries_smooth_1_days.h5')),
-        os.path.realpath(os.path.join(os.path.dirname(__file__), '../data/usa/timeseries_smooth_2_days.h5')),
-        os.path.realpath(os.path.join(os.path.dirname(__file__), '../data/usa/timeseries_smooth_3_days.h5')),
+        os.path.realpath(os.path.join(os.path.dirname(__file__), '../data/usa/timeseries_smooth_1_days_mode_adjacent_states.h5')),
+        os.path.realpath(os.path.join(os.path.dirname(__file__), '../data/usa/timeseries_smooth_2_days_mode_adjacent_states.h5')),
+        os.path.realpath(os.path.join(os.path.dirname(__file__), '../data/usa/timeseries_smooth_3_days_mode_adjacent_states.h5')),
     ]
 }
 
@@ -128,7 +128,7 @@ def launch(crossval, dicts):
             mem_gb=20,
             slurm_array_parallelism=60,
             timeout_min=12 * 60,
-            exclude=exclude,
+            slurm_exclude=exclude,
         )
         jobs = executor.map_array(partial(run_experiment, crossval, folder), dicts)
     print(folder[:-3])

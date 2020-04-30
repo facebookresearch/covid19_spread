@@ -42,4 +42,10 @@ timeseries-nyc.h5: data-ny.csv
 
 timeseries-nys.h5: data-ny.csv
 	awk 'NR==1 || !/$(BOROUGHS)/' $< | python3 process_cases.py timeseries-nys
+
+data-nyc.csv: data-ny.csv
+	awk 'NR==1 || /$(BOROUGHS)/' $< | python3 convert.py $@
+
+data-nys.csv: data-ny.csv
+	awk 'NR==1 || !/$(BOROUGHS)/' $< | python3 convert.py $@
 # end

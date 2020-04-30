@@ -95,7 +95,7 @@ def estimate_growth_const(cases, window=None):
     return doubling_time
 
 
-def run_train(train_params, model_out):
+def run_train(dset, train_params, model_out):
     """Infers doubling time for sir model. 
     API match that of cv.py for cross validation
 
@@ -119,7 +119,7 @@ def run_train(train_params, model_out):
     return model
 
 
-def run_simulate(train_params, model):
+def run_simulate(dset, train_params, model):
     """Forecasts region-level infections using
     API of cv.py for cross validation
 

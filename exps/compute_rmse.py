@@ -31,6 +31,7 @@ parser.add_argument('-ground-truth', '-g', required=True)
 parser.add_argument('-max-events', type=int, default=2000000)
 parser.add_argument('-remote', action='store_true')
 parser.add_argument('-days', type=int, default=7)
+parser.add_argument('-no-ks-test', action='store_false', dest='ks_test')
 opt = parser.parse_args()
 
 def mk_cpu_model(model):
@@ -65,8 +66,7 @@ def ks_test(episode, step, model, nodes, nprocs=20):
     return pandas.DataFrame(result)
 
 
-def rmse(pth, ground_truth, trials = 10):
-    import torch
+def rmse(pth, ground_truth, with_ks = True, trials = 10):
     print(pth)
     mdl, mdl_opt = CovidModel.from_checkpoint(pth, map_location='cpu')
     nodes, ns, ts, _ = load_data(mdl_opt.dset)
@@ -83,12 +83,15 @@ def rmse(pth, ground_truth, trials = 10):
     merged = sim.merge(ground_truth, on='county')
     vals = {'pth': pth}
 
-    ks_result = ks_test(episode, 0.001, mdl, nodes)
-    ks_result.to_csv(os.path.join(os.path.dirname(pth), 'kstest.csv'), index=False)
-    avg_ks = float(ks_result['ks'].mean())
-    avg_pval = float(ks_result['pval'].mean())
-    vals = {'pth': pth, 'ks': avg_ks, 'pval': avg_pval}
-    
+    if with_ks:
+        ks_result = ks_test(episode, 0.001, mdl, nodes)
+        ks_result.to_csv(os.path.join(os.path.dirname(pth), 'kstest.csv'), index=False)
+        avg_ks = float(ks_result['ks'].mean())
+        avg_pval = float(ks_result['pval'].mean())
+        vals = {'pth': pth, 'ks': avg_ks, 'pval': avg_pval}
+    else:
+        vals = {'pth': pth}
+
     forecasts = {'location': sim['county'].values}
     for k, v in mapper.items():
         # number of cases is Day_0 + number of new cases.  If we did some kind of smoothing
@@ -139,5 +142,5 @@ for d in os.listdir(opt.sweep_dir):
         chkpnts.append(os.path.join(opt.sweep_dir, d))
 
 mapper = executor.map_array if opt.remote else map
-list(mapper(lambda x: rmse(x, ground_truth), chkpnts))
+list(mapper(lambda x: rmse(x, ground_truth, with_ks=opt.ks_test), chkpnts))
 print(folder)

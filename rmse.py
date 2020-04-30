@@ -11,7 +11,7 @@ import pandas as pd
 import random
 import sys
 import torch as th
-from common import load_model
+from load import load_model
 from evaluation import simulate_mhp, simulate_tl_mhp
 from timelord.utils import prepare_dset
 import tlc

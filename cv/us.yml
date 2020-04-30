@@ -1,0 +1,37 @@
+region: us
+population: &fpop data/usa/population.csv
+basegraph: &fgraph data/usa/state_graph.pt
+validation_days: &vdays 21
+prediction_interval_:
+  nsamples: 10
+  output_mean: us_mean.csv
+  output_std: us_std.csv
+metasir:
+  data: data/usa/data.csv
+  output: metasir_model.bin
+  train:
+    fpop: *fpop
+    decay: rbf
+    lr: 0.005
+    weight_decay: 0
+    niters: 10000
+    method: euler
+    loss: lsq
+    t0: 10
+    fit_on: -10
+    test_on: *vdays
+    adjoint: false    
+ar:
+  output: ar_model.bin
+  data: data/usa/data.csv
+  train:
+    fpop: *fpop
+    # graph: *fgraph
+    decay: exp
+    window: 7
+    lr: 0.005
+    weight_decay: 0
+    niters: 40000
+    loss: nb
+    t0: 10
+    test_on: *vdays

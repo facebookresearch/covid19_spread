@@ -8,65 +8,32 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import NegativeBinomial, Poisson
-
-from common import load_data
-
-
-def load_confirmed(path):
-    nodes, ns, ts, basedate, = load_data(path)
-    nodes = np.array(nodes)
-    tmax = int(np.ceil(ts.max()))
-    cases = np.zeros((len(nodes), tmax))
-    for n in range(len(nodes)):
-        ix2 = np.where(ns == n)[0]
-        for i in range(1, tmax + 1):
-            ix1 = np.where(ts < i)[0]
-            cases[n, i - 1] = len(np.intersect1d(ix1, ix2))
-    unk = np.where(nodes == "Unknown")[0]
-    cases = np.delete(cases, unk, axis=0)
-    nodes = np.delete(nodes, unk)
-    return th.from_numpy(cases), nodes, basedate
-
-
-def load_population(path, nodes, col=1):
-    df = pd.read_csv(path, header=None)
-    _pop = df.iloc[:, col].to_numpy()
-    regions = df.iloc[:, 0].to_numpy()
-    pop = []
-    for node in nodes:
-        if node == "Unknown":
-            continue
-        ix = np.where(regions == node)[0][0]
-        pop.append(_pop[ix])
-    print(nodes, pop)
-    return th.from_numpy(np.array(pop))
+import load
 
 
 class BetaConst(nn.Module):
-    def __init__(self, population):
+    def __init__(self, regions):
         super(BetaConst, self).__init__()
-        M = len(population)
-        self.b = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
+        self.M = len(regions)
+        self.b = th.nn.Parameter(th.ones(self.M, 1, dtype=th.float).fill_(-4))
         self.fpos = F.softplus
 
     def forward(self, t):
-        return self.fpos(self.b)
+        return self.fpos(self.b).expand(self.M, t.size(-1))
 
 
 class BetaExpDecay(nn.Module):
-    def __init__(self, population):
+    def __init__(self, regions):
         super(BetaExpDecay, self).__init__()
-        M = len(population)
-        # self.a = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
-        # self.b = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
+        M = len(regions)
         self.a = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
         self.b = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
+        self.c = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
         self.fpos = F.softplus
 
     def forward(self, t):
-        # beta = self.fpos(self.a) * th.exp(-self.fpos(self.b) * t) * self.fpos(self.c)
         t = t.unsqueeze(0)
-        beta = self.fpos(self.a) * th.exp(-self.fpos(self.b) * t)
+        beta = self.fpos(self.a) * th.exp(-self.fpos(self.b) * t + self.fpos(self.c))
         return beta
 
     def __repr__(self):
@@ -75,9 +42,9 @@ class BetaExpDecay(nn.Module):
 
 
 class BetaLogistic(nn.Module):
-    def __init__(self, population):
+    def __init__(self, regions):
         super(BetaLogistic, self).__init__()
-        M = len(population)
+        M = len(regions)
         self.C = th.nn.Parameter(th.ones(M, 1, dtype=th.float))
         self.k = th.nn.Parameter(th.ones(M, 1, dtype=th.float))
         self.m = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
@@ -85,14 +52,14 @@ class BetaLogistic(nn.Module):
 
     def forward(self, t):
         return self.fpos(self.C) / (
-            1 + th.exp(-self.fpos(self.k) * (t - self.fpos(self.m)))
+            1 + th.exp(self.fpos(self.k) * (t - self.fpos(self.m)))
         )
 
 
 class BetaPowerLawDecay(nn.Module):
-    def __init__(self, population):
+    def __init__(self, regions):
         super(BetaPowerLawDecay, self).__init__()
-        M = len(population)
+        M = len(regions)
         # self.a = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
         # self.b = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
         self.a = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
@@ -102,13 +69,10 @@ class BetaPowerLawDecay(nn.Module):
 
     def forward(self, t):
         t = t.unsqueeze(0).float()
-        # beta = self.fpos(self.a) * th.exp(
-        #    -self.fpos(self.b) * th.log(t) - self.fpos(self.c)
-        # )
         a = self.fpos(self.a)
         m = self.fpos(self.b)
-        #  beta = a * m ** a / t ** (a + 1) + self.fpos(self.c)  # pareto
-        beta = a * t ** -m + self.fpos(self.c)
+        beta = (a * m).pow_(a) / t ** (a + 1) + self.fpos(self.c)  # pareto
+        # beta = (a * t).pow_(-m) + self.fpos(self.c)
         return beta
 
     def __repr__(self):
@@ -117,9 +81,9 @@ class BetaPowerLawDecay(nn.Module):
 
 
 class BetaLatent(nn.Module):
-    def __init__(self, population, dim, tmax):
+    def __init__(self, regions, dim, tmax):
         super(BetaLatent, self).__init__()
-        self.M = len(population)
+        self.M = len(regions)
         self.dim = dim
         self.tmax = tmax
         self.Wbeta = nn.Linear(dim, dim, bias=True)
@@ -153,72 +117,150 @@ class BetaLatent(nn.Module):
 
 
 class BetaRBF(nn.Module):
-    def __init__(self, population, dim):
+    def __init__(self, regions, dim, kernel, tmax):
         super(BetaRBF, self).__init__()
-        self.M = len(population)
+        self.M = len(regions)
         self.dim = dim
+        self.tmax = tmax
         # self.bs = nn.Parameter(th.ones(self.M, dim, dtype=th.float).fill_(-4))
         # self.bs = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
-        self.v = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
+        self.w = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
         self.c = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
-        self.temp = nn.Parameter(th.ones(self.M, 1, dtype=th.float))
+        self.b = nn.Parameter(th.ones(self.M, 1, dtype=th.float))
+        self.v = nn.Parameter(th.randn(self.M, 1, dtype=th.float))
+        self.temp = nn.Parameter(th.randn(self.M, 1, dtype=th.float))
         self.fpos = F.softplus
+        self.kernel = kernel
 
-    def forward(self, t, y):
-        d = (t - self.c) ** 2  # / self.fpos(self.temp)
-        beta = th.sigmoid(th.sum(self.v * th.exp(-d), dim=1))
+    def gaussian(self, t):
+        t = t.float().unsqueeze(0).unsqueeze(0)
+        temp = self.temp.unsqueeze(-1)
+        c = self.c.unsqueeze(-1)
+        d = (t - c) ** 2  # / self.fpos(temp)
+        return th.exp(-d)
+
+    def forward(self, t):
+        # reshape tensors
+        w = self.w.unsqueeze(-1)
+        if self.kernel == "gaussian":
+            scores = self.gaussian(t)
+        elif self.kernel == "polyharmonic":
+            scores = self.polyharmonic(t)
+        beta = self.fpos(th.sum(w * scores, dim=1) + self.v * t + self.b)
         # beta = self.fpos(self.bs.narrow(-1, int(t), 1))
         return beta.squeeze()
 
+    def __repr__(self):
+        return f"RBF | {self.c.data}"
 
-class AR(nn.Module):
-    def __init__(self, population, beta_net):
-        super(AR, self).__init__()
-        self.M = len(population)
-        self.alphas = th.nn.Parameter(th.zeros((self.M, self.M)))
-        self.beta = beta_net
-        self.nu = th.nn.Parameter(th.ones((self.M, 1)))
+
+class BetaPolynomial(nn.Module):
+    def __init__(self, regions, degree, tmax):
+        super(BetaPolynomial, self).__init__()
+        self.M = len(regions)
+        self.degree = degree
+        self.tmax = tmax
+        self.w = nn.Parameter(th.ones(self.M, degree + 1, dtype=th.float))
         self.fpos = F.softplus
 
+    def forward(self, t):
+        # reshape tensors
+        t = t.float() / self.tmax
+        t = [th.pow(t, d).unsqueeze(0) for d in range(self.degree + 1)]
+        t = th.cat(t, dim=0)
+        beta = self.fpos(th.mm(self.w, t))
+        return beta
+
+    def __repr__(self):
+        return f"Poly | {self.w.data}"
+
+
+class AR(nn.Module):
+    def __init__(self, regions, beta_net, dist, window_size, graph):
+        super(AR, self).__init__()
+        self.M = len(regions)
+        self.alphas = th.nn.Parameter(th.zeros((self.M, self.M)))
+        self.repro = th.nn.Parameter(th.ones((self.M, window_size)))
+        self.nu = th.nn.Parameter(th.ones((self.M, 1)))
+        self.eta = th.nn.Parameter(th.ones((self.M, 1)))
+        self.beta = beta_net
+        self._dist = dist
+        self.window = window_size
+        self.graph = graph
+        if graph is not None:
+            assert graph.size(0) == self.M, graph.size()
+            assert graph.size(1) == self.M, graph.size()
+
+    def dist(self, scores):
+        if self._dist == "poisson":
+            return Poisson(scores)
+        elif self._dist == "nb":
+            return NegativeBinomial(scores, logits=self.nu)
+        else:
+            raise RuntimeError(f"Unknown loss")
+
     def metapopulation_weights(self):
-        # W = F.softmax(self.alphas, dim=0)
-        W = th.sigmoid(self.alphas)
+        with th.no_grad():
+            self.alphas.fill_diagonal_(-1e10)
+        W = F.softmax(self.alphas, dim=1)
+        # W = th.sigmoid(self.alphas)
+        # W = F.softplus(self.alphas)
         # W = W / W.sum()
+        if self.graph is not None:
+            W = W * self.graph
         return W
 
     def score(self, t, ys):
+        assert t.size(-1) == ys.size(-1), (t.size(), ys.size())
         W = self.metapopulation_weights()
-        beta = self.beta(t)
-        return beta * th.mm(W, ys)  # + self.fpos(self.nu)
+        Z = F.conv1d(
+            ys.unsqueeze(0), F.softplus(self.repro).unsqueeze(1), groups=self.M
+        ).squeeze()
+        Z.div_(float(self.window))
+        offset = self.window - 1
+        ys = ys.narrow(1, offset, ys.size(1) - offset)
+        beta = self.beta(t).narrow(1, -ys.size(1), ys.size(1))
+        return beta * (Z.addmm_(W, ys))
+        # return beta * Z
 
-    def simulate(self, ys, days):
-        t = th.tensor([ys.size(1)]).to(ys.device)
-        preds = [ys.narrow(1, -1, 1)]
-        for d in range(1, days + 1):
-            s = self.score(t + d, preds[-1])
-            y = Poisson(s).mean
-            preds.append(y)
-        return th.cat(preds, dim=1)
+    def simulate(self, tobs, ys, days, deterministic=True):
+        preds = ys.clone()
+        offset = self.window + 1
+        t = th.arange(offset).to(ys.device) + (tobs + 1 - offset)
+        for d in range(days):
+            p = preds.narrow(-1, -offset, offset)
+            s = self.score(t + d, p).narrow(1, -1, 1)
+            if deterministic:
+                y = self.dist(s).mean
+            else:
+                y = self.dist(s).sample()
+            preds = th.cat([preds, y], dim=1)
+        preds = preds.narrow(1, -days, days)
+        return preds
+
+    def __repr__(self):
+        return f"AR | {self.beta}"
 
 
-def train(model, cases, population, optimizer, checkpoint, args):
-    M = len(population)
+def train(model, cases, regions, optimizer, checkpoint, args):
+    M = len(regions)
     device = cases.device
-    fit_on = args.fit_on
     new_cases = cases[:, 1:] - cases[:, :-1]
     tmax = new_cases.size(1)
-    t = th.arange(tmax - 1).to(device) + 1
+    t = th.arange(tmax).to(device) + 1
 
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
-        scores = model.score(t, new_cases.narrow(1, 0, tmax - 1))
+        scores = model.score(t, new_cases).clamp_(min=1e-8)
 
         # compute loss
-        if args.loss == "poisson":
-            dist = Poisson(scores)
-        else:
-            raise RuntimeError(f"Unknown loss")
-        loss = -dist.log_prob(new_cases.narrow(1, 1, tmax - 1)).mean()
+        dist = model.dist(scores.narrow(1, 0, tmax - args.window))
+        _loss = -dist.log_prob(
+            new_cases.narrow(1, args.window, tmax - args.window).clamp(min=1e-2)
+        )
+        loss = _loss.mean()
+
+        assert loss == loss, (loss, scores, _loss)
 
         # back prop
         loss.backward()
@@ -230,82 +272,133 @@ def train(model, cases, population, optimizer, checkpoint, args):
                 pred = dist.mean[:, -3:]
                 gt = new_cases[:, -3:]
                 maes = th.abs(gt - pred)
-                # print(th.cat([gt, pred, maes], dim=1).cpu().numpy())
             print(
-                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes.mean()} | {model}"
+                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes.mean():.2f} | {model} | {args.loss}"
             )
             th.save(model.state_dict(), checkpoint)
     return model
 
 
-def simulate(model, cases, regions, population, args, dstart=None):
-    M = len(population)
-    device = cases.device
-    tmax = cases.size(1)
-    t = th.arange(tmax).float().to(device) + 1
+def simulate(model, cases, regions, args, dstart=None):
     new_cases = cases[:, 1:] - cases[:, :-1]
+    tmax = new_cases.size(1)
 
-    test_preds = model.simulate(new_cases, args.test_on)[:, 1:]
+    test_preds = model.simulate(tmax, new_cases, args.test_on)
     test_preds = test_preds.cpu().numpy()
     test_preds = np.cumsum(test_preds, axis=1)
     test_preds = test_preds + cases.narrow(1, -1, 1).cpu().numpy()
 
-    df = pd.DataFrame(test_preds.T)
-    df.columns = regions
+    df = pd.DataFrame(test_preds.T, columns=regions)
     if dstart is not None:
         base = pd.to_datetime(dstart)
         ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
         df["date"] = ds
+
         df.set_index("date", inplace=True)
+
+    print(model.beta(th.arange(tmax + args.test_on).to(cases.device) + 1))
     return df
+
+
+def prediction_interval(model, cases, regions, nsamples, args, dstart=None):
+    new_cases = cases[:, 1:] - cases[:, :-1]
+    tmax = new_cases.size(1)
+    samples = []
+
+    for i in range(nsamples):
+        test_preds = model.simulate(tmax, new_cases, args.test_on, False)
+        test_preds = test_preds.cpu().numpy()
+        test_preds = np.cumsum(test_preds, axis=1)
+        test_preds = test_preds + cases.narrow(1, -1, 1).cpu().numpy()
+        samples.append(test_preds)
+    samples = np.stack(samples, axis=0)
+    print(samples.shape)
+    test_preds_mean = np.mean(samples, axis=0)
+    test_preds_std = np.std(samples, axis=0)
+    df_mean = pd.DataFrame(test_preds_mean.T, columns=regions)
+    df_std = pd.DataFrame(test_preds_std.T, columns=regions)
+    if dstart is not None:
+        base = pd.to_datetime(dstart)
+        ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
+        df_mean["date"] = ds
+        df_std["date"] = ds
+
+        df_mean.set_index("date", inplace=True)
+        df_std.set_index("date", inplace=True)
+    return df_mean, df_std
 
 
 def initialize(args):
     device = th.device("cuda" if th.cuda.is_available() else "cpu")
-    cases, regions, basedate = load_confirmed(args.fdat)
-    population = load_population(args.fpop, regions)
+    cases, regions, basedate = load.load_confirmed_csv(args.fdat)
     cases = cases.float().to(device)[:, args.t0 :]
-    population = population.float().to(device)
 
-    return cases, regions, population, basedate, device
+    # cheat to test compatibility
+    # if zero (def value) it'll continue
+    if not hasattr(args, "keep_counties"):
+        pass
+    elif args.keep_counties == -1:
+        cases = cases.sum(0).reshape(1, -1)
+        regions = ["all"]
+    elif args.keep_counties > 0:
+        k = args.keep_counties
+        # can also sort on case numbers and pick top-k
+        cases = cases[:k]
+        regions = regions[:k]
+
+    return cases, regions, basedate, device
 
 
-def run_train(args, checkpoint):
-    cases, regions, population, _, device = initialize(args)
-    tmax = np.max([len(ts) for ts in cases])
+def run_train(dset, args, checkpoint):
+    args.fdat = dset
+    cases, regions, _, device = initialize(args)
+    tmax = cases.size(1) + 1
 
     weight_decay = 0
+    # setup beta function
     if args.decay == "const":
-        beta_net = BetaConst(population)
+        beta_net = BetaConst(regions)
     elif args.decay == "exp":
-        beta_net = BetaExpDecay(population)
+        beta_net = BetaExpDecay(regions)
     elif args.decay == "logistic":
-        beta_net = BetaLogistic(population)
+        beta_net = BetaLogistic(regions)
     elif args.decay == "powerlaw":
-        beta_net = BetaPowerLawDecay(population)
-    elif args.decay == "rbf":
-        beta_net = BetaRBF(population, 10)
+        beta_net = BetaPowerLawDecay(regions)
+    elif args.decay.startswith("poly"):
+        degree = int(args.decay[4:])
+        beta_net = BetaPolynomial(regions, degree, tmax)
+    elif args.decay.startswith("rbf"):
+        dim = int(args.decay[3:])
+        beta_net = BetaRBF(regions, dim, "gaussian", tmax)
     elif args.decay == "latent":
-        beta_net = BetaLatent(population, 16, float(len(cases)))
+        dim = int(args.decay[3:])
+        beta_net = BetaLatent(regions, dim, tmax)
         weight_decay = args.weight_decay
 
-    func = AR(population, beta_net).to(device)
+    # setup base graph
+    if hasattr(args, "graph"):
+        graph = th.load(args.graph).to(device).float()
+    else:
+        graph = None
+
+    func = AR(regions, beta_net, args.loss, args.window, graph).to(device)
     optimizer = optim.AdamW(
-        func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
+        func.parameters(), lr=args.lr, betas=[0.9, 0.999], weight_decay=weight_decay
     )
 
-    model = train(func, cases, population, optimizer, checkpoint, args)
+    model = train(func, cases, regions, optimizer, checkpoint, args)
 
     return model
 
 
-def run_simulate(args, model=None):
+def run_simulate(dset, args, model=None):
+    args.fdat = dset
     if model is None:
         raise NotImplementedError
 
-    cases, regions, population, basedate, device = initialize(args)
+    cases, regions, basedate, device = initialize(args)
 
-    forecast = simulate(model, cases, regions, population, args, basedate)
+    forecast = simulate(model, cases, regions, args, basedate)
 
     adj = model.metapopulation_weights().cpu().numpy()
     df = pd.DataFrame(adj).round(2)
@@ -317,6 +410,17 @@ def run_simulate(args, model=None):
     return forecast
 
 
+def run_prediction_interval(args, nsamples, model=None):
+    if model is None:
+        raise NotImplementedError
+
+    cases, regions, basedate, device = initialize(args)
+    df_mean, df_std = prediction_interval(
+        model, cases, regions, nsamples, args, basedate
+    )
+    return df_mean, df_std
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("ODE demo")
     parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
@@ -324,15 +428,14 @@ if __name__ == "__main__":
     parser.add_argument("-lr", type=float, default=5e-2)
     parser.add_argument("-weight-decay", type=float, default=0)
     parser.add_argument("-niters", type=int, default=2000)
-    parser.add_argument("-adjoint", default=False, action="store_true")
     parser.add_argument("-amsgrad", default=False, action="store_true")
-    parser.add_argument("-method", default="euler", choices=["euler", "rk4", "dopri5"])
-    parser.add_argument("-loss", default="lsq", choices=["lsq", "poisson"])
+    parser.add_argument("-loss", default="lsq", choices=["nb", "poisson"])
     parser.add_argument("-decay", default="exp", choices=["exp", "powerlaw", "latent"])
     parser.add_argument("-t0", default=10, type=int)
     parser.add_argument("-fit-on", default=5, type=int)
     parser.add_argument("-test-on", default=5, type=int)
-    parser.add_argument("-checkpoint", type=str, default="/tmp/metasir_model.bin")
+    parser.add_argument("-checkpoint", type=str, default="/tmp/ar_model.bin")
+    parser.add_argument("-keep-counties", type=int, default=0)
     args = parser.parse_args()
 
     model = run_train(args, args.checkpoint)
