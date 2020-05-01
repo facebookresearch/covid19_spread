@@ -36,7 +36,7 @@ def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
     fore_out = _path(cfg["forecast"]["output"])
     cfg[opt.module]["train"]["fdat"] = val_in
 
-    filter_validation_days(dset, val_in, cfg["validation_days"])
+    filter_validation_days(dset, val_in, cfg["validation"]["days"])
 
     # -- train --
     train_params = Namespace(**cfg[opt.module]["train"])
@@ -77,9 +77,9 @@ def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
 def filter_validation_days(dset: str, val_in: str, validation_days: int):
     """Filters validation days and writes output to val_in path"""
     if dset.endswith(".csv"):
-        common.drop_k_days_csv(dset, val_in, cfg["validation"]["days"])
+        common.drop_k_days_csv(dset, val_in, validation_days)
     elif dset.endswith(".h5"):
-        common.drop_k_days(dset, val_in, cfg["validation"]["days"])
+        common.drop_k_days(dset, val_in, validation_days)
     else:
         raise RuntimeError(f"Unrecognized dataset extension: {dset}")
 
