@@ -14,12 +14,12 @@ import metrics
 import itertools
 import copy
 import random
+import submitit
 from functools import partial
 
 
 def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
     try:
-        import submitit
         basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
     except Exception:
         pass  # running locally, basedir is fine...
@@ -35,13 +35,7 @@ def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
     val_out = _path("validation.csv")
     cfg[opt.module]["train"]["fdat"] = val_in
 
-    # -- filter --
-    if dset.endswith(".csv"):
-        common.drop_k_days_csv(dset, val_in, cfg["validation_days"])
-    elif dset.endswith(".h5"):
-        common.drop_k_days(dset, val_in, cfg["validation_days"])
-    else:
-        raise RuntimeError(f"Unrecognized dataset extension: {dset}")
+    filter_validation_days(dset, val_in, cfg["validation_days"])
 
     # -- train --
     train_params = Namespace(**cfg[opt.module]["train"])
@@ -59,6 +53,9 @@ def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
     df_val.to_csv(_path("metrics.csv"))
     print(df_val)
 
+    # -- store configs to reproduce results -- 
+    log_configs(cfg, opt.module, _path(f"{opt.module}.yml"))
+
     # -- prediction interval --
     if "prediction_interval" in cfg:
         with th.no_grad():
@@ -67,6 +64,22 @@ def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
             )
             df_mean.to_csv(_path(cfg["prediction_interval"]["output_mean"]))
             df_std.to_csv(_path(cfg["prediction_interval"]["output_std"]))
+
+
+def filter_validation_days(dset: str, val_in: str, validation_days: int):
+    """Filters validation days and writes output to val_in path"""
+    if dset.endswith(".csv"):
+        common.drop_k_days_csv(dset, val_in, cfg["validation_days"])
+    elif dset.endswith(".h5"):
+        common.drop_k_days(dset, val_in, cfg["validation_days"])
+    else:
+        raise RuntimeError(f"Unrecognized dataset extension: {dset}")
+
+
+def log_configs(cfg: Dict[str, Any], module: str, path: str):
+    """Logs configs for job for reproducibility"""
+    with open(path, "w") as f:
+        yaml.dump(cfg[module], f)
 
 
 if __name__ == "__main__":
@@ -93,7 +106,7 @@ if __name__ == "__main__":
     if opt.remote:
         basedir = f"/checkpoint/{user}/covid19/forecasts/{region}/{now}"
     else:
-        basedir = "/tmp"
+        basedir = f"/tmp/covid19/forecasts/{region}/{now}"
 
     cfgs = []
     sweep_params = [
