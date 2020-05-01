@@ -32,14 +32,15 @@ def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
     # setup input/output paths
     dset = cfg[opt.module]["data"]
     val_in = _path("filtered_" + os.path.basename(dset))
-    val_out = _path("validation.csv")
+    val_out = _path(cfg["validation"]["output"])
+    fore_out = _path(cfg["forecast"]["output"])
     cfg[opt.module]["train"]["fdat"] = val_in
 
     # -- filter --
     if dset.endswith(".csv"):
-        common.drop_k_days_csv(dset, val_in, cfg["validation_days"])
+        common.drop_k_days_csv(dset, val_in, cfg["validation"]["days"])
     elif dset.endswith(".h5"):
-        common.drop_k_days(dset, val_in, cfg["validation_days"])
+        common.drop_k_days(dset, val_in, cfg["validation"]["days"])
     else:
         raise RuntimeError(f"Unrecognized dataset extension: {dset}")
 
@@ -51,7 +52,7 @@ def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
     # -- simulate --
     with th.no_grad():
         df_forecast = mod.run_simulate(val_in, train_params, model)
-    print(f"Storing forecast in {val_out}")
+    print(f"Storing validation in {val_out}")
     df_forecast.to_csv(val_out)
 
     # -- metrics --
@@ -67,6 +68,13 @@ def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
             )
             df_mean.to_csv(_path(cfg["prediction_interval"]["output_mean"]))
             df_std.to_csv(_path(cfg["prediction_interval"]["output_std"]))
+
+    # -- forecast --
+    with th.no_grad():
+        df_forecast = mod.run_simulate(dset, train_params, model)
+    print(f"Storing forecast in {fore_out}")
+    df_forecast.to_csv(fore_out, encoding="utf-8")
+    print(df_forecast)
 
 
 if __name__ == "__main__":
@@ -134,4 +142,3 @@ if __name__ == "__main__":
         launcher = map
 
     list(launcher(partial(cv, opt), basedirs, cfgs))
-    print(basedir)
