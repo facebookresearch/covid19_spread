@@ -10,6 +10,7 @@ dependencies:
   - networkx
   - numpy
   - pandas
+  - pip
   - pylint
   - scipy
   - scikit-learn
@@ -19,6 +20,7 @@ dependencies:
   - pip:
     - bokeh
     - pyyaml
+    - sqlalchemy
+    - submitit
     - tick
     - tensorboardX
-    - sqlalchemy
