@@ -40,31 +40,27 @@ def simulate(
     S0 = population - I0
     R0 = 0.0
 
-    # doubling_time = 3
-    # relative_contact_rate = 0.3
     intrinsic_growth_rate = 2.0 ** (1.0 / doubling_time) - 1.0
-    # print(intrinsic_growth_rate, growth_rate, growth_rate.mean())
 
     # Contact rate, beta
     gamma = 1.0 / recovery_days
     beta = (intrinsic_growth_rate + gamma) / S0 * (1.0 - distancing_reduction)
 
-    # compute fit quality
-    res = {d: _I for d, _S, _I, _R in gen_sir(S0, I0, R0, beta, gamma, days)}
-    # mae = [abs(cases[i] - res[i]) for i in range(5, len(cases))]
-    # rmse = [(cases[i] - res[i]) ** 2 for i in range(5, len(cases))]
-
-    # print(mae)
-    # print(rmse)
-
     # simulate forward
     IN = cases[-1]
     SN = population - IN
     RN = 0
-    res = {d: _I for d, _S, _I, _R in gen_sir(SN, IN, RN, beta, gamma, days)}
-    # res = {d: _I for d, _S, _I, _R in gen_sir(S0 - 3772, 3773, R0, beta, gamma, days)}
-    days, infected = zip(*res.items())
-    infs = pd.DataFrame({"Day": days[:keep], f"{doubling_time:.2f}": infected[:keep]})
+    res = {d: (_I, _R) for d, _S, _I, _R in gen_sir(SN, IN, RN, beta, gamma, days)}
+
+    # remove day 0, since prediction parameters start at day 1
+    days_kept, infected, recovered = [], [], []
+    for day in range(1, keep + 1, 1):
+        days_kept.append(day)
+        infected.append(res[day][0])
+        recovered.append(res[day][1])
+
+
+    infs = pd.DataFrame({"Day": days_kept, "infected": infected, "recovered": recovered})
     ix_max = np.argmax(infected)
     if ix_max == len(infected) - 1:
         peak_days = f"{ix_max}+"
@@ -103,20 +99,20 @@ def run_train(dset, train_params, model_out):
         train_params (dict)
         model_out (str): path for saving training checkpoints
 
-    Returns: (np.float64) estimate of doubling_time
+    Returns: list of (doubling_times (np.float64), regions (list of str))
     """
     # get cases
-    cases_by_region, _, _ = load.load_confirmed_by_region(dset)
+    cases_by_region, regions, _ = load.load_confirmed_by_region(train_params.fdat)
     # estimate doubling times per region
     doubling_times = []
     for cases in cases_by_region:
         doubling_time = estimate_growth_const(cases, train_params.window)
         doubling_times.append(doubling_time)
 
-    doubling_times = np.array(doubling_times)
+    model = [np.array(doubling_times), regions]
     # save estimate
-    np.save(model_out, doubling_times)
-    return doubling_times
+    np.save(model_out, np.array(model))
+    return model
 
 
 def run_simulate(dset, train_params, model):
@@ -126,17 +122,21 @@ def run_simulate(dset, train_params, model):
     Returns: (pd.DataFrame) of forecasts per region
     """
     # regions are columns; dates are indices
-    populations, regions = load.load_populations_by_region(train_params.fpop)
-    region_cases, _, base_date = load.load_confirmed_by_region(dset)
-    doubling_times = model
+    populations_df = load.load_populations_by_region(train_params.fpop)
+    cases_by_region, regions_for_cases, base_date = load.load_confirmed_by_region(train_params.fdat)
+    region_to_cases = dict(zip(regions_for_cases, cases_by_region))
+
+    doubling_times, model_regions = model
+    region_to_doubling_time = dict(zip(model_regions, doubling_times))
+
     recovery_days, distancing_reduction, days, keep = initialize(train_params)
 
-    predictions = []
-    for cases, population, doubling_time in zip(
-        region_cases, populations, doubling_times
-    ):
+    region_to_prediction = dict()
+    for region, doubling_time in region_to_doubling_time.items(): 
+        # get cases and population for region
+        population = populations_df[populations_df["region"] == region]["population"].values[0]
         _, infs = simulate(
-            cases,
+            region_to_cases[region],
             population,
             doubling_time,
             recovery_days,
@@ -144,10 +144,11 @@ def run_simulate(dset, train_params, model):
             days,
             keep,
         )
-        # predictions are in the second column
-        prediction = infs.to_numpy()[:, 1]
-        predictions.append(prediction)
-    region_to_prediction = dict(zip(regions, predictions))
+        # prediction  = infected + recovered to match cases count
+        infected = infs["infected"].values
+        recovered = infs["recovered"].values
+        prediction = infected + recovered
+        region_to_prediction[region] = prediction
     df = pd.DataFrame(region_to_prediction)
     # set dates
     df = _set_dates(df, base_date, train_params.keep)

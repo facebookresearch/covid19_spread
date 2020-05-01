@@ -53,31 +53,23 @@ def load_population(path, col=1):
     return pop, regions
 
 
-def load_populations_by_region(path, nodes=None, col=1):
+def load_populations_by_region(path, col=1):
     """Loads region-level populations after filtering unknown nodes
 
     Returns: tuple of lists with (populations, regions)
     """
     df = pd.read_csv(path, header=None)
-    populations = df.iloc[:, col].to_numpy()
-    regions = df.iloc[:, 0].to_numpy()
-    if nodes is not None:
-        return filter_populations(populations, regions, nodes)
+    populations_df = df.iloc[:, [0, col]]
+    populations_df.columns = ["region", "population"]
+    # filter unknown regions
+    populatins_df = populations_df[populations_df["region"].str.lower() != "unknown"]
+    return populations_df
 
-    return populations.tolist(), regions.tolist()
 
-
-def filter_populations(populations, regions, nodes):
+def filter_populations(df, nodes):
     """Removes populations and regions with unknown nodes"""
-    populations_filtered, regions_filtered = [], []
-    for node in nodes:
-        if node == "Unknown":
-            continue
-        ix = np.where(regions == node)[0][0]
-        populations_filtered.append(populations[ix])
-        regions_filtered.append(regions[ix])
-    return populations_filtered, regions_filtered
-
+    mask = nodes == "Unknown"
+    return df[mask]
 
 def load_model(model_path, M):
     data = th.load(model_path)
