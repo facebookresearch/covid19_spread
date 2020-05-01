@@ -1,6 +1,10 @@
 region: new-jersey
 population: &fpop data/population-data/US-states/new-jersey-population.csv
-validation_days: &vdays 7
+validation:
+  days: &vdays 14
+  output: validation-nj.csv
+forecast:
+  output: forecast-nj.csv
 metasir:
   output: metasir_model.bin
   data: data/new-jersey/timeseries.h5
@@ -42,5 +46,3 @@ sir:
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
-
-    

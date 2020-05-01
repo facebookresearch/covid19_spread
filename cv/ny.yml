@@ -1,7 +1,10 @@
 region: ny
-
 population: &fpop data/population-data/US-states/new-york-population.csv
-validation_days: &vdays 7
+validation:
+  days: &vdays 14
+  output: validation-ny.csv
+forecast:
+  output: forecast-ny.csv
 ar:
   data: data/nystate/data-new.csv
   output: ar_model.bin
@@ -28,5 +31,3 @@ sir:
     days: 8
     # number of days to keep for forecast
     keep: *vdays
-
-    

@@ -1,17 +1,16 @@
-region: us
-population: &fpop data/usa/population.csv
-basegraph: &fgraph data/usa/state_graph.pt
+region: at
+population: &fpop data/austria/population.csv
 validation:
-  days: &vdays 14
-  output: validation-us.csv
+  days: &vdays 7
+  output: validation-at.csv
 forecast:
-  output: forecast-us.csv
+  output: forecast-at.csv
 prediction_interval_:
   nsamples: 10
-  output_mean: us_mean.csv
-  output_std: us_std.csv
+  output_mean: at_mean.csv
+  output_std: at_std.csv
 metasir:
-  data: data/usa/data.csv
+  data: data/austria/data.csv
   output: metasir_model.bin
   train:
     fpop: *fpop
@@ -27,12 +26,11 @@ metasir:
     adjoint: false    
 ar:
   output: ar_model.bin
-  data: data/usa/data.csv
+  data: data/austria/data.csv
   train:
     fpop: *fpop
-    # graph: *fgraph
     decay: powerlaw
-    window: 1
+    window: 5
     lr: 0.005
     weight_decay: 0
     niters: 20000
