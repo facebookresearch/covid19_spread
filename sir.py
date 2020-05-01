@@ -40,31 +40,27 @@ def simulate(
     S0 = population - I0
     R0 = 0.0
 
-    # doubling_time = 3
-    # relative_contact_rate = 0.3
     intrinsic_growth_rate = 2.0 ** (1.0 / doubling_time) - 1.0
-    # print(intrinsic_growth_rate, growth_rate, growth_rate.mean())
 
     # Contact rate, beta
     gamma = 1.0 / recovery_days
     beta = (intrinsic_growth_rate + gamma) / S0 * (1.0 - distancing_reduction)
 
-    # compute fit quality
-    res = {d: _I for d, _S, _I, _R in gen_sir(S0, I0, R0, beta, gamma, days)}
-    # mae = [abs(cases[i] - res[i]) for i in range(5, len(cases))]
-    # rmse = [(cases[i] - res[i]) ** 2 for i in range(5, len(cases))]
-
-    # print(mae)
-    # print(rmse)
-
     # simulate forward
     IN = cases[-1]
     SN = population - IN
     RN = 0
-    res = {d: _I for d, _S, _I, _R in gen_sir(SN, IN, RN, beta, gamma, days)}
-    # res = {d: _I for d, _S, _I, _R in gen_sir(S0 - 3772, 3773, R0, beta, gamma, days)}
-    days, infected = zip(*res.items())
-    infs = pd.DataFrame({"Day": days[:keep], f"{doubling_time:.2f}": infected[:keep]})
+    res = {d: (_I, _R) for d, _S, _I, _R in gen_sir(SN, IN, RN, beta, gamma, days)}
+
+    # remove day 0, since prediction parameters start at day 1
+    days_kept, infected, recovered = [], [], []
+    for day in range(1, keep + 1, 1):
+        days_kept.append(day)
+        infected.append(res[day][0])
+        recovered.append(res[day][1])
+
+
+    infs = pd.DataFrame({"Day": days_kept, "infected": infected, "recovered": recovered})
     ix_max = np.argmax(infected)
     if ix_max == len(infected) - 1:
         peak_days = f"{ix_max}+"
@@ -148,8 +144,10 @@ def run_simulate(dset, train_params, model):
             days,
             keep,
         )
-        # predictions are in the second column
-        prediction = infs.to_numpy()[:, 1]
+        # prediction  = infected + recovered to match cases count
+        infected = infs["infected"].values
+        recovered = infs["recovered"].values
+        prediction = infected + recovered
         region_to_prediction[region] = prediction
     df = pd.DataFrame(region_to_prediction)
     # set dates
