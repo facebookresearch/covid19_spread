@@ -25,15 +25,6 @@ from tqdm import tqdm
 import tlc
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('sweep_dir')
-parser.add_argument('-ground-truth', '-g', required=True)
-parser.add_argument('-max-events', type=int, default=2000000)
-parser.add_argument('-remote', action='store_true')
-parser.add_argument('-days', type=int, default=7)
-parser.add_argument('-no-ks-test', action='store_false', dest='ks_test')
-opt = parser.parse_args()
-
 def mk_cpu_model(model):
     cpu_model = tlc.SparseSoftplusEmbeddingModel(model.nnodes, model.dim, model.scale)
     cpu_model.params[0].copy_(model.mus_.weight[:-1].cpu())
@@ -66,7 +57,7 @@ def ks_test(episode, step, model, nodes, nprocs=20):
     return pandas.DataFrame(result)
 
 
-def rmse(pth, ground_truth, with_ks = True, trials = 10):
+def rmse(days, pth, ground_truth, with_ks = True, trials = 10, prefix='', max_events=-1):
     print(pth)
     mdl, mdl_opt = CovidModel.from_checkpoint(pth, map_location='cpu')
     nodes, ns, ts, _ = load_data(mdl_opt.dset)
@@ -74,7 +65,7 @@ def rmse(pth, ground_truth, with_ks = True, trials = 10):
 
     simulator = mdl.mk_simulator()
     t_obs = ts[-1]
-    sim = simulate_tl_mhp(t_obs, opt.days, episode, mdl_opt.timescale, simulator, nodes, trials, max_events=opt.max_events)
+    sim = simulate_tl_mhp(t_obs, days, episode, mdl_opt.timescale, simulator, nodes, trials, max_events=max_events)
     sim[-1] = sim[0]
 
     with h5py.File(mdl_opt.dset,'r') as hf:
@@ -85,7 +76,7 @@ def rmse(pth, ground_truth, with_ks = True, trials = 10):
 
     if with_ks:
         ks_result = ks_test(episode, 0.001, mdl, nodes)
-        ks_result.to_csv(os.path.join(os.path.dirname(pth), 'kstest.csv'), index=False)
+        ks_result.to_csv(os.path.join(os.path.dirname(pth), prefix + 'kstest.csv'), index=False)
         avg_ks = float(ks_result['ks'].mean())
         avg_pval = float(ks_result['pval'].mean())
         vals = {'pth': pth, 'ks': avg_ks, 'pval': avg_pval}
@@ -103,44 +94,52 @@ def rmse(pth, ground_truth, with_ks = True, trials = 10):
             vals[f'day_{k}_max'] = (new_cases - merged[v]).abs().max()
             vals[f'day_{k}_median'] = (new_cases - merged[v]).abs().median()
 
-    fout = os.path.join(os.path.dirname(pth), 'forecasts.csv')
+    fout = os.path.join(os.path.dirname(pth), prefix + 'forecasts.csv')
     forecasts = pandas.DataFrame.from_dict(forecasts)
     forecasts.to_csv(fout, index=False)
-    with open(os.path.join(os.path.dirname(pth), 'eval.json'), 'w') as fout:
+    with open(os.path.join(os.path.dirname(pth), prefix + 'eval.json'), 'w') as fout:
         print(json.dumps(vals), file=fout)
     return vals
 
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('sweep_dir')
+    parser.add_argument('-ground-truth', '-g', required=True)
+    parser.add_argument('-max-events', type=int, default=2000000)
+    parser.add_argument('-remote', action='store_true')
+    parser.add_argument('-days', type=int, default=7)
+    parser.add_argument('-no-ks-test', action='store_false', dest='ks_test')
+    opt = parser.parse_args()
+
+    ground_truth = pandas.read_csv(opt.ground_truth)
+
+    output = subprocess.check_output("sinfo -lR | grep drng | awk '/Xid/ {print $5}'", shell=True)
+    exclude = ",".join(output.decode().splitlines())
 
 
-ground_truth = pandas.read_csv(opt.ground_truth)
+    user=os.environ['USER']
+    now = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    folder = f'/checkpoint/{user}/covid19/rmse/{now}'
+    executor = submitit.AutoExecutor(folder=folder)
+    executor.update_parameters(
+        name='compute_rmse',
+        gpus_per_node=0,
+        cpus_per_task=10,
+        mem_gb=30,
+        slurm_array_parallelism=100,
+        timeout_min=2 * 60,
+        slurm_exclude=exclude,
+    )
 
-output = subprocess.check_output("sinfo -lR | grep drng | awk '/Xid/ {print $5}'", shell=True)
-exclude = ",".join(output.decode().splitlines())
+    chkpnts = []
+    for d in os.listdir(opt.sweep_dir):
+        if re.match('\d+_\d+', d):
+            chkpnt = os.path.join(opt.sweep_dir, d, 'model.bin.best')
+            if os.path.exists(chkpnt):
+                chkpnts.append(chkpnt)
+        elif d.endswith('model.bin.best'):
+            chkpnts.append(os.path.join(opt.sweep_dir, d))
 
-
-user=os.environ['USER']
-now = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-folder = f'/checkpoint/{user}/covid19/rmse/{now}'
-executor = submitit.AutoExecutor(folder=folder)
-executor.update_parameters(
-    name='compute_rmse',
-    gpus_per_node=0,
-    cpus_per_task=10,
-    mem_gb=30,
-    slurm_array_parallelism=100,
-    timeout_min=2 * 60,
-    slurm_exclude=exclude,
-)
-
-chkpnts = []
-for d in os.listdir(opt.sweep_dir):
-    if re.match('\d+_\d+', d):
-        chkpnt = os.path.join(opt.sweep_dir, d, 'model.bin.best')
-        if os.path.exists(chkpnt):
-            chkpnts.append(chkpnt)
-    elif d.endswith('model.bin.best'):
-        chkpnts.append(os.path.join(opt.sweep_dir, d))
-
-mapper = executor.map_array if opt.remote else map
-list(mapper(lambda x: rmse(x, ground_truth, with_ks=opt.ks_test), chkpnts))
-print(folder)
+    mapper = executor.map_array if opt.remote else map
+    list(mapper(lambda x: rmse(opt.days, x, ground_truth, with_ks=opt.ks_test, max_events=opt.max_events), chkpnts))
+    print(folder)

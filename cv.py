@@ -14,8 +14,8 @@ import metrics
 import itertools
 import copy
 import random
-from functools import partial
 import submitit
+from functools import partial
 
 
 def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
@@ -36,13 +36,7 @@ def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
     fore_out = _path(cfg["forecast"]["output"])
     cfg[opt.module]["train"]["fdat"] = val_in
 
-    # -- filter --
-    if dset.endswith(".csv"):
-        common.drop_k_days_csv(dset, val_in, cfg["validation"]["days"])
-    elif dset.endswith(".h5"):
-        common.drop_k_days(dset, val_in, cfg["validation"]["days"])
-    else:
-        raise RuntimeError(f"Unrecognized dataset extension: {dset}")
+    filter_validation_days(dset, val_in, cfg["validation_days"])
 
     # -- train --
     train_params = Namespace(**cfg[opt.module]["train"])
@@ -60,6 +54,9 @@ def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
     df_val.to_csv(_path("metrics.csv"))
     print(df_val)
 
+    # -- store configs to reproduce results --
+    log_configs(cfg, opt.module, _path(f"{opt.module}.yml"))
+
     # -- prediction interval --
     if "prediction_interval" in cfg:
         with th.no_grad():
@@ -75,6 +72,22 @@ def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
     print(f"Storing forecast in {fore_out}")
     df_forecast.to_csv(fore_out, encoding="utf-8")
     print(df_forecast)
+
+
+def filter_validation_days(dset: str, val_in: str, validation_days: int):
+    """Filters validation days and writes output to val_in path"""
+    if dset.endswith(".csv"):
+        common.drop_k_days_csv(dset, val_in, cfg["validation"]["days"])
+    elif dset.endswith(".h5"):
+        common.drop_k_days(dset, val_in, cfg["validation"]["days"])
+    else:
+        raise RuntimeError(f"Unrecognized dataset extension: {dset}")
+
+
+def log_configs(cfg: Dict[str, Any], module: str, path: str):
+    """Logs configs for job for reproducibility"""
+    with open(path, "w") as f:
+        yaml.dump(cfg[module], f)
 
 
 if __name__ == "__main__":
@@ -101,7 +114,7 @@ if __name__ == "__main__":
     if opt.remote:
         basedir = f"/checkpoint/{user}/covid19/forecasts/{region}/{now}"
     else:
-        basedir = "/tmp"
+        basedir = f"/tmp/covid19/forecasts/{region}/{now}"
 
     cfgs = []
     sweep_params = [

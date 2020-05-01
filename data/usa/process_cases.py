@@ -30,8 +30,10 @@ def get_nyt():
     df = pandas.read_csv(NYSTATE_URL).rename(columns={'Test Date': 'date', 'Cumulative Number of Positives': 'cases'})
     df['loc'] = 'New York_' + df['County']
     df = df.pivot_table(values='cases', columns=['loc'], index='date')
-    # The NYT lags behind by 1 day, update this index to match up properly.
-    df.index = pandas.to_datetime(df.index) - datetime.timedelta(days=1)
+
+    # The NYT labels each date as the date the report comes out, not the date the data corresponds to.
+    # Add 1 day to the NYS DOH data to get it to align
+    df.index = pandas.to_datetime(df.index) + datetime.timedelta(days=1)
     without_nystate = pivot[[c for c in pivot.columns if not c.startswith('New York')]]
     last_date = min(without_nystate.index.max(), df.index.max())
     df = df[df.index <= last_date]

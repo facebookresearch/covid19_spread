@@ -36,9 +36,9 @@ sir:
   output: sir_model.npy
   train:
     fpop: *fpop
-    window: 14
-    recovery_days: 14
-    distancing_reduction: 0.2
+    window: [1, 3, 5, 10, 14, 20]
+    recovery_days: [1, 3, 5, 10, 14, 20, 30]
+    distancing_reduction: [0.05, 0.1, 0.2, 0.5, 0.8, 0.9, 1.0]
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
