@@ -136,7 +136,7 @@ if __name__ == "__main__":
         ngpus = cfg[opt.module].get("resources", {}).get("gpus", 0)
         ncpus = cfg[opt.module].get("resources", {}).get("cpus", 3)
         memgb = cfg[opt.module].get("resources", {}).get("memgb", 20)
-        timemout = cfg[opt.module].get("resources", {}).get("timeout", 12 * 60)
+        timeout = cfg[opt.module].get("resources", {}).get("timeout", 12 * 60)
         executor = submitit.AutoExecutor(folder=basedir + "/%j")
         executor.update_parameters(
             name=f"cv_{region}",
