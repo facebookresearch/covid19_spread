@@ -98,10 +98,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-remote", action="store_true", help="Run jobs remotely on SLURM"
     )
-    parser.add_argument("-timeout-min", type=int, default=12 * 60)
     parser.add_argument("-array-parallelism", type=int, default=50)
-    parser.add_argument("-mem-gb", type=int, default=20)
-    parser.add_argument("-ncpus", type=int, default=20)
     parser.add_argument("-max-jobs", type=int, default=200)
     opt = parser.parse_args()
 
@@ -139,14 +136,15 @@ if __name__ == "__main__":
         ngpus = cfg[opt.module].get("resources", {}).get("gpus", 0)
         ncpus = cfg[opt.module].get("resources", {}).get("cpus", 3)
         memgb = cfg[opt.module].get("resources", {}).get("memgb", 20)
+        timemout = cfg[opt.module].get("resources", {}).get("timeout", 12 * 60)
         executor = submitit.AutoExecutor(folder=basedir + "/%j")
         executor.update_parameters(
             name=f"cv_{region}",
             gpus_per_node=ngpus,
             cpus_per_task=ncpus,
             mem_gb=memgb,
-            slurm_array_parallelism=opt.array_parallelism,
-            timeout_min=12 * 60,
+            array_parallelism=opt.array_parallelism,
+            timeout_min=timeout,
         )
         launcher = executor.map_array
         basedirs = [f"{basedir}/%j" for _ in cfgs]
@@ -155,3 +153,4 @@ if __name__ == "__main__":
         launcher = map
 
     list(launcher(partial(cv, opt), basedirs, cfgs))
+    print(basedir)
