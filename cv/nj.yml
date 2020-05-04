@@ -49,6 +49,8 @@ sir:
 mhp:
   data: data/new-jersey/timeseries.h5
   output: mhp_model.bin
+  resources:
+    gpus: 1
   simulate:
     trials: 10
     max_events: 2000000
