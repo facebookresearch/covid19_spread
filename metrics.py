@@ -1,12 +1,31 @@
 #!/usr/bin/env python3
 import numpy as np
 import pandas as pd
-
+import h5py
 from datetime import timedelta
 from load import load_data
+import pandas
+import warnings
 
 
 def load_ground_truth(path):
+    with h5py.File(path, 'r') as hf:
+        if 'ground_truth' in hf.keys():
+            assert 'basedate' in hf.attrs, '`basedate` missing from HDF5 attrs!'
+            basedate = pandas.Timestamp(hf.attrs['basedate'])
+            ground_truth = pandas.DataFrame(hf['ground_truth'][:])    
+            ground_truth.columns = pandas.date_range(end=basedate, periods=ground_truth.shape[1])
+            ground_truth['county'] = hf['nodes'][:]
+            # Ignore any Unknown counts
+            ground_truth = ground_truth[~ground_truth['county'].str.contains('Unknown')]
+            return ground_truth.set_index('county').transpose().sort_index()
+    
+    warnings.warn((
+        "Using raw HDF5 data as ground truth is deprecated.  You should"
+        " instead create a `ground_truth` field in the HDF5 dataset.  This can give "
+        "misleading results if you are smoothing the data."
+    ), DeprecationWarning)
+
     nodes, ns, ts, basedate = load_data(path)
     nodes = [n for n in nodes if n != "Unknown"]
     gt = {n: len(np.where(ns == i)[0]) - 1 for i, n in enumerate(nodes)}

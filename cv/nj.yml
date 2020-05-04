@@ -46,3 +46,24 @@ sir:
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
+mhp:
+  data: data/new-jersey/timeseries.h5
+  output: mhp_model.bin
+  resources:
+    gpus: 1
+  simulate:
+    trials: 10
+    max_events: 2000000
+    days: *vdays
+  train:
+    dim: [10, 15, 20]
+    base_intensity: [True, False]
+    alpha_scale: [-10, -15]
+    const_beta: [8, 10, 15]
+    weight_decay: [0]
+    max_events: [1000000]
+    maxcor: [100]
+    optim: lbfgs
+    max_events: 500000
+    epochs: 200
+    sparse_grads: False

@@ -115,7 +115,7 @@ def run_train(dset, train_params, model_out):
     return model
 
 
-def run_simulate(dset, train_params, model):
+def run_simulate(dset, train_params, model, sim_params):
     """Forecasts region-level infections using
     API of cv.py for cross validation
 
