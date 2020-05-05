@@ -4,8 +4,10 @@ import argparse
 import numpy as np
 import pandas as pd
 import sys
-from datetime import timedelta
 import load
+
+from typing import List
+from datetime import timedelta, datetime
 
 
 def sir(s: float, i: float, r: float, beta: float, gamma: float, n: float):
@@ -56,11 +58,13 @@ def simulate(
     days_kept, infected, recovered = [], [], []
     for day in range(1, keep + 1, 1):
         days_kept.append(day)
-        infected.append(res[day][0])
-        recovered.append(res[day][1])
+        _I, _R = res[day]
+        infected.append(_I)
+        recovered.append(_R)
 
-
-    infs = pd.DataFrame({"Day": days_kept, "infected": infected, "recovered": recovered})
+    infs = pd.DataFrame(
+        {"Day": days_kept, "infected": infected, "recovered": recovered}
+    )
     ix_max = np.argmax(infected)
     if ix_max == len(infected) - 1:
         peak_days = f"{ix_max}+"
@@ -96,16 +100,19 @@ def run_train(dset, train_params, model_out):
     API match that of cv.py for cross validation
 
     Args:
-        train_params (dict)
+        dset (str): path for confirmed cases
+        train_params (dict): training parameters
         model_out (str): path for saving training checkpoints
 
     Returns: list of (doubling_times (np.float64), regions (list of str))
     """
     # get cases
-    cases_by_region, regions, _ = load.load_confirmed_by_region(train_params.fdat)
+    cases_df = load.load_confirmed_by_region(dset)
+    regions = cases_df.columns
     # estimate doubling times per region
     doubling_times = []
-    for cases in cases_by_region:
+    for region in regions:
+        cases = cases_df[region].values
         doubling_time = estimate_growth_const(cases, train_params.window)
         doubling_times.append(doubling_time)
 
@@ -119,24 +126,30 @@ def run_simulate(dset, train_params, model, sim_params):
     """Forecasts region-level infections using
     API of cv.py for cross validation
 
+    Args:
+        dset (str): path for confirmed cases
+        train_params (dict): training parameters
+        model (list): [doubling times, regions]
+
     Returns: (pd.DataFrame) of forecasts per region
     """
     # regions are columns; dates are indices
     populations_df = load.load_populations_by_region(train_params.fpop)
-    cases_by_region, regions_for_cases, base_date = load.load_confirmed_by_region(train_params.fdat)
-    region_to_cases = dict(zip(regions_for_cases, cases_by_region))
-
-    doubling_times, model_regions = model
-    region_to_doubling_time = dict(zip(model_regions, doubling_times))
+    cases_df = load.load_confirmed_by_region(dset)
 
     recovery_days, distancing_reduction, days, keep = initialize(train_params)
+    doubling_times, regions = model
 
     region_to_prediction = dict()
-    for region, doubling_time in region_to_doubling_time.items(): 
+
+    for doubling_time, region in zip(doubling_times, regions):
         # get cases and population for region
-        population = populations_df[populations_df["region"] == region]["population"].values[0]
+        population = populations_df[populations_df["region"] == region][
+            "population"
+        ].values[0]
+        cases = cases_df[region].tolist()
         _, infs = simulate(
-            region_to_cases[region],
+            cases,
             population,
             doubling_time,
             recovery_days,
@@ -149,9 +162,11 @@ def run_simulate(dset, train_params, model, sim_params):
         recovered = infs["recovered"].values
         prediction = infected + recovered
         region_to_prediction[region] = prediction
+
     df = pd.DataFrame(region_to_prediction)
     # set dates
-    df = _set_dates(df, base_date, train_params.keep)
+    df["date"] = _get_prediction_dates(cases_df, keep)
+    df.set_index("date")
     return df
 
 
@@ -164,16 +179,35 @@ def initialize(train_params):
     return recovery_days, distancing_reduction, days, keep
 
 
-def _set_dates(df, base_date, days):
-    """Adds dates to prediciton dataframe"""
-    base = pd.to_datetime(base_date)
-    ds = [base + timedelta(i) for i in range(1, days + 1)]
-    df["date"] = ds
-    df.set_index("date", inplace=True)
+def _add_doubling_time_to_col_names(df, doubling_time):
+    """Adds doubling time to infected and recovered column names"""
+    df = df.rename(
+        columns={
+            "infected": f"infected (dt {doubling_time:.2f})",
+            "recovered": f"recovered (dt {doubling_time:.2f})",
+        }
+    )
     return df
 
 
-def main(args):
+def _get_prediction_dates(cases_df: pd.DataFrame, days: int) -> pd.DatetimeIndex:
+    """Returns dates for prediction.
+
+    Args:
+        cases_df: rows have dates and columns regions
+        days: number of days forecasted
+    Returns: datetime objects for prediction dates
+    """
+    last_confirmed_cases_date = cases_df.index.max()
+    prediction_end_date = last_confirmed_cases_date + timedelta(days)
+    dates = pd.date_range(
+        start=last_confirmed_cases_date, end=prediction_end_date, closed="right"
+    )
+    return dates
+
+
+def parse_args(args: List):
+    """Parses arguments"""
     parser = argparse.ArgumentParser(description="Forecasting with SIR model")
     parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
     parser.add_argument("-fpop", help="Path to population data", required=True)
@@ -199,9 +233,15 @@ def main(args):
     )
     parser.add_argument("-dout", type=str, default=".", help="Output directory")
     opt = parser.parse_args(args)
+    return opt
+
+
+def main(args):
+    opt = parse_args(args)
 
     population, regions = load.load_population(opt.fpop)
-    cases = load.load_confirmed(opt.fdat, regions)
+    cases_df = load.load_confirmed(opt.fdat, regions=regions)
+    cases = cases_df.tolist()
     tmax = len(cases)
     t = np.arange(tmax) + 1
 
@@ -219,10 +259,22 @@ def main(args):
         opt.keep + 1,
     )
     meta, df = f_sim(doubling_time)
+    df = _add_doubling_time_to_col_names(df, doubling_time)
+
     for dt in opt.doubling_times:
         _meta, _df = f_sim(dt)
         meta = meta.append(_meta, ignore_index=True)
+
+        doubling_time = float(_meta["Doubling time"].values)
+        _df = _add_doubling_time_to_col_names(_df, doubling_time)
+
         df = pd.merge(df, _df, on="Day")
+
+    # set prediction dates
+    dates = _get_prediction_dates(cases_df, df.shape[0])
+    df["dates"] = dates
+    df = df.drop(columns="Day")
+    df = df.set_index("dates")
     print()
     print(meta)
     print()
