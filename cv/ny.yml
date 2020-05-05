@@ -1,7 +1,7 @@
 region: ny
 population: &fpop data/population-data/US-states/new-york-population.csv
 validation:
-  days: &vdays 14
+  days: &vdays 7
   output: validation-ny.csv
 forecast:
   output: forecast-ny.csv
@@ -28,6 +28,6 @@ sir:
     window: 1
     recovery_days: 10
     distancing_reduction: 0.8
-    days: 8
+    days: *vdays
     # number of days to keep for forecast
     keep: *vdays

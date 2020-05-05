@@ -2,6 +2,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import torch as th
+from datetime import timedelta
 
 
 def load_confirmed_csv(path):
@@ -12,8 +13,7 @@ def load_confirmed_csv(path):
     cases = df.to_numpy()
     return th.from_numpy(cases), nodes, basedate
 
-
-def load_confirmed(path, regions):
+def load_confirmed_old(path, regions):
     """Loads confirmed total confirmed cases"""
     # df = pd.read_csv(path, usecols=regions)
     # cases = df.to_numpy().sum(axis=1)
@@ -29,9 +29,19 @@ def load_confirmed(path, regions):
     _, cases = zip(*cases)
     return np.array(cases)
 
+def load_confirmed(path, regions):
+    """Returns dataframe of total confirmed cases"""
+    df = load_confirmed_by_region(path, regions=regions)
+    return df.sum(axis=1)
 
-def load_confirmed_by_region(path):
-    nodes, ns, ts, basedate, = load_data(path)
+
+def load_confirmed_by_region(path, regions=None, filter_unknown=True):
+    """Loads confirmed cases from h5 file.
+    If regions is provided, filters cases in those regions.
+
+    Returns: pd.DataFrame with dates along row and regions in columns
+    """
+    nodes, ns, ts, end_date = load_data(path)
     nodes = np.array(nodes)
     tmax = int(np.ceil(ts.max()))
     cases = np.zeros((len(nodes), tmax))
@@ -40,10 +50,38 @@ def load_confirmed_by_region(path):
         for i in range(1, tmax + 1):
             ix1 = np.where(ts < i)[0]
             cases[n, i - 1] = len(np.intersect1d(ix1, ix2))
+    if filter_unknown:
+        cases, nodes = _filter_unknown(cases, nodes)
+
+    df = pd.DataFrame(cases.T, columns=nodes)
+    df = _set_dates(df, end_date)
+
+    if regions:
+        df = df[regions]
+    return df
+
+def _set_dates(df: pd.DataFrame, end_date: str):
+    """Adds dates to predicton dataframe. 
+
+    Args:
+        df: dataframe of cases (rows are days, columns are regions)
+        end_date (str): latest day with data in YYYY-MM-DD format.
+    
+    Returns: dataframe with dates as indices
+    """
+    end_date = pd.to_datetime(end_date)
+    days = df.shape[0]
+    dates = [end_date - timedelta(i) for i in range(days - 1, -1, -1)]
+    df["date"] = dates
+    df.set_index("date", inplace=True)
+    return df
+
+def _filter_unknown(cases, nodes):
+    """Filters casese for unknown nodes"""
     unk = np.where(nodes == "Unknown")[0]
     cases = np.delete(cases, unk, axis=0)
     nodes = np.delete(nodes, unk)
-    return cases, nodes, basedate
+    return cases, nodes
 
 
 def load_population(path, col=1):
