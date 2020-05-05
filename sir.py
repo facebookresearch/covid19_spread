@@ -7,7 +7,7 @@ import sys
 import load
 
 from typing import List
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 
 def sir(s: float, i: float, r: float, beta: float, gamma: float, n: float):
@@ -170,13 +170,6 @@ def run_simulate(dset, train_params, model):
     return df
 
 
-def _date_plus(date, days):
-    """Returns str for date + days"""
-    end_date = date + timedelta(days)
-    end_date_string = end_date.strftime("%Y-%m-%d")
-    return end_date_string
-
-
 def initialize(train_params):
     """Unpacks arguments needed from config"""
     recovery_days = train_params.recovery_days
@@ -206,7 +199,7 @@ def _get_prediction_dates(cases_df: pd.DataFrame, days: int) -> pd.DatetimeIndex
     Returns: datetime objects for prediction dates
     """
     last_confirmed_cases_date = cases_df.index.max()
-    prediction_end_date = _date_plus(last_confirmed_cases_date, days)
+    prediction_end_date = last_confirmed_cases_date + timedelta(days)
     dates = pd.date_range(
         start=last_confirmed_cases_date, end=prediction_end_date, closed="right"
     )
@@ -274,7 +267,6 @@ def main(args):
 
         doubling_time = float(_meta["Doubling time"].values)
         _df = _add_doubling_time_to_col_names(_df, doubling_time)
-        print(_df)
 
         df = pd.merge(df, _df, on="Day")
 
