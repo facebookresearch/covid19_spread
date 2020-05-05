@@ -2,7 +2,7 @@ region: us
 population: &fpop data/usa/population.csv
 basegraph: &fgraph data/usa/state_graph.pt
 validation:
-  days: &vdays 14
+  days: &vdays 7
   output: validation-us.csv
 forecast:
   output: forecast-us.csv
@@ -39,3 +39,15 @@ ar:
     loss: nb
     t0: 10
     test_on: *vdays
+sir:
+  module: sir
+  output: sir_model.npy
+  data: data/usa/data.csv
+  train:
+    fpop: *fpop
+    window: 1
+    recovery_days: 10
+    distancing_reduction: 0.8
+    days: *vdays
+    # number of days to keep for forecast
+    keep: *vdays

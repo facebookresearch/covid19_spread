@@ -21,11 +21,29 @@ def load_confirmed(path, regions):
 
 
 def load_confirmed_by_region(path, regions=None, filter_unknown=True):
-    """Loads confirmed cases from h5 file.
+    """Loads confirmed cases from h5 or csv file.
     If regions is provided, filters cases in those regions.
 
     Returns: pd.DataFrame with dates along row and regions in columns
     """
+    if path.endswith("csv"):
+        return _load_confirmed_by_region_csv(path, regions, filter_unknown)
+    elif path.endswith("h5"):
+        return _load_confirmed_by_region_h5(path, regions, filter_unknown)
+    raise ValueError(f"Data type for {path} not supported")
+
+
+def _load_confirmed_by_region_csv(path, regions, filter_unkown):
+    """Loads csv file for confirmed cases by region"""
+    df = pd.read_csv(path)
+    # transpose so dates are along rows to match h5
+    df = df.T
+    df.index.rename("date", inplace=True)
+    return df
+
+
+def _load_confirmed_by_region_h5(path, regions, filter_unknown):
+    """Loads h5 files for confirmed cases by region"""
     nodes, ns, ts, end_date = load_data(path)
     nodes = np.array(nodes)
     tmax = int(np.ceil(ts.max()))
