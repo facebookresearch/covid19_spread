@@ -23,7 +23,6 @@ class TrainParams:
 
 
 class TestSIRCrossValidation:
-
     @pytest.fixture(scope="module")
     def checkpoint_path(self):
         """Fixture to cleanup checkpoint file"""
@@ -46,7 +45,7 @@ class TestSIRCrossValidation:
 
     def test_run_simulate(self, checkpoint_path):
         """Verifies predictions match expected length"""
-        model =  sir.run_train(TrainParams.fdat, TrainParams, checkpoint_path)
+        model = sir.run_train(TrainParams.fdat, TrainParams, checkpoint_path)
         # model is doubling_times
         predictions_df = sir.run_simulate(TrainParams.fdat, TrainParams, model)
         assert predictions_df.shape[0] == TrainParams.keep

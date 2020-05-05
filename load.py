@@ -13,21 +13,6 @@ def load_confirmed_csv(path):
     cases = df.to_numpy()
     return th.from_numpy(cases), nodes, basedate
 
-def load_confirmed_old(path, regions):
-    """Loads confirmed total confirmed cases"""
-    # df = pd.read_csv(path, usecols=regions)
-    # cases = df.to_numpy().sum(axis=1)
-    nodes, ns, ts, _ = load_data(path)
-    unk = np.where(nodes == "Unknown")[0]
-    if len(unk) > 0:
-        ix = np.where(ns != unk[0])
-        ts = ts[ix]
-    cases = []
-    for i in range(1, int(np.ceil(ts.max())) + 1):
-        ix = np.where(ts < i)[0]
-        cases.append((i, len(ix)))
-    _, cases = zip(*cases)
-    return np.array(cases)
 
 def load_confirmed(path, regions):
     """Returns dataframe of total confirmed cases"""
@@ -60,6 +45,7 @@ def load_confirmed_by_region(path, regions=None, filter_unknown=True):
         df = df[regions]
     return df
 
+
 def _set_dates(df: pd.DataFrame, end_date: str):
     """Adds dates to predicton dataframe. 
 
@@ -75,6 +61,7 @@ def _set_dates(df: pd.DataFrame, end_date: str):
     df["date"] = dates
     df.set_index("date", inplace=True)
     return df
+
 
 def _filter_unknown(cases, nodes):
     """Filters casese for unknown nodes"""
@@ -108,6 +95,7 @@ def filter_populations(df, nodes):
     """Removes populations and regions with unknown nodes"""
     mask = nodes == "Unknown"
     return df[mask]
+
 
 def load_model(model_path, M):
     data = th.load(model_path)

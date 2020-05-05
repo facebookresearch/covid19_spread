@@ -62,7 +62,9 @@ def simulate(
         infected.append(_I)
         recovered.append(_R)
 
-    infs = pd.DataFrame({"Day": days_kept, "infected": infected, "recovered": recovered})
+    infs = pd.DataFrame(
+        {"Day": days_kept, "infected": infected, "recovered": recovered}
+    )
     ix_max = np.argmax(infected)
     if ix_max == len(infected) - 1:
         peak_days = f"{ix_max}+"
@@ -142,7 +144,9 @@ def run_simulate(dset, train_params, model):
 
     for doubling_time, region in zip(doubling_times, regions):
         # get cases and population for region
-        population = populations_df[populations_df["region"] == region]["population"].values[0]
+        population = populations_df[populations_df["region"] == region][
+            "population"
+        ].values[0]
         cases = cases_df[region].tolist()
         _, infs = simulate(
             cases,
@@ -165,6 +169,7 @@ def run_simulate(dset, train_params, model):
     df.set_index("date")
     return df
 
+
 def _date_plus(date, days):
     """Returns str for date + days"""
     end_date = date + timedelta(days)
@@ -180,12 +185,17 @@ def initialize(train_params):
 
     return recovery_days, distancing_reduction, days, keep
 
+
 def _add_doubling_time_to_col_names(df, doubling_time):
     """Adds doubling time to infected and recovered column names"""
-    df = df.rename(columns={"infected": f"infected (dt {doubling_time:.2f})",
-                "recovered": f"recovered (dt {doubling_time:.2f})",
-    })
+    df = df.rename(
+        columns={
+            "infected": f"infected (dt {doubling_time:.2f})",
+            "recovered": f"recovered (dt {doubling_time:.2f})",
+        }
+    )
     return df
+
 
 def _get_prediction_dates(cases_df: pd.DataFrame, days: int) -> pd.DatetimeIndex:
     """Returns dates for prediction.
@@ -197,7 +207,9 @@ def _get_prediction_dates(cases_df: pd.DataFrame, days: int) -> pd.DatetimeIndex
     """
     last_confirmed_cases_date = cases_df.index.max()
     prediction_end_date = _date_plus(last_confirmed_cases_date, days)
-    dates = pd.date_range(start=last_confirmed_cases_date, end=prediction_end_date, closed="right")
+    dates = pd.date_range(
+        start=last_confirmed_cases_date, end=prediction_end_date, closed="right"
+    )
     return dates
 
 
@@ -265,7 +277,7 @@ def main(args):
         print(_df)
 
         df = pd.merge(df, _df, on="Day")
-    
+
     # set prediction dates
     dates = _get_prediction_dates(cases_df, df.shape[0])
     df["dates"] = dates
