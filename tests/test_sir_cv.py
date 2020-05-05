@@ -12,12 +12,22 @@ import load
 import sir
 
 
-class TrainParams:
+class TrainParamsNY:
     fdat = "data/nystate/timeseries.h5"
     fpop = "data/population-data/US-states/new-york-population.csv"
     window = 14
     recovery_days = 14
     distancing_reduction = 0.2
+    days = 7
+    keep = 7
+
+
+class TrainParamsUS:
+    fdat = "data/usa/data.csv"
+    fpop = "data/usa/population.csv"
+    window = 30
+    recovery_days = 10
+    distancing_reduction = 0.8
     days = 7
     keep = 7
 
@@ -33,9 +43,10 @@ class TestSIRCrossValidation:
         except OSError:
             pass
 
-    def test_run_train(self, checkpoint_path):
+    @pytest.mark.parametrize("train_params", [TrainParamsNY, TrainParamsUS])
+    def test_run_train(self, checkpoint_path, train_params):
         """Verifies doubling times are > 0 and region lengths match"""
-        model = sir.run_train(TrainParams.fdat, TrainParams, checkpoint_path)
+        model = sir.run_train(train_params.fdat, train_params, checkpoint_path)
         assert isinstance(model, list)
         assert len(model) == 2
 
@@ -43,9 +54,10 @@ class TestSIRCrossValidation:
         assert (doubling_times > 0).all()
         assert doubling_times.shape == (len(regions),)
 
-    def test_run_simulate(self, checkpoint_path):
+    @pytest.mark.parametrize("train_params", [TrainParamsNY, TrainParamsUS])
+    def test_run_simulate(self, checkpoint_path, train_params):
         """Verifies predictions match expected length"""
-        model = sir.run_train(TrainParams.fdat, TrainParams, checkpoint_path)
+        model = sir.run_train(train_params.fdat, train_params, checkpoint_path)
         # model is doubling_times
-        predictions_df = sir.run_simulate(TrainParams.fdat, TrainParams, model)
-        assert predictions_df.shape[0] == TrainParams.keep
+        predictions_df = sir.run_simulate(train_params.fdat, train_params, model, {})
+        assert predictions_df.shape[0] == train_params.keep

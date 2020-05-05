@@ -33,12 +33,19 @@ def load_confirmed_by_region(path, regions=None, filter_unknown=True):
     raise ValueError(f"Data type for {path} not supported")
 
 
-def _load_confirmed_by_region_csv(path, regions, filter_unkown):
+def _load_confirmed_by_region_csv(path, regions, filter_unknown):
     """Loads csv file for confirmed cases by region"""
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, index_col=0, header=None)
     # transpose so dates are along rows to match h5
     df = df.T
-    df.index.rename("date", inplace=True)
+    # set date as index
+    df = df.rename(columns={"region": "date"})  
+    df = df.set_index("date")
+    df = df.astype(float)
+    if regions is not None:
+        df = df[regions]
+    if filter_unknown:
+        df = df.loc[:, df.columns != "Unknown"]
     return df
 
 
