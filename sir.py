@@ -202,6 +202,7 @@ def _get_prediction_dates(cases_df: pd.DataFrame, days: int) -> pd.DatetimeIndex
     Returns: datetime objects for prediction dates
     """
     last_confirmed_cases_date = cases_df.index.max()
+    last_confirmed_cases_date = pd.to_datetime(last_confirmed_cases_date)
     prediction_end_date = last_confirmed_cases_date + timedelta(days)
     dates = pd.date_range(
         start=last_confirmed_cases_date, end=prediction_end_date, closed="right"
@@ -242,9 +243,11 @@ def parse_args(args: List):
 def main(args):
     opt = parse_args(args)
 
-    population, regions = load.load_population(opt.fpop)
-    cases_df = load.load_confirmed(opt.fdat, regions=regions)
-    cases = cases_df.tolist()
+    cases_df = load.load_confirmed_by_region(opt.fdat, None)
+    regions = cases_df.columns
+    # load only population data for regions with cases
+    population = load.load_population(opt.fpop, regions=regions)
+    cases = cases_df.sum(axis=1).tolist()
     tmax = len(cases)
     t = np.arange(tmax) + 1
 

@@ -67,7 +67,7 @@ def main(args):
     # Convert abbreviated names to full state names
     neighbors = {state_map[k]: [state_map[v] for v in vs] for k, vs in neighbors.items()}
 
-    df = get_nyt(metric='deaths')
+    df = get_nyt(metric='deaths' if opt.mode == 'deaths' else 'cases')
     print(f'Latest date = {df.index.max()}')
 
     # Remove any unknowns

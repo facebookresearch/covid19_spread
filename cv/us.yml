@@ -45,3 +45,15 @@ ar:
     loss: nb
     t0: 10
     test_on: *vdays
+sir:
+  module: sir
+  output: sir_model.npy
+  data: data/usa/data.csv
+  train:
+    fpop: *fpop
+    window: 1
+    recovery_days: 10
+    distancing_reduction: 0.8
+    days: *vdays
+    # number of days to keep for forecast
+    keep: *vdays
