@@ -31,10 +31,26 @@ def load_ground_truth_csv(path):
     return df
 
 
+def rmse(pred, gt):
+    return (pred - gt).pow(2).mean(axis=1).pow(1. / 2)
+
+
+def mae(pred, gt):
+    return (pred - gt).abs().mean(axis=1)
+
+
+def sae(pred, gt):
+    return (pred - gt).abs().std(axis=1)
+
+
+def mape(pred, gt):
+    return ((pred - gt).abs() / gt.clip(1)).mean(axis=1)
+
+
 def compute_metrics(f_ground_truth, f_predictions, mincount=10):
-    if f_ground_truth.endswith('.h5'):
+    if f_ground_truth.endswith(".h5"):
         df_true = load_ground_truth(f_ground_truth)
-    elif f_ground_truth.endswith('.csv'):
+    elif f_ground_truth.endswith(".csv"):
         df_true = load_ground_truth_csv(f_ground_truth)
     else:
         raise RuntimeError(f"Unrecognized extension: {f_ground_truth}")
@@ -56,28 +72,28 @@ def compute_metrics(f_ground_truth, f_predictions, mincount=10):
 
     gt = df_true.loc[df_pred.index]
     # print(df_true.loc[pdate], gt, df_pred)
-    err = df_pred - gt
-    rmse = (err ** 2).mean(axis=1).pow(1. / 2)
-    mae = err.abs().mean(axis=1)
-    mae_naive = (naive - gt).abs().mean(axis=1)
-    rmse_naive = (naive - gt).pow(2).mean(axis=1).pow(1. / 2)
-    mape = (err.abs() / gt.clip(1)).mean(axis=1)
-    mae_mase = mae / mae_naive
-    rmse_mase = rmse / rmse_naive
+    # err = df_pred - gt
+    # rmse = (err ** 2).mean(axis=1).pow(1. / 2)
+    # mae = err.abs().mean(axis=1)
+    # mae_naive = (naive - gt).abs().mean(axis=1)
+    # rmse_naive = (naive - gt).pow(2).mean(axis=1).pow(1. / 2)
+    # mape = (err.abs() / gt.clip(1)).mean(axis=1)
+    # mae_mase = mae / mae_naive
+    # rmse_mase = rmse / rmse_naive
     metrics = pd.DataFrame(
-        [rmse, mae, mape, rmse_naive, mae_naive, mae_mase, rmse_mase],
+        [
+            rmse(df_pred, gt),
+            mae(df_pred, gt),
+            mape(df_pred, gt),
+            rmse(naive, gt),
+            mae(naive, gt),
+        ],
         columns=df_pred.index.to_numpy(),
     )
-    metrics["Measure"] = [
-        "RMSE",
-        "MAE",
-        "MAPE",
-        "RMSE_NAIVE",
-        "MAE_NAIVE",
-        "MAE_MASE",
-        "RMSE_MASE",
-    ]
+    metrics["Measure"] = ["RMSE", "MAE", "MAPE", "RMSE_NAIVE", "MAE_NAIVE"]
     metrics.set_index("Measure", inplace=True)
+    metrics.loc["MAE_MASE"] = metrics.loc["MAE"] / metrics.loc["MAE_NAIVE"]
+    metrics.loc["RMSE_MASE"] = metrics.loc["RMSE"] / metrics.loc["RMSE_NAIVE"]
     return metrics
 
 
