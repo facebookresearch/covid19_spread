@@ -31,7 +31,7 @@ DFLT_PARAMS = [
 
 
 def forecast_train(
-    train_params, dataset, dataset_true, basedate, job_dir, days=7, trials=100, log=None
+    train_params, cwd, dataset_true, basedate, job_dir, days=7, trials=100, log=None
 ):
     with contextlib.ExitStack() as stack:
         if log is not None:
@@ -45,6 +45,8 @@ def forecast_train(
         with_intensity = (
             [] if train_params.get("base_intensity", True) else ["-no-baseint"]
         )
+
+        dataset = os.path.join(cwd, train_params.get("data"))
         NON_DFLT = [
             "-checkpoint",
             checkpoint,
@@ -134,6 +136,8 @@ if __name__ == "__main__":
     parser.add_argument("-array-parallelism", type=int, default=50)
     parser.add_argument("-mem-gb", type=int, default=20)
     parser.add_argument("-ncpus", type=int, default=20)
+    parser.add_argument("-partition", type=str, default="learnfair,scavenge")
+    parser.add_argument("-comment", type=str, default=None)
     opt = parser.parse_args()
 
     config = load_config(opt.config)
@@ -145,7 +149,7 @@ if __name__ == "__main__":
     base = f"/checkpoint/{user}/covid19/forecasts/{region}/{now}"
 
     dataset_true = os.path.realpath(config["data_true"])
-    dataset = os.path.realpath(config["data"])
+    cwd = os.path.realpath(".")
 
     print("Running SIR model...")
     run_sir(data=dataset_true, base=base, region=region, **config["sir"])
@@ -166,9 +170,7 @@ if __name__ == "__main__":
             job_dir = os.path.join(base, "_".join([f"{k}_{v}" for k, v in d.items()]))
             kwargs["log"] = f"{job_dir}/log"
         os.makedirs(job_dir, exist_ok=True)
-        forecast_train(
-            d, dataset=dataset, dataset_true=dataset_true, job_dir=job_dir, **kwargs
-        )
+        forecast_train(d, cwd=cwd, dataset_true=dataset_true, job_dir=job_dir, **kwargs)
 
     if opt.remote:
         executor = submitit.AutoExecutor(folder=base + "/%j")
@@ -179,7 +181,8 @@ if __name__ == "__main__":
             mem_gb=opt.mem_gb,
             array_parallelism=opt.array_parallelism,
             timeout_min=opt.timeout_min,
-            partition="learnfair,scavenge",
+            partition=opt.partition,
+            comment=opt.comment,
         )
         with snapshot.SnapshotManager(
             snapshot_dir=base + "/snapshot", with_submodules=True
