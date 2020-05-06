@@ -8,6 +8,7 @@ import load
 
 from typing import List
 from datetime import timedelta, datetime
+import cv
 
 
 def sir(s: float, i: float, r: float, beta: float, gamma: float, n: float):
@@ -95,79 +96,81 @@ def estimate_growth_const(cases, window=None):
     return doubling_time
 
 
-def run_train(dset, train_params, model_out):
-    """Infers doubling time for sir model. 
-    API match that of cv.py for cross validation
+class SIRCV(cv.CV):
+    def run_train(self, dset, train_params, model_out):
+        """Infers doubling time for sir model. 
+        API match that of cv.py for cross validation
 
-    Args:
-        dset (str): path for confirmed cases
-        train_params (dict): training parameters
-        model_out (str): path for saving training checkpoints
+        Args:
+            dset (str): path for confirmed cases
+            train_params (dict): training parameters
+            model_out (str): path for saving training checkpoints
 
-    Returns: list of (doubling_times (np.float64), regions (list of str))
-    """
-    # get cases
-    cases_df = load.load_confirmed_by_region(dset)
-    regions = cases_df.columns
-    # estimate doubling times per region
-    doubling_times = []
-    for region in regions:
-        cases = cases_df[region].values
-        doubling_time = estimate_growth_const(cases, train_params.window)
-        doubling_times.append(doubling_time)
+        Returns: list of (doubling_times (np.float64), regions (list of str))
+        """
+        # get cases
+        cases_df = load.load_confirmed_by_region(dset)
+        regions = cases_df.columns
+        # estimate doubling times per region
+        doubling_times = []
+        for region in regions:
+            cases = cases_df[region].values
+            doubling_time = estimate_growth_const(cases, train_params.window)
+            doubling_times.append(doubling_time)
 
-    model = [np.array(doubling_times), regions]
-    # save estimate
-    np.save(model_out, np.array(model))
-    return model
+        model = [np.array(doubling_times), regions]
+        # save estimate
+        np.save(model_out, np.array(model))
+        return model
 
 
-def run_simulate(dset, train_params, model, sim_params):
-    """Forecasts region-level infections using
-    API of cv.py for cross validation
+    def run_simulate(self, dset, train_params, model, sim_params):
+        """Forecasts region-level infections using
+        API of cv.py for cross validation
 
-    Args:
-        dset (str): path for confirmed cases
-        train_params (dict): training parameters
-        model (list): [doubling times, regions]
+        Args:
+            dset (str): path for confirmed cases
+            train_params (dict): training parameters
+            model (list): [doubling times, regions]
 
-    Returns: (pd.DataFrame) of forecasts per region
-    """
-    # regions are columns; dates are indices
-    populations_df = load.load_populations_by_region(train_params.fpop)
-    cases_df = load.load_confirmed_by_region(dset)
+        Returns: (pd.DataFrame) of forecasts per region
+        """
+        # regions are columns; dates are indices
+        populations_df = load.load_populations_by_region(train_params.fpop)
+        cases_df = load.load_confirmed_by_region(dset)
 
-    recovery_days, distancing_reduction, days, keep = initialize(train_params)
-    doubling_times, regions = model
+        recovery_days, distancing_reduction, days, keep = initialize(train_params)
+        doubling_times, regions = model
 
-    region_to_prediction = dict()
+        region_to_prediction = dict()
 
-    for doubling_time, region in zip(doubling_times, regions):
-        # get cases and population for region
-        population = populations_df[populations_df["region"] == region][
-            "population"
-        ].values[0]
-        cases = cases_df[region].tolist()
-        _, infs = simulate(
-            cases,
-            population,
-            doubling_time,
-            recovery_days,
-            distancing_reduction,
-            days,
-            keep,
-        )
-        # prediction  = infected + recovered to match cases count
-        infected = infs["infected"].values
-        recovered = infs["recovered"].values
-        prediction = infected + recovered
-        region_to_prediction[region] = prediction
+        for doubling_time, region in zip(doubling_times, regions):
+            # get cases and population for region
+            population = populations_df[populations_df["region"] == region][
+                "population"
+            ].values[0]
+            cases = cases_df[region].tolist()
+            _, infs = simulate(
+                cases,
+                population,
+                doubling_time,
+                recovery_days,
+                distancing_reduction,
+                days,
+                keep,
+            )
+            # prediction  = infected + recovered to match cases count
+            infected = infs["infected"].values
+            recovered = infs["recovered"].values
+            prediction = infected + recovered
+            region_to_prediction[region] = prediction
 
-    df = pd.DataFrame(region_to_prediction)
-    # set dates
-    df["date"] = _get_prediction_dates(cases_df, keep)
-    df.set_index("date")
-    return df
+        df = pd.DataFrame(region_to_prediction)
+        # set dates
+        df["date"] = _get_prediction_dates(cases_df, keep)
+        df = df.set_index("date")
+        return df
+CV_CLS = SIRCV
 
 
 def initialize(train_params):

@@ -8,7 +8,7 @@ import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-
+import cv
 
 class BetaExpDecay(nn.Module):
     def __init__(self, population):
@@ -374,53 +374,54 @@ def initialize(args):
 
     return cases, regions, populations, basedate, odeint, device
 
+class MetaSIRCV(cv.CV):
+    def run_train(self, dset, args, checkpoint):
+        args.fdat = dset
+        cases, regions, population, _, odeint, device = initialize(args)
+        tmax = np.max([len(ts) for ts in cases])
 
-def run_train(dset, args, checkpoint):
-    args.fdat = dset
-    cases, regions, population, _, odeint, device = initialize(args)
-    tmax = np.max([len(ts) for ts in cases])
+        weight_decay = 0
+        if args.decay == "exp":
+            beta_net = BetaExpDecay(population)
+        elif args.decay == "powerlaw":
+            beta_net = BetaPowerLawDecay(population)
+        elif args.decay == "rbf":
+            beta_net = BetaRBF(population, 10, float(len(cases[0])))
+        elif args.decay == "latent":
+            beta_net = BetaLatent(population, args.width, float(len(cases[0])))
+            weight_decay = args.weight_decay
 
-    weight_decay = 0
-    if args.decay == "exp":
-        beta_net = BetaExpDecay(population)
-    elif args.decay == "powerlaw":
-        beta_net = BetaPowerLawDecay(population)
-    elif args.decay == "rbf":
-        beta_net = BetaRBF(population, 10, float(len(cases[0])))
-    elif args.decay == "latent":
-        beta_net = BetaLatent(population, args.width, float(len(cases[0])))
-        weight_decay = args.weight_decay
+        func = MetaSIR(population, beta_net).to(device)
+        optimizer = optim.AdamW(
+            func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
+        )
 
-    func = MetaSIR(population, beta_net).to(device)
-    optimizer = optim.AdamW(
-        func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
-    )
+        # optimization is unstable, quickly it tends to explode
+        # check norm_grad weight norm etc...
+        # optimizer = optim.RMSprop(func.parameters(), lr=args.lr, weight_decay=weight_decay)
 
-    # optimization is unstable, quickly it tends to explode
-    # check norm_grad weight norm etc...
-    # optimizer = optim.RMSprop(func.parameters(), lr=args.lr, weight_decay=weight_decay)
+        model = train(func, cases, population, odeint, optimizer, checkpoint, args)
 
-    model = train(func, cases, population, odeint, optimizer, checkpoint, args)
-
-    return model
+        return model
 
 
-def run_simulate(dset, args, model=None, sim_params=None):
-    if model is None:
-        raise NotImplementedError
-    args.fdat = dset
-    cases, regions, population, basedate, odeint, device = initialize(args)
+    def run_simulate(self, dset, args, model=None, sim_params=None):
+        if model is None:
+            raise NotImplementedError
+        args.fdat = dset
+        cases, regions, population, basedate, odeint, device = initialize(args)
 
-    forecast = simulate(model, cases, regions, population, odeint, args, basedate)
+        forecast = simulate(model, cases, regions, population, odeint, args, basedate)
 
-    adj = model.metapopulation_weights().cpu().numpy()
-    df = pd.DataFrame(adj).round(2)
-    df.columns = regions
-    df["regions"] = regions
-    df.set_index("regions", inplace=True)
-    print(df)
+        adj = model.metapopulation_weights().cpu().numpy()
+        df = pd.DataFrame(adj).round(2)
+        df.columns = regions
+        df["regions"] = regions
+        df.set_index("regions", inplace=True)
+        print(df)
 
-    return forecast
+        return forecast
+CV_CLS=MetaSIRCV
 
 
 if __name__ == "__main__":
@@ -446,9 +447,11 @@ if __name__ == "__main__":
     parser.add_argument("-seed", type=int, default=0)
     args = parser.parse_args()
 
+    cv = MetaSIRCV()
+
     th.manual_seed(args.seed)
-    model = run_train(args, args.checkpoint)
+    model = cv.run_train(args, args.checkpoint)
 
     with th.no_grad():
-        forecast = run_simulate(args, model)
+        forecast = cv.run_simulate(args, model)
         print(forecast)
