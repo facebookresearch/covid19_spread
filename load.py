@@ -96,14 +96,16 @@ def _filter_unknown(cases, nodes):
     return cases, nodes
 
 
-def load_population(path, col=1):
-    df = pd.read_csv(path, header=None)
-    pop = df.iloc[:, col].sum()
-    regions = df.iloc[:, 0].to_numpy().tolist()
-    return pop, regions
+def load_population(path, col=1, regions=None):
+    """Loads total population for given regions. 
+    If regions is None, returns total across all regions.
+    """
+    populations_df = load_populations_by_region(path, col=col, regions=regions)
+    population = populations_df["population"].sum()
+    return population
 
 
-def load_populations_by_region(path, col=1):
+def load_populations_by_region(path, col=1, regions=None):
     """Loads region-level populations after filtering unknown nodes
 
     Returns: tuple of lists with (populations, regions)
@@ -112,7 +114,11 @@ def load_populations_by_region(path, col=1):
     populations_df = df.iloc[:, [0, col]]
     populations_df.columns = ["region", "population"]
     # filter unknown regions
-    populatins_df = populations_df[populations_df["region"].str.lower() != "unknown"]
+    populations_df = populations_df[populations_df["region"].str.lower() != "unknown"]
+    # keep only given regions
+    if regions is not None:
+        populations_df = populations_df[populations_df["region"].isin(regions)]
+
     return populations_df
 
 
