@@ -81,39 +81,25 @@ class BetaPowerLawDecay(nn.Module):
 
 
 class BetaLatent(nn.Module):
-    def __init__(self, regions, dim, tmax):
+    def __init__(self, regions, dim, layers, tmax):
         super(BetaLatent, self).__init__()
         self.M = len(regions)
         self.dim = dim
         self.tmax = tmax
-        self.Wbeta = nn.Linear(dim, dim, bias=True)
-        self.Wbeta2 = nn.Linear(dim, dim, bias=True)
-        self.v = nn.Linear(dim, 1, bias=False)
-        self.b0 = nn.Parameter(th.tanh(th.randn(dim, dtype=th.float)))
-        self.c = nn.Parameter(th.randn(1, 1, dtype=th.float))
-        self.fpos = F.softplus
-        nn.init.xavier_uniform_(self.Wbeta.weight)
-        nn.init.xavier_uniform_(self.Wbeta2.weight)
-        nn.init.xavier_uniform_(self.v.weight)
+        self.rnn = nn.RNN(1, dim, layers)
+        self.h0 = nn.Parameter(th.randn(layers, self.M, dim))
+        self.v = nn.Linear(dim, 1, bias=True)
+        self.fpos = th.sigmoid
 
-    def forward(self, t, y):
-        # beta_last = y.narrow(0, self.M * 3, self.M * self.dim).reshape(self.M, self.dim)
-        beta_last = y.narrow(0, self.M * 3, self.dim)
-        # beta_last = y.narrow(0, self.M * 3, self.dim)
-        # beta_now = self.Wbeta2(th.tanh(self.Wbeta(beta_last)))
-        # beta_now = self.Wbeta(beta_last)
+    def forward(self, t):
+        t = t.unsqueeze(-1).unsqueeze(-1).float()
+        t = t.expand(t.size(0), self.M, 1)
+        ht, hn = self.rnn(t, self.h0)
+        beta = self.fpos(self.v(ht))
+        return beta.squeeze().t()
 
-        beta_now = th.tanh(self.Wbeta(beta_last) + self.c * t / self.tmax)
-        # a = tmp.narrow(-1, 0, 1)
-        # b = tmp.narrow(-1, 1, 1)
-        # c = tmp.narrow(-1, 2, 1)
-        # beta = th.sigmoid(a) * th.exp(-self.fpos(b) * t)
-        # beta = th.sigmoid(a * t + b * (t - 1) + c * (t - 2))
-        # beta = th.sigmoid(tmp.mean()) * F.softplus(self.c)
-        beta = th.sigmoid(self.v(beta_now))
-        # beta = self.fpos(a) * th.exp(-self.fpos(b) * t) + self.fpos(c)
-        # assert beta == beta, (beta_last, beta_now, self.
-        return beta.squeeze(), beta_now.view(-1)
+    def __repr__(self):
+        return f"{self.rnn}"
 
 
 class BetaRBF(nn.Module):
@@ -151,7 +137,7 @@ class BetaRBF(nn.Module):
         return beta.squeeze()
 
     def __repr__(self):
-        return f"RBF | {self.c.data}"
+        return f"RBF | {self.c.data.mean(dim=0)}"
 
 
 class BetaPolynomial(nn.Module):
@@ -179,10 +165,10 @@ class AR(nn.Module):
     def __init__(self, regions, beta_net, dist, window_size, graph):
         super(AR, self).__init__()
         self.M = len(regions)
+        # self.alphas = th.nn.Parameter(th.zeros((window_size, self.M, self.M)))
         self.alphas = th.nn.Parameter(th.zeros((self.M, self.M)))
         self.repro = th.nn.Parameter(th.ones((self.M, window_size)))
         self.nu = th.nn.Parameter(th.ones((self.M, 1)))
-        self.eta = th.nn.Parameter(th.ones((self.M, 1)))
         self.beta = beta_net
         self._dist = dist
         self.window = window_size
@@ -200,10 +186,10 @@ class AR(nn.Module):
             raise RuntimeError(f"Unknown loss")
 
     def metapopulation_weights(self):
-        with th.no_grad():
-            self.alphas.fill_diagonal_(-1e10)
-        W = F.softmax(self.alphas, dim=1)
-        # W = th.sigmoid(self.alphas)
+        # with th.no_grad():
+        #     self.alphas.fill_diagonal_(-1e10)
+        # W = F.softmax(self.alphas, dim=1)
+        W = th.sigmoid(self.alphas)
         # W = F.softplus(self.alphas)
         # W = W / W.sum()
         if self.graph is not None:
@@ -212,15 +198,28 @@ class AR(nn.Module):
 
     def score(self, t, ys):
         assert t.size(-1) == ys.size(-1), (t.size(), ys.size())
-        W = self.metapopulation_weights()
+        offset = self.window - 1
+        length = ys.size(1) - self.window + 1
+
+        # self-correlation
         Z = F.conv1d(
             ys.unsqueeze(0), F.softplus(self.repro).unsqueeze(1), groups=self.M
         ).squeeze()
         Z.div_(float(self.window))
-        offset = self.window - 1
+
+        # cross-correlation
+        W = self.metapopulation_weights()
+        Ys = th.stack([ys.narrow(1, i, length) for i in range(self.window)])
+        # Ys = th.bmm(W, Ys).mean(dim=0)
+        Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(dim=0)
+
+        # beta evolution
         ys = ys.narrow(1, offset, ys.size(1) - offset)
+        # with th.no_grad():
+        #    mask = ys.clamp(min=0, max=1).round()
         beta = self.beta(t).narrow(1, -ys.size(1), ys.size(1))
-        return beta * (Z.addmm_(W, ys))
+        return beta * Z.add_(Ys)
+        # return beta * (Z.addmm_(W, ys))
         # return beta * Z
 
     def simulate(self, tobs, ys, days, deterministic=True):
@@ -230,10 +229,12 @@ class AR(nn.Module):
         for d in range(days):
             p = preds.narrow(-1, -offset, offset)
             s = self.score(t + d, p).narrow(1, -1, 1)
+            assert (s >= 0).all(), s.squeeze()
             if deterministic:
                 y = self.dist(s).mean
             else:
                 y = self.dist(s).sample()
+            assert (y >= 0).all(), y.squeeze()
             preds = th.cat([preds, y], dim=1)
         preds = preds.narrow(1, -days, days)
         return preds
@@ -246,17 +247,18 @@ def train(model, cases, regions, optimizer, checkpoint, args):
     M = len(regions)
     device = cases.device
     new_cases = cases[:, 1:] - cases[:, :-1]
+    assert (new_cases >= 0).all()
     tmax = new_cases.size(1)
     t = th.arange(tmax).to(device) + 1
 
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
-        scores = model.score(t, new_cases).clamp_(min=1e-8)
+        scores = model.score(t, new_cases)  # .clamp_(min=1e-8)
 
         # compute loss
         dist = model.dist(scores.narrow(1, 0, tmax - args.window))
         _loss = -dist.log_prob(
-            new_cases.narrow(1, args.window, tmax - args.window).clamp(min=1e-2)
+            new_cases.narrow(1, args.window, tmax - args.window)  # .clamp(min=1e-8)
         )
         loss = _loss.mean()
 
@@ -276,11 +278,13 @@ def train(model, cases, regions, optimizer, checkpoint, args):
                 f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes.mean():.2f} | {model} | {args.loss}"
             )
             th.save(model.state_dict(), checkpoint)
+    print(f"Train MAE,{maes.mean():.2f}")
     return model
 
 
 def simulate(model, cases, regions, args, dstart=None):
     new_cases = cases[:, 1:] - cases[:, :-1]
+    assert (new_cases >= 0).all()
     tmax = new_cases.size(1)
 
     test_preds = model.simulate(tmax, new_cases, args.test_on)
@@ -296,12 +300,13 @@ def simulate(model, cases, regions, args, dstart=None):
 
         df.set_index("date", inplace=True)
 
-    print(model.beta(th.arange(tmax + args.test_on).to(cases.device) + 1))
+    # print(model.beta(th.arange(tmax + args.test_on).to(cases.device) + 1))
     return df
 
 
 def prediction_interval(model, cases, regions, nsamples, args, dstart=None):
     new_cases = cases[:, 1:] - cases[:, :-1]
+    assert (new_cases >= 0).all()
     tmax = new_cases.size(1)
     samples = []
 
@@ -370,10 +375,12 @@ def run_train(dset, args, checkpoint):
     elif args.decay.startswith("rbf"):
         dim = int(args.decay[3:])
         beta_net = BetaRBF(regions, dim, "gaussian", tmax)
-    elif args.decay == "latent":
-        dim = int(args.decay[3:])
-        beta_net = BetaLatent(regions, dim, tmax)
+    elif args.decay.startswith("latent"):
+        dim, layers = args.decay[6:].split("_")
+        beta_net = BetaLatent(regions, int(dim), int(layers), tmax)
         weight_decay = args.weight_decay
+    else:
+        raise ValueError("Unknown beta function")
 
     # setup base graph
     if hasattr(args, "graph"):
@@ -383,7 +390,10 @@ def run_train(dset, args, checkpoint):
 
     func = AR(regions, beta_net, args.loss, args.window, graph).to(device)
     optimizer = optim.AdamW(
-        func.parameters(), lr=args.lr, betas=[0.9, 0.999], weight_decay=weight_decay
+        func.parameters(),
+        lr=args.lr,
+        betas=[args.momentum, 0.999],
+        weight_decay=weight_decay,
     )
 
     model = train(func, cases, regions, optimizer, checkpoint, args)
@@ -400,12 +410,12 @@ def run_simulate(dset, args, model=None):
 
     forecast = simulate(model, cases, regions, args, basedate)
 
-    adj = model.metapopulation_weights().cpu().numpy()
-    df = pd.DataFrame(adj).round(2)
-    df.columns = regions
-    df["regions"] = regions
-    df.set_index("regions", inplace=True)
-    print(df)
+    # adj = model.metapopulation_weights().cpu().numpy()
+    # df = pd.DataFrame(adj).round(2)
+    # df.columns = regions
+    # df["regions"] = regions
+    # df.set_index("regions", inplace=True)
+    # print(df)
 
     return forecast
 
