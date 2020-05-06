@@ -21,11 +21,36 @@ def load_confirmed(path, regions):
 
 
 def load_confirmed_by_region(path, regions=None, filter_unknown=True):
-    """Loads confirmed cases from h5 file.
+    """Loads confirmed cases from h5 or csv file.
     If regions is provided, filters cases in those regions.
 
     Returns: pd.DataFrame with dates along row and regions in columns
     """
+    if path.endswith("csv"):
+        return _load_confirmed_by_region_csv(path, regions, filter_unknown)
+    elif path.endswith("h5"):
+        return _load_confirmed_by_region_h5(path, regions, filter_unknown)
+    raise ValueError(f"Data type for {path} not supported")
+
+
+def _load_confirmed_by_region_csv(path, regions, filter_unknown):
+    """Loads csv file for confirmed cases by region"""
+    df = pd.read_csv(path, index_col=0, header=None)
+    # transpose so dates are along rows to match h5
+    df = df.T
+    # set date as index
+    df = df.rename(columns={"region": "date"})  
+    df = df.set_index("date")
+    df = df.astype(float)
+    if regions is not None:
+        df = df[regions]
+    if filter_unknown:
+        df = df.loc[:, df.columns != "Unknown"]
+    return df
+
+
+def _load_confirmed_by_region_h5(path, regions, filter_unknown):
+    """Loads h5 files for confirmed cases by region"""
     nodes, ns, ts, end_date = load_data(path)
     nodes = np.array(nodes)
     tmax = int(np.ceil(ts.max()))
@@ -71,14 +96,16 @@ def _filter_unknown(cases, nodes):
     return cases, nodes
 
 
-def load_population(path, col=1):
-    df = pd.read_csv(path, header=None)
-    pop = df.iloc[:, col].sum()
-    regions = df.iloc[:, 0].to_numpy().tolist()
-    return pop, regions
+def load_population(path, col=1, regions=None):
+    """Loads total population for given regions. 
+    If regions is None, returns total across all regions.
+    """
+    populations_df = load_populations_by_region(path, col=col, regions=regions)
+    population = populations_df["population"].sum()
+    return population
 
 
-def load_populations_by_region(path, col=1):
+def load_populations_by_region(path, col=1, regions=None):
     """Loads region-level populations after filtering unknown nodes
 
     Returns: tuple of lists with (populations, regions)
@@ -87,7 +114,11 @@ def load_populations_by_region(path, col=1):
     populations_df = df.iloc[:, [0, col]]
     populations_df.columns = ["region", "population"]
     # filter unknown regions
-    populatins_df = populations_df[populations_df["region"].str.lower() != "unknown"]
+    populations_df = populations_df[populations_df["region"].str.lower() != "unknown"]
+    # keep only given regions
+    if regions is not None:
+        populations_df = populations_df[populations_df["region"].isin(regions)]
+
     return populations_df
 
 
