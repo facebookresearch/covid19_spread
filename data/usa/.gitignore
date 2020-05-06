@@ -1,4 +1,3 @@
-states_hash.json
-us-counties.csv
-us-state-neighbors.json
 *.h5.*
+*.csv
+*.json
