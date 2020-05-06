@@ -53,6 +53,9 @@ def drop_k_days(dset, outfile, days):
             date = datetime.datetime.strptime(hin.attrs["basedate"], "%Y-%m-%d")
             hout.attrs["basedate"] = str((date - datetime.timedelta(days=days)).date())
 
+        if "ground_truth" in hin.keys():
+            hout['ground_truth'] = hin['ground_truth'][:][old_idxs[sorted(new_idxs)], :-days]
+
         all_times = np.concatenate(all_times)
         idx = all_times.argsort()
         all_times = all_times[idx]

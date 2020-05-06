@@ -45,7 +45,8 @@ def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
 
     # -- simulate --
     with th.no_grad():
-        df_forecast = mod.run_simulate(val_in, train_params, model)
+        sim_params = cfg[opt.module].get('simulate', {})
+        df_forecast = mod.run_simulate(val_in, train_params, model, sim_params=sim_params)
     print(f"Storing validation in {val_out}")
     df_forecast.to_csv(val_out)
 
@@ -68,7 +69,8 @@ def cv(opt: argparse.Namespace, basedir: str, cfg: Dict[str, Any]):
 
     # -- forecast --
     with th.no_grad():
-        df_forecast = mod.run_simulate(dset, train_params, model)
+        sim_params = cfg[opt.module].get('simulate', {})
+        df_forecast = mod.run_simulate(dset, train_params, model, sim_params=sim_params)
     print(f"Storing forecast in {fore_out}")
     df_forecast.to_csv(fore_out, encoding="utf-8")
     print(df_forecast)

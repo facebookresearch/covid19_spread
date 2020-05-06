@@ -401,7 +401,7 @@ def run_train(dset, args, checkpoint):
     return model
 
 
-def run_simulate(dset, args, model=None):
+def run_simulate(dset, args, model=None, sim_params=None):
     args.fdat = dset
     if model is None:
         raise NotImplementedError
