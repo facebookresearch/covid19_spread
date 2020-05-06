@@ -17,19 +17,26 @@ import sys
 import datetime
 
 
-def get_nyt():
+def get_nyt(metric='cases'):
     CASES_URL = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv'
     df = pandas.read_csv(CASES_URL)
     df['loc'] = df['state'] + '_' + df['county']
-    pivot = df.pivot_table(values='cases', columns=['loc'], index='date')
+    pivot = df.pivot_table(values=metric, columns=['loc'], index='date')
     pivot = pivot.fillna(0)
     pivot.index = pandas.to_datetime(pivot.index)
+    if metric == 'deaths':
+        return pivot
+
+    # If we want cases, then patch NY State data with data from NYS DOH
 
     # Swap out NYTimes NY state data with the NY DOH data.
     NYSTATE_URL = 'https://health.data.ny.gov/api/views/xdss-u53e/rows.csv?accessType=DOWNLOAD'
-    df = pandas.read_csv(NYSTATE_URL).rename(columns={'Test Date': 'date', 'Cumulative Number of Positives': 'cases'})
+    df = pandas.read_csv(NYSTATE_URL).rename(columns={
+        'Test Date': 'date', 
+        'Cumulative Number of Positives': 'cases'
+    })
     df['loc'] = 'New York_' + df['County']
-    df = df.pivot_table(values='cases', columns=['loc'], index='date')
+    df = df.pivot_table(values=metric, columns=['loc'], index='date')
 
     # The NYT labels each date as the date the report comes out, not the date the data corresponds to.
     # Add 1 day to the NYS DOH data to get it to align
@@ -46,7 +53,7 @@ def get_nyt():
 def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument('--smooth', type=int, default=1)
-    parser.add_argument('--mode', choices=['adjacent_states', 'no_interaction'], default='adjacent_states')
+    parser.add_argument('--mode', choices=['adjacent_states', 'no_interaction', 'deaths'], default='adjacent_states')
     opt = parser.parse_args(args)
 
     if not os.path.exists('us-state-neighbors.json'):
@@ -60,7 +67,7 @@ def main(args):
     # Convert abbreviated names to full state names
     neighbors = {state_map[k]: [state_map[v] for v in vs] for k, vs in neighbors.items()}
 
-    df = get_nyt()
+    df = get_nyt(metric='deaths')
     print(f'Latest date = {df.index.max()}')
 
     # Remove any unknowns
@@ -113,7 +120,7 @@ def main(args):
 
 
     episodes = []
-    if opt.mode == 'adjacent_states':
+    if opt.mode == 'adjacent_states' or opt.mode == 'deaths':
         for state, ns in neighbors.items():
             states = set([state] + ns)
             regex = '|'.join(f'^{s}' for s in states)
