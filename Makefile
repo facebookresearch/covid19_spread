@@ -28,7 +28,7 @@ define _analyze_sweep
 	@echo "\n---- SIR Similarity ----------"
 	python3 analyze_sweep.py sir-similarity $(sweepdir)
 	@echo "\n---- Remaining Jobs ----------"
-	squeue -u $(USER)
+	squeue -u $(USER) -n $(sweepname)
 endef
 
 env:
@@ -50,7 +50,7 @@ example: data/new-jersey/timeseries.h5
 grid-nj: runlog = runs/new-jersey/$(DATE).log
 grid-nj:
 	touch $(runlog)
-	python3 sweep.py grids/new-jersey.yml -remote -ncpus 40 -timeout-min 30 | tail -1 >> $(runlog)
+	python3 sweep.py grids/new-jersey.yml -remote -ncpus 40 -timeout-min 30 -partition "learnfair,scavenge" -comment "COVID-19 NJ Forecast" | tail -1 >> $(runlog)
 	tail -1 $(runlog)
 
 forecast-nj: params = -max-events 500000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 25
@@ -64,6 +64,7 @@ forecast-nj:
 
 
 analyze-nj: sweepdir = $(shell tail -$(LAST) runs/new-jersey/$(DATE).log | head -n1)
+analyze-nj: sweepname = new-jersey-sweep
 analyze-nj: fdata = data/new-jersey/timeseries
 analyze-nj:
 	$(call _analyze_sweep)
@@ -101,24 +102,26 @@ forecast-nyc:
 grid-nyc: runlog = runs/nyc/$(DATE).log
 grid-nyc:
 	touch $(runlog)
-	python3 sweep.py grids/nyc.yml -remote -ncpus 40 -timeout-min 15 | tail -1 >> $(runlog)
+	python3 sweep.py grids/nyc.yml -remote -ncpus 40 -timeout-min 15 -partition "learnfair,scavenge" -comment "COVID-19 NYC Forecast"| tail -1 >> $(runlog)
 	tail -1 $(runlog)
 
 
 grid-nys: runlog = runs/nys/$(DATE).log
 grid-nys:
 	touch $(runlog)
-	python3 sweep.py grids/nys.yml -remote -ncpus 40 -timeout-min 40 | tail -1 >> $(runlog)
+	python3 sweep.py grids/nys.yml -remote -ncpus 40 -timeout-min 40 -partition "learnfair,scavenge" -comment "COVID-19 NY state Forecast" | tail -1 >> $(runlog)
 	tail -1 $(runlog)
 
 
 analyze-nyc: sweepdir = $(shell tail -$(LAST) runs/nyc/$(DATE).log | head -n1)
 analyze-nyc: fdata = data/nystate/timeseries-nyc
+analyze-nyc: sweepname = nyc-sweep
 analyze-nyc:
 	$(call _analyze_sweep)
 
 
 analyze-nys: sweepdir = $(shell tail -$(LAST) runs/nys/$(DATE).log | head -n1)
+analyze-nys: sweepname = nys-sweep
 analyze-nys: fdata = data/nystate/timeseries-nys
 analyze-nys: doubling-times = 10 11 12 13
 analyze-nys:
@@ -132,8 +135,11 @@ mae-ny:
 	python3 mae.py data/nystate/timeseries.h5 forecasts/nystate/forecast $(DATE) _fast
 
 data-ny:
-	cd data/nystate && make data-nj.csv && make timeseries.h5 timeseries-nyc.h5 timeseries-nys.h5 && make timeseries.h5 timeseries-nyc.h5 timeseries-nys.h5 SMOOTH=1
+	cd data/nystate && make raw.csv && make timeseries.h5 timeseries-nyc.h5 timeseries-nys.h5 && make timeseries.h5 timeseries-nyc.h5 timeseries-nys.h5 SMOOTH=1 && make data-new.csv
 
+# -- United States --
+data-usa:
+	cd data/usa && python3 convert.py
 
 select: fout = forecasts/$(REGION)/forecast-$(DATE)$(SUFFIX).csv
 select: fout_sir = forecasts/$(REGION)/SIR-forecast-$(DATE).csv
