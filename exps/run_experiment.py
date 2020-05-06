@@ -3,6 +3,7 @@ import submitit
 import train
 from exps.compute_rmse import rmse
 import json
+import pandas
 
 
 def run_experiment(grid, days, crossval, folder, pdict, local=False, seed=42, chkpnt_name='model.bin', ngpus=1):
@@ -39,7 +40,5 @@ def run_experiment(grid, days, crossval, folder, pdict, local=False, seed=42, ch
         '-no-sparse-grads',
     ] + (['-data-parallel'] if ngpus > 1 else [])])
 
-    ground_truth = os.path.join(os.path.dirname(grid['dset'][0]), 'ground_truth.csv')
-    ground_truth = os.path.realpath(ground_truth)
     prefix = '' if crossval else 'full_data_'
-    rmse(days, job_checkpoint, ground_truth, prefix=prefix)
+    rmse(days, job_checkpoint, prefix=prefix)

@@ -18,7 +18,7 @@ def train_and_forecast(name, **kwargs):
     user = os.environ['USER']
     forecast_dir = f'/checkpoint/{user}/covid19/forecasts/usa'
     os.makedirs(forecast_dir, exist_ok=True)
-    df = pandas.read_csv(os.path.join(kwargs['folder'], 'full_data_forecast.csv'), index_col='location')
+    df = pandas.read_csv(os.path.join(kwargs['folder'], 'full_data_forecasts.csv'), index_col='location')
     basedate = pandas.to_datetime(df.columns).min().date()
     df.to_csv(forecast_dir + f'/{name}_forecast_{basedate}.csv')
 
@@ -62,6 +62,7 @@ def launch_best(sweep_dir):
             log = pandas.DataFrame([json.loads(l) for l in log.decode('utf-8').strip().split('\n')])
             results[-1]['best_ll'] = log.non_global_ll.max()
     df = pandas.DataFrame(results)
+    print(f'Evaluated {len(df)} jobs')
 
     # Launch job by best MAE
     mae_cols = [c for c in df.columns if re.match('day_\d+_mean', c)]
@@ -91,13 +92,18 @@ def main(args):
         if re.match('\d+_\d+', d):
             dependent_jobs.append(d)
 
+
+    dep = f'afterany:{dependent_jobs[0].strip().split("_")[0]}'
+
+    # dep = ','.join([f'afterany:{d}' for d in dependent_jobs])
+
     executor = submitit.AutoExecutor(folder='logs')
     executor.update_parameters(
         name='launch_best_runs',
         cpus_per_task=1,
         mem_gb=2,
         timeout_min=20,
-        slurm_additional_parameters={'dependency': f'afterany:{":".join(dependent_jobs)}'}
+        slurm_additional_parameters={'dependency': dep}
     )
     executor.submit(launch_best, opt.sweep_dir)
 

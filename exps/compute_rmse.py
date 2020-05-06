@@ -57,9 +57,16 @@ def ks_test(episode, step, model, nodes, nprocs=20):
     return pandas.DataFrame(result)
 
 
-def rmse(days, pth, ground_truth, with_ks = True, trials = 10, prefix='', max_events=-1):
+def rmse(days, pth, with_ks = True, trials = 10, prefix='', max_events=-1):
     print(pth)
     mdl, mdl_opt = CovidModel.from_checkpoint(pth, map_location='cpu')
+
+    with h5py.File(mdl_opt.dset, 'r') as hf:
+        assert 'ground_truth' in hf.keys()
+        ground_truth = pandas.DataFrame(hf['ground_truth'][:])
+        ground_truth.columns = pandas.date_range(end=hf.attrs['gt_basedate'], periods=ground_truth.shape[1]).astype(str)
+        ground_truth['county'] = hf['nodes'][:]
+
     nodes, ns, ts, _ = load_data(mdl_opt.dset)
     episode = Episode(th.from_numpy(ts).double(), th.from_numpy(ns).long(), True, mdl.nnodes)
 
@@ -111,8 +118,6 @@ if __name__ == '__main__':
     parser.add_argument('-no-ks-test', action='store_false', dest='ks_test')
     opt = parser.parse_args()
 
-    ground_truth = pandas.read_csv(opt.ground_truth)
-
     output = subprocess.check_output("sinfo -lR | grep drng | awk '/Xid/ {print $5}'", shell=True)
     exclude = ",".join(output.decode().splitlines())
 
@@ -141,5 +146,5 @@ if __name__ == '__main__':
             chkpnts.append(os.path.join(opt.sweep_dir, d))
 
     mapper = executor.map_array if opt.remote else map
-    list(mapper(lambda x: rmse(opt.days, x, ground_truth, with_ks=opt.ks_test, max_events=opt.max_events), chkpnts))
+    list(mapper(lambda x: rmse(opt.days, x, with_ks=opt.ks_test, max_events=opt.max_events, prefix='full_data_'), chkpnts))
     print(folder)
