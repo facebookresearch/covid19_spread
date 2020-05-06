@@ -8,7 +8,7 @@ DATE = $(shell date "+%m%d")
 DATE2 = $(shell date "+%Y-%m-%d")
 BOROUGHS = (New York|Kings|Queens|Bronx|Richmond)
 
-.PHONY: data-ny.csv timeseries-nyc.h5 timeseries-nys.h5
+.PHONY: data-ny.csv timeseries-nyc.h5 timeseries-nys.h5 raw.csv
 
 data-20200330.csv: data.csv
 	cp $< $@
@@ -30,22 +30,25 @@ data-with-nyc-2020$(DATE).csv: data-2020$(DATE).csv
 	cat $< | grep -v ",New York City," > $@
 	tail -n +2 ../new-york-city/data-2020$(DATE).csv | gawk -v FPAT='[^,]*|("[^"]*")+' -v OFS="," '{print $$1,"Manhattan,,",$$4,"\n"$$1,"Bronx,,",$$5,"\n"$$1,"Queens,,",$$6,"\n"$$1,"Brooklyn,,",$$7,"\n"$$1,"Staten Island,,",$$8,""}' >> $@
 
-data-ny.csv:
-	-mv -vn $@ data-ny-$(PREV).csv
+raw.csv:
+	-mv -vn $@ raw-ny-$(PREV).csv
 	curl -o $@ https://health.data.ny.gov/api/views/xdss-u53e/rows.csv?accessType=DOWNLOAD
 
-timeseries.h5: data-ny.csv
+timeseries.h5: raw.csv
 	cat $< | python3 process_cases.py timeseries
 
-timeseries-nyc.h5: data-ny.csv
+timeseries-nyc.h5: raw.csv
 	awk 'NR==1 || /$(BOROUGHS)/' $< | python3 process_cases.py timeseries-nyc
 
-timeseries-nys.h5: data-ny.csv
+timeseries-nys.h5: raw.csv
 	awk 'NR==1 || !/$(BOROUGHS)/' $< | python3 process_cases.py timeseries-nys
 
-data-nyc.csv: data-ny.csv
+data-nyc.csv: raw.csv
 	awk 'NR==1 || /$(BOROUGHS)/' $< | python3 convert.py $@
 
-data-nys.csv: data-ny.csv
+data-nys.csv: raw.csv
 	awk 'NR==1 || !/$(BOROUGHS)/' $< | python3 convert.py $@
+
+data-new.csv: raw.csv
+	cat $< | python3 convert.py $@
 # end
