@@ -71,15 +71,6 @@ def compute_metrics(f_ground_truth, f_predictions, mincount=10):
     # print(naive)
 
     gt = df_true.loc[df_pred.index]
-    # print(df_true.loc[pdate], gt, df_pred)
-    # err = df_pred - gt
-    # rmse = (err ** 2).mean(axis=1).pow(1. / 2)
-    # mae = err.abs().mean(axis=1)
-    # mae_naive = (naive - gt).abs().mean(axis=1)
-    # rmse_naive = (naive - gt).pow(2).mean(axis=1).pow(1. / 2)
-    # mape = (err.abs() / gt.clip(1)).mean(axis=1)
-    # mae_mase = mae / mae_naive
-    # rmse_mase = rmse / rmse_naive
     metrics = pd.DataFrame(
         [
             rmse(df_pred, gt),
