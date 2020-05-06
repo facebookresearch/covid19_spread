@@ -8,16 +8,21 @@ forecast:
 ar:
   data: data/nystate/data-new.csv
   output: ar_model.bin
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 10
+    timeout: 30
   train:
     fpop: *fpop
-    decay: powerlaw
-    window: 1
-    lr: 0.005
+    decay: [latent2_1, latent4_1, latent8_1, latent16_1]
+    window: [1, 5, 10, 15, 20]
+    lr: [0.001, 0.005, 0.01]
+    momentum: [0.9, 0.99]
     weight_decay: 0
-    niters: 20000
+    niters: 40000
     loss: nb
     t0: 10
-    fit_on: -10
     test_on: *vdays
 sir:
   module: sir
