@@ -55,7 +55,7 @@ for county, group in df_agg:
     # ws = np.diff([0] + ws.tolist())
     if smooth:
         _ws = group["cases"]  # .values.astype(np.float)
-        ws = _ws.rolling(window=3).mean().to_numpy()
+        ws = _ws.rolling(window=5).mean().to_numpy()
         ws[ws != ws] = 0
         ws[0] = _ws.iloc[0]
     else:
