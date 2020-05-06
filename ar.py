@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import NegativeBinomial, Poisson
 import load
+import cv
 
 
 class BetaConst(nn.Module):
@@ -354,81 +355,83 @@ def initialize(args):
     return cases, regions, basedate, device
 
 
-def run_train(dset, args, checkpoint):
-    args.fdat = dset
-    cases, regions, _, device = initialize(args)
-    tmax = cases.size(1) + 1
+class ARCV(cv.CV):
+    def run_train(self, dset, args, checkpoint):
+        args.fdat = dset
+        cases, regions, _, device = initialize(args)
+        tmax = cases.size(1) + 1
 
-    weight_decay = 0
-    # setup beta function
-    if args.decay == "const":
-        beta_net = BetaConst(regions)
-    elif args.decay == "exp":
-        beta_net = BetaExpDecay(regions)
-    elif args.decay == "logistic":
-        beta_net = BetaLogistic(regions)
-    elif args.decay == "powerlaw":
-        beta_net = BetaPowerLawDecay(regions)
-    elif args.decay.startswith("poly"):
-        degree = int(args.decay[4:])
-        beta_net = BetaPolynomial(regions, degree, tmax)
-    elif args.decay.startswith("rbf"):
-        dim = int(args.decay[3:])
-        beta_net = BetaRBF(regions, dim, "gaussian", tmax)
-    elif args.decay.startswith("latent"):
-        dim, layers = args.decay[6:].split("_")
-        beta_net = BetaLatent(regions, int(dim), int(layers), tmax)
-        weight_decay = args.weight_decay
-    else:
-        raise ValueError("Unknown beta function")
+        weight_decay = 0
+        # setup beta function
+        if args.decay == "const":
+            beta_net = BetaConst(regions)
+        elif args.decay == "exp":
+            beta_net = BetaExpDecay(regions)
+        elif args.decay == "logistic":
+            beta_net = BetaLogistic(regions)
+        elif args.decay == "powerlaw":
+            beta_net = BetaPowerLawDecay(regions)
+        elif args.decay.startswith("poly"):
+            degree = int(args.decay[4:])
+            beta_net = BetaPolynomial(regions, degree, tmax)
+        elif args.decay.startswith("rbf"):
+            dim = int(args.decay[3:])
+            beta_net = BetaRBF(regions, dim, "gaussian", tmax)
+        elif args.decay.startswith("latent"):
+            dim, layers = args.decay[6:].split("_")
+            beta_net = BetaLatent(regions, int(dim), int(layers), tmax)
+            weight_decay = args.weight_decay
+        else:
+            raise ValueError("Unknown beta function")
 
-    # setup base graph
-    if hasattr(args, "graph"):
-        graph = th.load(args.graph).to(device).float()
-    else:
-        graph = None
+        # setup base graph
+        if hasattr(args, "graph"):
+            graph = th.load(args.graph).to(device).float()
+        else:
+            graph = None
 
-    func = AR(regions, beta_net, args.loss, args.window, graph).to(device)
-    optimizer = optim.AdamW(
-        func.parameters(),
-        lr=args.lr,
-        betas=[args.momentum, 0.999],
-        weight_decay=weight_decay,
-    )
+        func = AR(regions, beta_net, args.loss, args.window, graph).to(device)
+        optimizer = optim.AdamW(
+            func.parameters(),
+            lr=args.lr,
+            betas=[args.momentum, 0.999],
+            weight_decay=weight_decay,
+        )
 
-    model = train(func, cases, regions, optimizer, checkpoint, args)
+        model = train(func, cases, regions, optimizer, checkpoint, args)
 
-    return model
-
-
-def run_simulate(dset, args, model=None, sim_params=None):
-    args.fdat = dset
-    if model is None:
-        raise NotImplementedError
-
-    cases, regions, basedate, device = initialize(args)
-
-    forecast = simulate(model, cases, regions, args, basedate)
-
-    # adj = model.metapopulation_weights().cpu().numpy()
-    # df = pd.DataFrame(adj).round(2)
-    # df.columns = regions
-    # df["regions"] = regions
-    # df.set_index("regions", inplace=True)
-    # print(df)
-
-    return forecast
+        return model
 
 
-def run_prediction_interval(args, nsamples, model=None):
-    if model is None:
-        raise NotImplementedError
+    def run_simulate(self, dset, args, model=None, sim_params=None):
+        args.fdat = dset
+        if model is None:
+            raise NotImplementedError
 
-    cases, regions, basedate, device = initialize(args)
-    df_mean, df_std = prediction_interval(
-        model, cases, regions, nsamples, args, basedate
-    )
-    return df_mean, df_std
+        cases, regions, basedate, device = initialize(args)
+
+        forecast = simulate(model, cases, regions, args, basedate)
+
+        # adj = model.metapopulation_weights().cpu().numpy()
+        # df = pd.DataFrame(adj).round(2)
+        # df.columns = regions
+        # df["regions"] = regions
+        # df.set_index("regions", inplace=True)
+        # print(df)
+
+        return forecast
+
+    def run_prediction_interval(self, args, nsamples, model=None):
+        if model is None:
+            raise NotImplementedError
+
+        cases, regions, basedate, device = initialize(args)
+        df_mean, df_std = prediction_interval(
+            model, cases, regions, nsamples, args, basedate
+        )
+        return df_mean, df_std
+
+CV_CLS = ARCV
 
 
 if __name__ == "__main__":
@@ -448,7 +451,9 @@ if __name__ == "__main__":
     parser.add_argument("-keep-counties", type=int, default=0)
     args = parser.parse_args()
 
-    model = run_train(args, args.checkpoint)
+    cv = ARCV()
+
+    model = cv.run_train(args, args.checkpoint)
 
     with th.no_grad():
-        forecast = run_simulate(args, model)
+        forecast = cv.run_simulate(args, model)
