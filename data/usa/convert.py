@@ -3,7 +3,6 @@
 import numpy as np
 import pandas as pd
 import torch as th
-from collections import defaultdict
 from os import listdir
 from os.path import isfile, join
 from process_cases import get_nyt
@@ -21,20 +20,25 @@ def standardize_county(county):
     )
 
 
-poppath = "../population-data/US-states"
-fpops = [f for f in listdir(poppath) if isfile(join(poppath, f))]
+def read_population():
+    poppath = "../population-data/US-states"
+    fpops = [f for f in listdir(poppath) if isfile(join(poppath, f))]
 
-population = {}
-for fpop in fpops:
-    state = fpop.split("-")[:-1]
-    state = " ".join(map(lambda s: s.capitalize(), state))
-    state = state.replace(" Of ", " of ")
-    df = pd.read_csv(join(poppath, fpop), header=None)
-    counties = df.iloc[:, 0].values
-    counties = map(lambda c: county_id(standardize_county(c), state), counties)
-    pop = df.iloc[:, 1].values
-    population.update(zip(counties, pop))
+    population = {}
+    for fpop in fpops:
+        state = fpop.split("-")[:-1]
+        state = " ".join(map(lambda s: s.capitalize(), state))
+        state = state.replace(" Of ", " of ")
+        df = pd.read_csv(join(poppath, fpop), header=None)
+        counties = df.iloc[:, 0].values
+        counties = map(lambda c: county_id(standardize_county(c), state), counties)
+        pop = df.iloc[:, 1].values
+        population.update(zip(counties, pop))
+    return population
 
+
+# state_policies = pd.read_csv("us-state-policies-20200423.csv", index_col="State")
+population = read_population()
 df = get_nyt()
 
 print(df.head())
@@ -49,11 +53,12 @@ df_pop = pd.DataFrame.from_dict(
 df_pop.to_csv("population.csv", index=False, header=False)
 df = df.transpose()  # row for each county, columns correspond to dates...
 county_id = {c: i for i, c in enumerate(df.index)}
-df.to_csv("data.csv", index_label='region')
+df = df.cummax(axis=1)
+df.to_csv("data.csv", index_label="region")
 
 # Build state graph...
 adj = np.zeros((len(df), len(df)))
-for _, g in df.groupby(lambda x: x.split(', ')[-1]):
+for _, g in df.groupby(lambda x: x.split(", ")[-1]):
     idxs = np.array([county_id[c] for c in g.index])
     adj[np.ix_(idxs, idxs)] = 1
 
