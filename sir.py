@@ -39,6 +39,9 @@ def gen_sir(s: float, i: float, r: float, beta: float, gamma: float, n_days: int
 def simulate(
     cases, population, doubling_time, recovery_days, distancing_reduction, days, keep
 ):
+    # corner cases where latest cumulative case count is 0 or 1
+    if doubling_time == 0 or cases[-1] == 0:
+        return constant_forecast(cases[-1], keep)
     I0 = cases[0]
     S0 = population - I0
     R0 = 0.0
@@ -67,10 +70,14 @@ def simulate(
         {"Day": days_kept, "infected": infected, "recovered": recovered}
     )
     ix_max = np.argmax(infected)
+
     if ix_max == len(infected) - 1:
         peak_days = f"{ix_max}+"
     else:
         peak_days = str(ix_max)
+
+    peak_cases = int(infected[ix_max])
+
     meta = pd.DataFrame(
         {
             "Doubling time": [round(doubling_time, 3)],
@@ -78,11 +85,23 @@ def simulate(
             "beta": [round(beta * S0, 3)],
             "gamma": [round(gamma, 3)],
             "Peak days": [peak_days],
-            "Peak cases": [int(infected[ix_max])],
+            "Peak cases": [peak_cases],
             # "MAE": [np.mean(mae)],
             # "RMSE": [np.mean(rmse)],
         }
     )
+    return meta, infs
+
+
+def constant_forecast(last_case_count, days):
+    """Simulates infections for doubling_time = 0 by
+    projecting constant of latest case count"""
+    infected, recovered = [last_case_count] * days, [0] * days
+    infs = pd.DataFrame(
+        {"Day": range(1, days + 1, 1), "infected": infected, "recovered": recovered}
+    )
+
+    meta = pd.DataFrame({"Doubling time": [0]})
     return meta, infs
 
 
@@ -92,8 +111,17 @@ def estimate_growth_const(cases, window=None):
     if window is not None:
         growth_rate = growth_rate[-window:]
     doubling_time = np.log(2) / growth_rate
-    doubling_time = doubling_time.mean()
+    # FIXME: find a better way to account for infinite doubling times when 
+    # cases have repeated values. For example, [0, 2, 10, 10, 15]
+    # Right now, infinite doubling times are excluded from the numerator
+    # of the mean calculation
+    doubling_time = _finite_mean(doubling_time)
     return doubling_time
+
+def _finite_mean(values):
+    """Computes the mean while excluding infinity from the numerator"""
+    values_without_inf = values[np.isfinite(values)]
+    return values_without_inf.sum() / values.size
 
 
 class SIRCV(cv.CV):
@@ -136,8 +164,8 @@ class SIRCV(cv.CV):
         Returns: (pd.DataFrame) of forecasts per region
         """
         # regions are columns; dates are indices
-        populations_df = load.load_populations_by_region(train_params.fpop)
         cases_df = load.load_confirmed_by_region(dset)
+        populations_df = load.load_populations_by_region(train_params.fpop, regions=cases_df.columns)
 
         recovery_days, distancing_reduction, days, keep = initialize(train_params)
         doubling_times, regions = model
