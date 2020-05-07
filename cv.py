@@ -137,7 +137,6 @@ def log_configs(cfg: Dict[str, Any], module: str, path: str):
 
 
 def run_best(config, module, remote, basedir):
-    print("module is ", module)
     mod = importlib.import_module(module).CV_CLS()
     best_runs = mod.model_selection(basedir)
 
@@ -257,8 +256,6 @@ def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, b
             )
             launcher = partial(executor.submit, run_best) if remote else run_best
         if not validate_only:
-            print("module ", module)
-            print("module type", type(module))
             launcher(cfg, module, remote, basedir)
 
     print(basedir)
