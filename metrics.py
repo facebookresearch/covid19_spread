@@ -8,7 +8,7 @@ import pandas
 import warnings
 
 
-def load_ground_truth(path):
+def load_ground_truth_h5(path):
     with h5py.File(path, 'r') as hf:
         if 'ground_truth' in hf.keys():
             assert 'basedate' in hf.attrs, '`basedate` missing from HDF5 attrs!'
@@ -50,6 +50,15 @@ def load_ground_truth_csv(path):
     return df
 
 
+def load_ground_truth(f_ground_truth):
+    if f_ground_truth.endswith(".h5"):
+        return load_ground_truth_h5(f_ground_truth)
+    elif f_ground_truth.endswith(".csv"):
+        return load_ground_truth_csv(f_ground_truth)
+    else:
+        raise RuntimeError(f"Unrecognized extension: {f_ground_truth}")
+
+
 def rmse(pred, gt):
     return (pred - gt).pow(2).mean(axis=1).pow(1. / 2)
 
@@ -65,29 +74,23 @@ def sae(pred, gt):
 def mape(pred, gt):
     return ((pred - gt).abs() / gt.clip(1)).mean(axis=1)
 
-
 def compute_metrics(f_ground_truth, f_predictions, mincount=10):
-    if f_ground_truth.endswith(".h5"):
-        df_true = load_ground_truth(f_ground_truth)
-    elif f_ground_truth.endswith(".csv"):
-        df_true = load_ground_truth_csv(f_ground_truth)
-    else:
-        raise RuntimeError(f"Unrecognized extension: {f_ground_truth}")
-    cols = df_true.columns.to_numpy().tolist()
-    df_pred = pd.read_csv(f_predictions, usecols=cols + ["date"], parse_dates=["date"])
-    df_pred = df_pred.set_index("date")
-    df_pred = df_pred[cols]
+    df_true = load_ground_truth(f_ground_truth)
+    df_pred = pd.read_csv(f_predictions, parse_dates=["date"], index_col="date")
+    common_cols = list(set(df_true.columns).intersection(set(df_pred.columns)))
+    df_pred = df_pred[common_cols]
+    df_true = df_true[common_cols]
+
     z = len(df_pred)
     print(df_pred.round(2))
 
-    basedate = df_pred.index[0]
+    basedate = df_pred.index.min()
     pdate = basedate - timedelta(1)
-    # print(basedate, pdate)
+
     diff = df_true.loc[pdate] - df_true.loc[basedate - timedelta(2)]
     naive = [df_true.loc[pdate] + d * diff for d in range(1, z + 1)]
     naive = pd.DataFrame(naive)
     naive.index = df_pred.index
-    # print(naive)
 
     gt = df_true.loc[df_pred.index]
     metrics = pd.DataFrame(
