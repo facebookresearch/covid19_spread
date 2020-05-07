@@ -306,9 +306,9 @@ def backfill(
             with open(tconfig, 'w') as fout:
                 yaml.dump(current_config, fout)
             cv_params = {k: v for k, v in ctx.params.items() if k in {p.name for p in cv.params}}
+            cv_params['config_pth'] = tconfig
             ctx.invoke(
                 cv,
-                config=tconfig,
                 basedir=os.path.join(basedir, f'sweep_{date.date()}'),
                 **cv_params
             )
