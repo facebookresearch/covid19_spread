@@ -49,6 +49,7 @@ class CV:
 
 
 def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
+    """Runs cross validaiton for one set of hyperaparmeters"""
     try:
         basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
     except Exception:
@@ -135,11 +136,12 @@ def log_configs(cfg: Dict[str, Any], module: str, path: str):
         yaml.dump(cfg[module], f)
 
 
-def run_best(basedir, cfg, module):
-    mod = importlib.import_module(opt.module).CV_CLS()
+def run_best(config, module, remote, basedir):
+    print("module is ", module)
+    mod = importlib.import_module(module).CV_CLS()
     best_runs = mod.model_selection(basedir)
 
-    cfg = copy.deepcopy(cfg)
+    cfg = copy.deepcopy(config)
     cfg["validation"]["days"] = 0
 
     ngpus = cfg[module].get("resources", {}).get("gpus", 0)
@@ -151,8 +153,8 @@ def run_best(basedir, cfg, module):
         job_config = load_config(os.path.join(run.pth, module + ".yml"))
         cfg[module] = job_config
         cfg["validation"]["output"] = run.name + "_forecast.csv"
-        launcher = cv
-        if opt.remote:
+        launcher = run_cv
+        if remote:
             executor = submitit.AutoExecutor(folder=run.pth)
             executor.update_parameters(
                 name=run.name,
@@ -161,7 +163,7 @@ def run_best(basedir, cfg, module):
                 mem_gb=memgb,
                 timeout_min=timeout,
             )
-            launcher = partial(executor.submit, cv)
+            launcher = partial(executor.submit, run_cv)
         launcher(module, run.pth, cfg, prefix="final_model_")
 
 
@@ -171,21 +173,21 @@ def cli():
 
 
 @cli.command()
-@click.argument("config")
+@click.argument("config_pth")
 @click.argument("module")
 @click.option("-validate-only", type=click.BOOL, default=False)
 @click.option("-remote", type=click.BOOL, default=False)
 @click.option("-array-parallelism", type=click.INT, default=50)
 @click.option("-max-jobs", type=click.INT, default=200)
 @click.option("-basedir", default=None, help="Path to sweep base directory")
-def cv(config, module, validate_only, remote, array_parallelism, max_jobs, basedir):
+def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, basedir):
     """
     Run cross validation pipeline for a given module.
     """
     now = datetime.now().strftime("%Y_%m_%d_%H_%M")
     user = os.environ["USER"]
 
-    cfg = load_config(config)
+    cfg = load_config(config_pth)
     region = cfg["region"]
 
     if basedir is None:
@@ -255,7 +257,9 @@ def cv(config, module, validate_only, remote, array_parallelism, max_jobs, based
             )
             launcher = partial(executor.submit, run_best) if remote else run_best
         if not validate_only:
-            launcher(basedir, cfg, module)
+            print("module ", module)
+            print("module type", type(module))
+            launcher(cfg, module, remote, basedir)
 
     print(basedir)
 
