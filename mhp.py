@@ -12,6 +12,7 @@ import copy
 import h5py
 from train import mk_parser
 import cv
+from metrics import load_ground_truth
 
 
 class MHPCV(cv.CV):
@@ -37,36 +38,22 @@ class MHPCV(cv.CV):
 
     def run_simulate(self, dset, model_params, checkpoint, sim_params):
         mdl, mdl_opt = train.CovidModel.from_checkpoint(checkpoint, map_location='cpu')
-        nodes, ns, ts, _ = load_data(dset)
+        nodes, ns, ts, basedate = load_data(dset)
         episode = Episode(th.from_numpy(ts).double(), th.from_numpy(ns).long(), True, mdl.nnodes)
-
+        basedate = pandas.Timestamp(basedate)
         simulator = mdl.mk_simulator()
         t_obs = ts[-1]
+
+        ground_truth = load_ground_truth(mdl_opt.dset)
+
         sim = simulate_tl_mhp(t_obs, sim_params['days'], episode, mdl_opt.timescale, simulator, 
             nodes, sim_params['trials'], max_events=sim_params['max_events'])
-        sim[-1] = sim[0]
 
-        with h5py.File(mdl_opt.dset,'r') as hf:
-            assert 'basedate' in hf.attrs, '`basedate` missing from HDF5 attrs!'
-            basedate = pandas.Timestamp(hf.attrs['basedate'])
-            assert 'ground_truth' in hf.keys(), "`ground_truth` missing from HDF5 file!"
-            ground_truth = pandas.DataFrame(hf['ground_truth'][:])
-            ground_truth.columns = [str(d.date()) for d in pandas.date_range(end=basedate, periods=ground_truth.shape[1])]
-            ground_truth['county'] = hf['nodes']
-
-        mapper = {d: str((basedate + pandas.Timedelta(d, 'D')).date()) for d in sim.columns if isinstance(d, int) and d >= 0}
-        merged = sim.merge(ground_truth, on='county')
-
-        forecasts = {'location': sim['county'].values}
-        for k, v in mapper.items():
-            # number of cases is Day_0 + number of new cases.  If we did some kind of smoothing
-            # on the data, we want to make sure that we are basing our forecasts on the actual known counts
-            new_cases = merged[mapper[0]] + (merged[k] - merged[0])
-            forecasts[v] = new_cases.values
-        forecasts = pandas.DataFrame.from_dict(forecasts).set_index('location').transpose()
-        forecasts.index.name = 'date'
-        # Drop the first day, since it corresponds to the ground truth counts for the last day of
-        # data we have.
-        return forecasts[forecasts.index > forecasts.index.min()]
+        sim = sim.set_index('county').transpose().sort_index()[ground_truth.columns]
+        deltas = sim.diff(axis=0).fillna(0)
+        forecast = ground_truth[deltas.columns].loc[basedate] + deltas
+        forecast.index = pandas.date_range(start=basedate, periods=len(forecast))
+        forecast.index.name = 'date'
+        return forecast[forecast.index > basedate]
 
 CV_CLS = MHPCV

@@ -12,7 +12,7 @@ def load_ground_truth(path):
     with h5py.File(path, 'r') as hf:
         if 'ground_truth' in hf.keys():
             assert 'basedate' in hf.attrs, '`basedate` missing from HDF5 attrs!'
-            basedate = pandas.Timestamp(hf.attrs['basedate'])
+            basedate = pandas.Timestamp(hf.attrs.get('gt_basedate', hf.attrs['basedate']))
             ground_truth = pandas.DataFrame(hf['ground_truth'][:])    
             ground_truth.columns = pandas.date_range(end=basedate, periods=ground_truth.shape[1])
             ground_truth['county'] = hf['nodes'][:]
