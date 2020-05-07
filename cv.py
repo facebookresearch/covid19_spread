@@ -48,6 +48,7 @@ class CV:
 
 
 def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=''):
+    """Runs cross validaiton for one set of hyperaparmeters"""
     try:
         basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
     except Exception:
@@ -145,7 +146,7 @@ def run_best(config, module, remote, basedir):
         job_config = load_config(os.path.join(run.pth, module + '.yml'))
         cfg[module] = job_config
         cfg["validation"]["output"] = run.name + '_forecast.csv'
-        launcher = cv
+        launcher = run_cv 
         if remote:
             executor = submitit.AutoExecutor(folder=run.pth)
             executor.update_parameters(
@@ -155,7 +156,7 @@ def run_best(config, module, remote, basedir):
                 mem_gb=memgb,
                 timeout_min=timeout,
             )
-            launcher = partial(executor.submit, cv)
+            launcher = partial(executor.submit, run_cv)
         launcher(module, run.pth, cfg, prefix='final_model_')
 
 
@@ -164,7 +165,7 @@ def run_best(config, module, remote, basedir):
 def cli():
     pass
 
-@click.command()
+@cli.command()
 @click.argument("config_pth")
 @click.argument("module")
 @click.option("-validate-only", type=click.BOOL, default=False)
@@ -314,4 +315,4 @@ def backfill(
 
 
 if __name__ == "__main__":
-    cv()
+    cli()
