@@ -27,7 +27,7 @@ metasir:
     adjoint: false    
 ar:
   output: ar_model.bin
-  data: data/usa/data.csv
+  data: data/usa/data_deaths.csv
   resources:
     gpus: 1
     cpus: 1
@@ -38,10 +38,10 @@ ar:
     # graph: *fgraph
     decay: [latent2_1, latent4_1, latent8_1, latent16_1]
     window: [10, 15, 20, 25]
-    lr: [0.001, 0.005, 0.01]
-    momentum: [0.9, 0.99]
+    lr: [0.001, 0.005]
+    momentum: [0.9]
     weight_decay: 0
-    niters: 40000
+    niters: 20000
     loss: nb
     t0: 10
     test_on: *vdays

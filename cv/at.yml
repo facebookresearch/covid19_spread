@@ -27,13 +27,19 @@ metasir:
 ar:
   output: ar_model.bin
   data: data/austria/data.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 5
+    timeout: 15
   train:
     fpop: *fpop
-    decay: powerlaw
-    window: 5
+    decay: [latent2_1, latent4_1, latent8_1, latent16_1]
+    window: [1, 5, 10, 15]
+    momentum: [0.9, 0.99]
     lr: 0.005
     weight_decay: 0
-    niters: 20000
+    niters: 40000
     loss: nb
-    t0: 10
+    t0: 1
     test_on: *vdays
