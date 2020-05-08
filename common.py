@@ -55,7 +55,7 @@ def drop_k_days(dset, outfile, days):
             hout.attrs["gt_basedate"] = str(date)
 
         if "ground_truth" in hin.keys():
-            hout['ground_truth'] = hin['ground_truth'][:][old_idxs[sorted(new_idxs)]]
+            hout["ground_truth"] = hin["ground_truth"][:][old_idxs[sorted(new_idxs)]]
 
         all_times = np.concatenate(all_times)
         idx = all_times.argsort()
@@ -67,7 +67,8 @@ def drop_k_days(dset, outfile, days):
 
 def drop_k_days_csv(dset, outfile, days):
     df = pd.read_csv(dset, index_col="region")
-    df = df[df.columns[:-days]]
+    if days > 0:
+        df = df[df.columns[:-days]]
     df.to_csv(outfile)
 
 
