@@ -25,3 +25,4 @@ dependencies:
     - tick
     - tensorboardX
     - black
+    - pre-commit
