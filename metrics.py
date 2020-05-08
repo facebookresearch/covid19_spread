@@ -4,19 +4,17 @@ import pandas as pd
 import h5py
 from datetime import timedelta
 from load import load_data
-import pandas
 import warnings
+import sys
 
 
 def load_ground_truth_h5(path):
     with h5py.File(path, "r") as hf:
         if "ground_truth" in hf.keys():
             assert "basedate" in hf.attrs, "`basedate` missing from HDF5 attrs!"
-            basedate = pandas.Timestamp(
-                hf.attrs.get("gt_basedate", hf.attrs["basedate"])
-            )
-            ground_truth = pandas.DataFrame(hf["ground_truth"][:])
-            ground_truth.columns = pandas.date_range(
+            basedate = pd.Timestamp(hf.attrs.get("gt_basedate", hf.attrs["basedate"]))
+            ground_truth = pd.DataFrame(hf["ground_truth"][:])
+            ground_truth.columns = pd.date_range(
                 end=basedate, periods=ground_truth.shape[1]
             )
             ground_truth["county"] = hf["nodes"][:]
@@ -35,7 +33,6 @@ def load_ground_truth_h5(path):
 
     nodes, ns, ts, basedate = load_data(path)
     nodes = [n for n in nodes if n != "Unknown"]
-    gt = {n: len(np.where(ns == i)[0]) - 1 for i, n in enumerate(nodes)}
     tmax = int(np.ceil(ts.max()))
     counts = {n: np.zeros(tmax) for n in nodes}
     for t in range(1, tmax + 1):
@@ -116,3 +113,8 @@ def compute_metrics(f_ground_truth, f_predictions, mincount=10):
     metrics.loc["MAE_MASE"] = metrics.loc["MAE"] / metrics.loc["MAE_NAIVE"]
     metrics.loc["RMSE_MASE"] = metrics.loc["RMSE"] / metrics.loc["RMSE_NAIVE"]
     return metrics
+
+
+if __name__ == "__main__":
+    f_gt = sys.argv[1]
+    f_pred = sys.argv[2]
