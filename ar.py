@@ -254,7 +254,7 @@ def train(model, cases, regions, optimizer, checkpoint, args):
 
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
-        scores = model.score(t, new_cases)  # .clamp_(min=1e-8)
+        scores = model.score(t, new_cases).clamp_(min=1e-8)
 
         # compute loss
         dist = model.dist(scores.narrow(1, 0, tmax - args.window))
@@ -402,7 +402,6 @@ class ARCV(cv.CV):
 
         return model
 
-
     def run_simulate(self, dset, args, model=None, sim_params=None):
         args.fdat = dset
         if model is None:
@@ -430,6 +429,7 @@ class ARCV(cv.CV):
             model, cases, regions, nsamples, args, basedate
         )
         return df_mean, df_std
+
 
 CV_CLS = ARCV
 
