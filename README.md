@@ -1,5 +1,7 @@
 # Modeling the spread of COVID-19
 
+[![CircleCI](https://circleci.com/gh/fairinternal/covid19_spread.svg?style=shield&circle-token=c8ca107a5135df4d7544141d105031dec491d83e)](https://circleci.com/gh/fairinternal/covid19_spread)
+
 <img src="https://github.com/fairinternal/covid19_spread/raw/master/img/spread.jpg" width=250 />
 
 ## How do I prepare a dataset for training?
