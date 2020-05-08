@@ -42,7 +42,7 @@ def mk_parser():
     parser.add_argument(
         "-no-baseint", action="store_false", dest="baseint", default=True
     )
-    parser.add_argument('-alpha-scale', type=float, default=-15)
+    parser.add_argument("-alpha-scale", type=float, default=-15)
     parser.add_argument("-const-beta", type=float, default=-1)
     return parser
 

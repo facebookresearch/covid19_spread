@@ -64,7 +64,7 @@ def load_ground_truth(f_ground_truth):
 
 
 def rmse(pred, gt):
-    return (pred - gt).pow(2).mean(axis=1).pow(1. / 2)
+    return (pred - gt).pow(2).mean(axis=1).pow(1.0 / 2)
 
 
 def mae(pred, gt):

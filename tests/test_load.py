@@ -7,6 +7,7 @@ DATA_PATH_CSV = "data/usa/data.csv"
 DATA_PATH_H5 = "data/nystate/timeseries.h5"
 POP_PATH = "data/population-data/US-states/new-york-population.csv"
 
+
 class TestLoad:
     def test_load_populations_by_region(self):
         """Verifies populations match regions in length"""
@@ -40,5 +41,3 @@ class TestLoad:
         assert (df >= 0).all()
         # should only have one column for total cases
         assert len(df.shape) == 1
-
-

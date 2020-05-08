@@ -1,0 +1,37 @@
+version: 2
+jobs:
+    build:
+        docker:
+            - image: continuumio/miniconda3
+
+        working_directory: ~/covid19_spread
+
+        steps:
+            - checkout
+
+            - run:
+                name: "Install C++ compiler"
+                command: apt-get update && apt install build-essential -y
+
+            - run:
+                name: Install dependencies
+                command: |
+                    conda env create -f environment.yml
+
+            - run:
+                name: Build extensions
+                command: |
+                    conda init bash
+                    source ~/.bashrc
+                    conda activate covid19_spread
+                    git submodule sync
+                    git submodule update --init --recursive
+                    cd timelord && N_COMPILE_JOBS=2 python3 setup.py build -f develop
+
+            - run:
+                name: Run tests
+                command: |
+                    conda init bash
+                    source ~/.bashrc
+                    conda activate covid19_spread
+                    black --check .  --exclude timelord

@@ -107,6 +107,6 @@ with h5py.File(fout, "w") as fout:
     time = fout.create_dataset("time", (1,), dtype=ts_dt)
     time[0] = np.array(_ts, dtype=np.float)[ix]
 
-    gt = df.set_index('county').pivot(values='cases', columns='date')
+    gt = df.set_index("county").pivot(values="cases", columns="date")
     gt = gt[sorted(gt.columns)].cumsum(axis=1)
-    fout['ground_truth']= gt.values
+    fout["ground_truth"] = gt.values

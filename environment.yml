@@ -24,3 +24,5 @@ dependencies:
     - submitit
     - tick
     - tensorboardX
+    - pre-commit
+    - black==19.10b0

@@ -10,6 +10,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import cv
 
+
 class BetaExpDecay(nn.Module):
     def __init__(self, population):
         super(BetaExpDecay, self).__init__()
@@ -374,6 +375,7 @@ def initialize(args):
 
     return cases, regions, populations, basedate, odeint, device
 
+
 class MetaSIRCV(cv.CV):
     def run_train(self, dset, args, checkpoint):
         args.fdat = dset
@@ -393,7 +395,10 @@ class MetaSIRCV(cv.CV):
 
         func = MetaSIR(population, beta_net).to(device)
         optimizer = optim.AdamW(
-            func.parameters(), lr=args.lr, betas=[0.99, 0.999], weight_decay=weight_decay
+            func.parameters(),
+            lr=args.lr,
+            betas=[0.99, 0.999],
+            weight_decay=weight_decay,
         )
 
         # optimization is unstable, quickly it tends to explode
@@ -403,7 +408,6 @@ class MetaSIRCV(cv.CV):
         model = train(func, cases, population, odeint, optimizer, checkpoint, args)
 
         return model
-
 
     def run_simulate(self, dset, args, model=None, sim_params=None):
         if model is None:
@@ -421,7 +425,9 @@ class MetaSIRCV(cv.CV):
         print(df)
 
         return forecast
-CV_CLS=MetaSIRCV
+
+
+CV_CLS = MetaSIRCV
 
 
 if __name__ == "__main__":
