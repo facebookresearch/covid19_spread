@@ -34,4 +34,4 @@ jobs:
                     conda init bash
                     source ~/.bashrc
                     conda activate covid19_spread
-                    black --check .
+                    black --check .  --exclude timelord
