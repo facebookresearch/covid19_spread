@@ -238,7 +238,7 @@ def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, b
         launcher = map
 
     with snapshot.SnapshotManager(
-        snapshot_dir=basedir + "/snapshot", with_submodules=True
+        snapshot_dir=basedir + "/snapshot", with_submodules=True, exclude=["data/*"]
     ):
         jobs = list(launcher(partial(run_cv, module), basedirs, cfgs))
 
@@ -317,12 +317,12 @@ def backfill(
             current_config[module]["data"] = tfile
             with open(tconfig, "w") as fout:
                 yaml.dump(current_config, fout)
-            cv_params = {k: v for k, v in ctx.params.items() if k in {p.name for p in cv.params}}
-            cv_params['config_pth'] = tconfig
+            cv_params = {
+                k: v for k, v in ctx.params.items() if k in {p.name for p in cv.params}
+            }
+            cv_params["config_pth"] = tconfig
             ctx.invoke(
-                cv,
-                basedir=os.path.join(basedir, f'sweep_{date.date()}'),
-                **cv_params
+                cv, basedir=os.path.join(basedir, f"sweep_{date.date()}"), **cv_params
             )
 
 
