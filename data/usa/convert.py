@@ -43,11 +43,25 @@ metric = sys.argv[1] if len(sys.argv) == 2 else "cases"
 population = read_population()
 df = get_nyt(metric)
 
-print(df.head())
+# HACK: for deaths we do not have borough-level information
+if metric == "deaths":
+    population["New York City, New York"] = (
+        population["Bronx, New York"]
+        + population["Brooklyn, New York"]
+        + population["Queens, New York"]
+        + population["Manhattan, New York"]
+        + population["Richmond, New York"]
+    )
 
 dates = df.index
 df.columns = [c.split("_")[1] + ", " + c.split("_")[0] for c in df.columns]
+print(df.columns)
 df = df[[c for c in df.columns if c in population]]
+
+# drop all zero columns
+df = df[df.columns[(df.sum(axis=0) != 0).values]]
+print(df.head())
+
 
 df_pop = pd.DataFrame.from_dict(
     {"county": df.columns, "population": [population[c] for c in df.columns]}
