@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import sys
 import torch as th
 from os import listdir
 from os.path import isfile, join
@@ -38,8 +39,9 @@ def read_population():
 
 
 # state_policies = pd.read_csv("us-state-policies-20200423.csv", index_col="State")
+metric = sys.argv[1] if len(sys.argv) == 2 else "cases"
 population = read_population()
-df = get_nyt()
+df = get_nyt(metric)
 
 print(df.head())
 
@@ -54,7 +56,7 @@ df_pop.to_csv("population.csv", index=False, header=False)
 df = df.transpose()  # row for each county, columns correspond to dates...
 county_id = {c: i for i, c in enumerate(df.index)}
 df = df.cummax(axis=1)
-df.to_csv("data.csv", index_label="region")
+df.to_csv(f"data_{metric}.csv", index_label="region")
 
 # Build state graph...
 adj = np.zeros((len(df), len(df)))
