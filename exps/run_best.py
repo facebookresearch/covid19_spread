@@ -108,7 +108,7 @@ def main(args):
 
     # dep = ','.join([f'afterany:{d}' for d in dependent_jobs])
 
-    executor = submitit.AutoExecutor(folder="logs")
+    executor = submitit.AutoExecutor(folder=opt.sweep_dir)
     executor.update_parameters(
         name="launch_best_runs",
         cpus_per_task=1,
