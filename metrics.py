@@ -82,6 +82,10 @@ def mape(pred, gt):
 def compute_metrics(f_ground_truth, f_predictions, mincount=10):
     df_true = load_ground_truth(f_ground_truth)
     df_pred = pd.read_csv(f_predictions, parse_dates=["date"], index_col="date")
+    return _compute_metrics(df_true, df_pred, mincount)
+
+
+def _compute_metrics(df_true, df_pred, mincount=10):
     common_cols = list(set(df_true.columns).intersection(set(df_pred.columns)))
     df_pred = df_pred[common_cols]
     df_true = df_true[common_cols]
