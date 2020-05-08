@@ -129,6 +129,6 @@ with h5py.File(fout, "w") as fout:
     time = fout.create_dataset("time", (1,), dtype=ts_dt)
     time[0] = np.array(_ts, dtype=np.float)[ix]
     # fout.create_dataset('population', data=pop.set_index('county').loc[knames].values.squeeze())
-    gt = df.set_index('Start day').transpose()
+    gt = df.set_index("Start day").transpose()
     gt = gt[sorted(gt.columns)]
-    fout['ground_truth'] = gt.reindex(knames).values
+    fout["ground_truth"] = gt.reindex(knames).values

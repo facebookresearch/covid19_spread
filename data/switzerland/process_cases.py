@@ -19,9 +19,33 @@ df = pd.read_csv(
 df = df.dropna()
 
 cantons = [
-"AG", "AI", "AR", "BE", "BL", "BS", "FL", "FR", "GE", "GL", "GR", "JU", "LU",
-"NE", "NW", "OW", "SG", "SH", "SO", "SZ", "TG", "TI", "UR", "VD", "VS", "ZG",
-"ZH"
+    "AG",
+    "AI",
+    "AR",
+    "BE",
+    "BL",
+    "BS",
+    "FL",
+    "FR",
+    "GE",
+    "GL",
+    "GR",
+    "JU",
+    "LU",
+    "NE",
+    "NW",
+    "OW",
+    "SG",
+    "SH",
+    "SO",
+    "SZ",
+    "TG",
+    "TI",
+    "UR",
+    "VD",
+    "VS",
+    "ZG",
+    "ZH",
 ]
 
 canton_id_list = []
@@ -29,7 +53,7 @@ for row in df["abbreviation_canton_and_fl"]:
     canton_id_list.append(cantons.index(row))
 
 df["canton_id"] = canton_id_list
-df['ncumul_conf'] = df['ncumul_conf'].astype(int)
+df["ncumul_conf"] = df["ncumul_conf"].astype(int)
 print(df)
 
 nevents = df["ncumul_conf"].sum()
@@ -74,10 +98,10 @@ for (name, aid), group in df_agg:
 # _ags = df["AGS"]
 # _ws = df["Count"]
 
-# convert timestamps to number of days since first outbreak:	
-min_ts = min(_ts)	
-_ts = [t - min_ts for t in _ts]	
-_ts = [t / (24 * 60 * 60.) for t in _ts]	
+# convert timestamps to number of days since first outbreak:
+min_ts = min(_ts)
+_ts = [t - min_ts for t in _ts]
+_ts = [t / (24 * 60 * 60.0) for t in _ts]
 
 assert len(_ts) == nevents, (len(_ts), nevents)
 knames = [None for _ in range(len(kreis_ids))]

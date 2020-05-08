@@ -39,7 +39,7 @@ def _load_confirmed_by_region_csv(path, regions, filter_unknown):
     # transpose so dates are along rows to match h5
     df = df.T
     # set date as index
-    df = df.rename(columns={"region": "date"})  
+    df = df.rename(columns={"region": "date"})
     df = df.set_index("date")
     df = df.astype(float)
     if regions is not None:

@@ -17,72 +17,96 @@ import sys
 import datetime
 
 
-def get_nyt(metric='cases'):
-    CASES_URL = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv'
+def get_nyt(metric="cases"):
+    CASES_URL = (
+        "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv"
+    )
     df = pandas.read_csv(CASES_URL)
-    df['loc'] = df['state'] + '_' + df['county']
-    pivot = df.pivot_table(values=metric, columns=['loc'], index='date')
+    df["loc"] = df["state"] + "_" + df["county"]
+    pivot = df.pivot_table(values=metric, columns=["loc"], index="date")
     pivot = pivot.fillna(0)
     pivot.index = pandas.to_datetime(pivot.index)
-    if metric == 'deaths':
+    if metric == "deaths":
         return pivot
 
     # If we want cases, then patch NY State data with data from NYS DOH
 
     # Swap out NYTimes NY state data with the NY DOH data.
-    NYSTATE_URL = 'https://health.data.ny.gov/api/views/xdss-u53e/rows.csv?accessType=DOWNLOAD'
-    df = pandas.read_csv(NYSTATE_URL).rename(columns={
-        'Test Date': 'date', 
-        'Cumulative Number of Positives': 'cases'
-    })
-    df['loc'] = 'New York_' + df['County']
-    df = df.pivot_table(values=metric, columns=['loc'], index='date')
+    NYSTATE_URL = (
+        "https://health.data.ny.gov/api/views/xdss-u53e/rows.csv?accessType=DOWNLOAD"
+    )
+    df = pandas.read_csv(NYSTATE_URL).rename(
+        columns={"Test Date": "date", "Cumulative Number of Positives": "cases"}
+    )
+    df["loc"] = "New York_" + df["County"]
+    df = df.pivot_table(values=metric, columns=["loc"], index="date")
 
     # The NYT labels each date as the date the report comes out, not the date the data corresponds to.
     # Add 1 day to the NYS DOH data to get it to align
     df.index = pandas.to_datetime(df.index) + datetime.timedelta(days=1)
-    without_nystate = pivot[[c for c in pivot.columns if not c.startswith('New York')]]
+    without_nystate = pivot[[c for c in pivot.columns if not c.startswith("New York")]]
     last_date = min(without_nystate.index.max(), df.index.max())
     df = df[df.index <= last_date]
     without_nystate = without_nystate[without_nystate.index <= last_date]
-    assert df.index.max() == without_nystate.index.max(), "NYT and DOH data don't matchup yet!"
-    # Only take NYT data up to the date for which we have nystate data 
+    assert (
+        df.index.max() == without_nystate.index.max()
+    ), "NYT and DOH data don't matchup yet!"
+    # Only take NYT data up to the date for which we have nystate data
     without_nystate[without_nystate.index <= df.index.max()]
-    return without_nystate.merge(df, left_index=True, right_index=True, how='outer').fillna(0)
+    return without_nystate.merge(
+        df, left_index=True, right_index=True, how="outer"
+    ).fillna(0)
+
 
 def main(args):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--smooth', type=int, default=1)
-    parser.add_argument('--mode', choices=['adjacent_states', 'no_interaction', 'deaths'], default='adjacent_states')
+    parser.add_argument("--smooth", type=int, default=1)
+    parser.add_argument(
+        "--mode",
+        choices=["adjacent_states", "no_interaction", "deaths"],
+        default="adjacent_states",
+    )
     opt = parser.parse_args(args)
 
-    if not os.path.exists('us-state-neighbors.json'):
-        check_call(['wget', 'https://gist.githubusercontent.com/PrajitR/0afccfa4dc4febe59276/raw/7a73603f5346210ae34845c43094f0daabfd4d49/us-state-neighbors.json'])
-    if not os.path.exists('states_hash.json'):
-        check_call(['wget', 'https://gist.githubusercontent.com/mshafrir/2646763/raw/8b0dbb93521f5d6889502305335104218454c2bf/states_hash.json'])
+    if not os.path.exists("us-state-neighbors.json"):
+        check_call(
+            [
+                "wget",
+                "https://gist.githubusercontent.com/PrajitR/0afccfa4dc4febe59276/raw/7a73603f5346210ae34845c43094f0daabfd4d49/us-state-neighbors.json",
+            ]
+        )
+    if not os.path.exists("states_hash.json"):
+        check_call(
+            [
+                "wget",
+                "https://gist.githubusercontent.com/mshafrir/2646763/raw/8b0dbb93521f5d6889502305335104218454c2bf/states_hash.json",
+            ]
+        )
 
-    neighbors = json.load(open('us-state-neighbors.json', 'r'))
-    state_map = json.load(open('states_hash.json','r'))
+    neighbors = json.load(open("us-state-neighbors.json", "r"))
+    state_map = json.load(open("states_hash.json", "r"))
 
     # Convert abbreviated names to full state names
-    neighbors = {state_map[k]: [state_map[v] for v in vs] for k, vs in neighbors.items()}
+    neighbors = {
+        state_map[k]: [state_map[v] for v in vs] for k, vs in neighbors.items()
+    }
 
-    df = get_nyt(metric='deaths' if opt.mode == 'deaths' else 'cases')
-    print(f'Latest date = {df.index.max()}')
+    df = get_nyt(metric="deaths" if opt.mode == "deaths" else "cases")
+    print(f"Latest date = {df.index.max()}")
 
     # Remove any unknowns
-    df = df[[c for c in df.columns if 'Unknown' not in c]]
+    df = df[[c for c in df.columns if "Unknown" not in c]]
 
     t = df.transpose()
     t.columns = [str(x.date()) for x in t.columns]
-    t.reset_index().rename(columns={'loc': 'county'}).to_csv('ground_truth.csv', index=False)
+    t.reset_index().rename(columns={"loc": "county"}).to_csv(
+        "ground_truth.csv", index=False
+    )
 
     counter = itertools.count()
     county_ids = defaultdict(counter.__next__)
 
-
-    outfile = f'timeseries_smooth_{opt.smooth}_days_mode_{opt.mode}.h5'
-
+    outfile = f"timeseries_smooth_{opt.smooth}_days_mode_{opt.mode}.h5"
 
     def mk_episode(counties):
         ats = np.arange(len(df)) + 1
@@ -90,7 +114,12 @@ def main(args):
         nodes = []
 
         for county in counties:
-            ws = df[county].rolling(window=max(1, opt.smooth), min_periods=1).mean().to_numpy()
+            ws = (
+                df[county]
+                .rolling(window=max(1, opt.smooth), min_periods=1)
+                .mean()
+                .to_numpy()
+            )
             ix = np.where(ws > 0)[0]
 
             if len(ix) < 1:
@@ -118,15 +147,14 @@ def main(args):
         idx = np.argsort(times)
         return times[idx], np.concatenate(nodes)[idx]
 
-
     episodes = []
-    if opt.mode == 'adjacent_states' or opt.mode == 'deaths':
+    if opt.mode == "adjacent_states" or opt.mode == "deaths":
         for state, ns in neighbors.items():
             states = set([state] + ns)
-            regex = '|'.join(f'^{s}' for s in states)
+            regex = "|".join(f"^{s}" for s in states)
             cols = [c for c in df.columns if re.match(regex, c)]
             episodes.append(mk_episode(cols))
-    elif opt.mode == 'no_interaction':
+    elif opt.mode == "no_interaction":
         for county in df.columns:
             ts, ns = mk_episode([county])
             if ts is not None:
@@ -141,16 +169,21 @@ def main(args):
     times, entities = zip(*episodes)
 
     with h5py.File(outfile, "w") as hf:
-        hf.create_dataset('nodes', data=np.array(counties, dtype='O')[np.argsort(cids)], dtype=str_dt)
-        hf.create_dataset('cascades', data=np.arange(len(episodes)))
-        hf.create_dataset('node', data=entities, dtype=ds_dt)
-        hf.create_dataset('time', data=times, dtype=ts_dt)
-        hf.attrs['basedate'] = str(df.index.max().date())    
+        hf.create_dataset(
+            "nodes", data=np.array(counties, dtype="O")[np.argsort(cids)], dtype=str_dt
+        )
+        hf.create_dataset("cascades", data=np.arange(len(episodes)))
+        hf.create_dataset("node", data=entities, dtype=ds_dt)
+        hf.create_dataset("time", data=times, dtype=ts_dt)
+        hf.attrs["basedate"] = str(df.index.max().date())
 
-        hf.create_dataset('ground_truth', data=t.loc[np.array(counties, dtype='O')[np.argsort(cids)]].values)
+        hf.create_dataset(
+            "ground_truth",
+            data=t.loc[np.array(counties, dtype="O")[np.argsort(cids)]].values,
+        )
 
         # Group all events into a single episode
-        processed = np.array([], dtype='int')
+        processed = np.array([], dtype="int")
         all_times = []
         all_nodes = []
         for idx in range(len(times)):
@@ -166,10 +199,10 @@ def main(args):
         idx = all_times.argsort()
         all_times = all_times[idx]
         all_nodes = np.concatenate(all_nodes)[idx]
-        hf.create_dataset('all_times', data=all_times, dtype='float64')
-        hf.create_dataset('all_nodes', data=all_nodes)
-        print(f'{len(counties)} counties')
+        hf.create_dataset("all_times", data=all_times, dtype="float64")
+        hf.create_dataset("all_nodes", data=all_nodes)
+        print(f"{len(counties)} counties")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main(sys.argv[1:])

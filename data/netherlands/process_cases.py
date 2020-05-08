@@ -73,7 +73,7 @@ for (name, aid), group in df_agg:
 # convert timestamps to number of days since first outbreak:
 min_ts = min(_ts)
 _ts = [t - min_ts for t in _ts]
-_ts = [t / (24 * 60 * 60.) for t in _ts]
+_ts = [t / (24 * 60 * 60.0) for t in _ts]
 
 assert len(_ts) == nevents, (len(_ts), nevents)
 knames = [None for _ in range(len(kreis_ids))]

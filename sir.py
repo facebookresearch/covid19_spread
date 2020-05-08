@@ -111,12 +111,13 @@ def estimate_growth_const(cases, window=None):
     if window is not None:
         growth_rate = growth_rate[-window:]
     doubling_time = np.log(2) / growth_rate
-    # FIXME: find a better way to account for infinite doubling times when 
+    # FIXME: find a better way to account for infinite doubling times when
     # cases have repeated values. For example, [0, 2, 10, 10, 15]
     # Right now, infinite doubling times are excluded from the numerator
     # of the mean calculation
     doubling_time = _finite_mean(doubling_time)
     return doubling_time
+
 
 def _finite_mean(values):
     """Computes the mean while excluding infinity from the numerator"""
@@ -151,7 +152,6 @@ class SIRCV(cv.CV):
         np.save(model_out, np.array(model))
         return model
 
-
     def run_simulate(self, dset, train_params, model, sim_params):
         """Forecasts region-level infections using
         API of cv.py for cross validation
@@ -165,7 +165,9 @@ class SIRCV(cv.CV):
         """
         # regions are columns; dates are indices
         cases_df = load.load_confirmed_by_region(dset)
-        populations_df = load.load_populations_by_region(train_params.fpop, regions=cases_df.columns)
+        populations_df = load.load_populations_by_region(
+            train_params.fpop, regions=cases_df.columns
+        )
 
         recovery_days, distancing_reduction, days, keep = initialize(train_params)
         doubling_times, regions = model
@@ -198,6 +200,8 @@ class SIRCV(cv.CV):
         df["date"] = _get_prediction_dates(cases_df, keep)
         df = df.set_index("date")
         return df
+
+
 CV_CLS = SIRCV
 
 
