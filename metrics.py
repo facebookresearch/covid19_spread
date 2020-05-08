@@ -9,22 +9,29 @@ import warnings
 
 
 def load_ground_truth_h5(path):
-    with h5py.File(path, 'r') as hf:
-        if 'ground_truth' in hf.keys():
-            assert 'basedate' in hf.attrs, '`basedate` missing from HDF5 attrs!'
-            basedate = pandas.Timestamp(hf.attrs.get('gt_basedate', hf.attrs['basedate']))
-            ground_truth = pandas.DataFrame(hf['ground_truth'][:])    
-            ground_truth.columns = pandas.date_range(end=basedate, periods=ground_truth.shape[1])
-            ground_truth['county'] = hf['nodes'][:]
+    with h5py.File(path, "r") as hf:
+        if "ground_truth" in hf.keys():
+            assert "basedate" in hf.attrs, "`basedate` missing from HDF5 attrs!"
+            basedate = pandas.Timestamp(
+                hf.attrs.get("gt_basedate", hf.attrs["basedate"])
+            )
+            ground_truth = pandas.DataFrame(hf["ground_truth"][:])
+            ground_truth.columns = pandas.date_range(
+                end=basedate, periods=ground_truth.shape[1]
+            )
+            ground_truth["county"] = hf["nodes"][:]
             # Ignore any Unknown counts
-            ground_truth = ground_truth[~ground_truth['county'].str.contains('Unknown')]
-            return ground_truth.set_index('county').transpose().sort_index()
-    
-    warnings.warn((
-        "Using raw HDF5 data as ground truth is deprecated.  You should"
-        " instead create a `ground_truth` field in the HDF5 dataset.  This can give "
-        "misleading results if you are smoothing the data."
-    ), DeprecationWarning)
+            ground_truth = ground_truth[~ground_truth["county"].str.contains("Unknown")]
+            return ground_truth.set_index("county").transpose().sort_index()
+
+    warnings.warn(
+        (
+            "Using raw HDF5 data as ground truth is deprecated.  You should"
+            " instead create a `ground_truth` field in the HDF5 dataset.  This can give "
+            "misleading results if you are smoothing the data."
+        ),
+        DeprecationWarning,
+    )
 
     nodes, ns, ts, basedate = load_data(path)
     nodes = [n for n in nodes if n != "Unknown"]
@@ -74,6 +81,7 @@ def sae(pred, gt):
 def mape(pred, gt):
     return ((pred - gt).abs() / gt.clip(1)).mean(axis=1)
 
+
 def compute_metrics(f_ground_truth, f_predictions, mincount=10):
     df_true = load_ground_truth(f_ground_truth)
     df_pred = pd.read_csv(f_predictions, parse_dates=["date"], index_col="date")
@@ -108,43 +116,3 @@ def compute_metrics(f_ground_truth, f_predictions, mincount=10):
     metrics.loc["MAE_MASE"] = metrics.loc["MAE"] / metrics.loc["MAE_NAIVE"]
     metrics.loc["RMSE_MASE"] = metrics.loc["RMSE"] / metrics.loc["RMSE_NAIVE"]
     return metrics
-
-
-def _compute_metrics(f_ground_truth, f_predictions, mincount=0):
-    gt, cols, counts, basedate = load_ground_truth(f_ground_truth)
-    df_pred = pd.read_csv(f_predictions, usecols=cols + ["date"], parse_dates=["date"])
-    df_pred = df_pred.set_index("date")
-    df_pred = df_pred[cols]
-    print(df_pred)
-    z = len(df_pred)
-
-    maes = {"Measure": ["MAE", "MAPE", "NAIV", "MASE"]}
-    for d in range(len(df_pred)):
-        pdate = basedate - timedelta(d)
-        preds = df_pred.loc[pdate]
-
-        pred_triv = {
-            n: c[-(z + 1)] + (z - d) * np.abs(c[-(z + 1)] - c[-(z + 2)])
-            for n, c in counts.items()
-        }
-
-        gts = np.ones(len(cols))
-        errs = np.zeros(len(cols))
-        errs_triv = np.zeros(len(cols))
-        for i, n in enumerate(cols):
-            _gt = counts[n][-(d + 1)]
-            if _gt < mincount:
-                continue
-            err = _gt - preds[n]
-            errs_triv[i] = abs(_gt - pred_triv[n])
-            errs[i] = abs(err)
-            # make sure errors and gts are aligned
-            gts[i] = max(1, _gt)
-            maes[pdate.strftime("%Y-%m-%d")] = [
-                np.mean(errs),
-                np.mean(errs / gts),
-                np.mean(errs_triv),
-                np.mean(errs) / np.mean(errs_triv),
-            ]
-    df = pd.DataFrame(maes)
-    return df
