@@ -27,7 +27,7 @@ class MHPCV(cv.CV):
             if not hasattr(model_params, k):
                 setattr(model_params, k, v)
 
-        seed = getattr(model_params, 'seed', 0)
+        seed = getattr(model_params, "seed", 0)
         np.random.seed(seed)
         th.manual_seed(seed)
         random.seed(seed)
@@ -37,23 +37,34 @@ class MHPCV(cv.CV):
         return model_out
 
     def run_simulate(self, dset, model_params, checkpoint, sim_params):
-        mdl, mdl_opt = train.CovidModel.from_checkpoint(checkpoint, map_location='cpu')
+        mdl, mdl_opt = train.CovidModel.from_checkpoint(checkpoint, map_location="cpu")
         nodes, ns, ts, basedate = load_data(dset)
-        episode = Episode(th.from_numpy(ts).double(), th.from_numpy(ns).long(), True, mdl.nnodes)
+        episode = Episode(
+            th.from_numpy(ts).double(), th.from_numpy(ns).long(), True, mdl.nnodes
+        )
         basedate = pandas.Timestamp(basedate)
         simulator = mdl.mk_simulator()
         t_obs = ts[-1]
 
         ground_truth = load_ground_truth(mdl_opt.dset)
 
-        sim = simulate_tl_mhp(t_obs, sim_params['days'], episode, mdl_opt.timescale, simulator, 
-            nodes, sim_params['trials'], max_events=sim_params['max_events'])
+        sim = simulate_tl_mhp(
+            t_obs,
+            sim_params["days"],
+            episode,
+            mdl_opt.timescale,
+            simulator,
+            nodes,
+            sim_params["trials"],
+            max_events=sim_params["max_events"],
+        )
 
-        sim = sim.set_index('county').transpose().sort_index()[ground_truth.columns]
+        sim = sim.set_index("county").transpose().sort_index()[ground_truth.columns]
         deltas = sim.diff(axis=0).fillna(0)
         forecast = ground_truth[deltas.columns].loc[basedate] + deltas
         forecast.index = pandas.date_range(start=basedate, periods=len(forecast))
-        forecast.index.name = 'date'
+        forecast.index.name = "date"
         return forecast[forecast.index > basedate]
+
 
 CV_CLS = MHPCV
