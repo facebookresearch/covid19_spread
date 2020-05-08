@@ -149,6 +149,7 @@ def run_best(config, module, remote, basedir):
     timeout = cfg[module].get("resources", {}).get("timeout", 12 * 60)
 
     for run in best_runs:
+        print(f'Starting {run.name}: {run.pth}')
         job_config = load_config(os.path.join(run.pth, module + ".yml"))
         cfg[module] = job_config
         cfg["validation"]["output"] = run.name + "_forecast.csv"
@@ -238,7 +239,7 @@ def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, b
         launcher = map
 
     with snapshot.SnapshotManager(
-        snapshot_dir=basedir + "/snapshot", with_submodules=True, exclude=["data/*"]
+        snapshot_dir=basedir + "/snapshot", with_submodules=True, exclude=["data/*", "notebooks/*"]
     ):
         jobs = list(launcher(partial(run_cv, module), basedirs, cfgs))
 

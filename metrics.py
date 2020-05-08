@@ -87,7 +87,7 @@ def compute_metrics(f_ground_truth, f_predictions, mincount=10):
     df_true = df_true[common_cols]
 
     z = len(df_pred)
-    print(df_pred.round(2))
+    # print(df_pred.round(2))
 
     basedate = df_pred.index.min()
     pdate = basedate - timedelta(1)
@@ -97,7 +97,12 @@ def compute_metrics(f_ground_truth, f_predictions, mincount=10):
     naive = pd.DataFrame(naive)
     naive.index = df_pred.index
 
-    gt = df_true.loc[df_pred.index]
+    ix = df_pred.index.intersection(df_true.index)
+    df_pred = df_pred.loc[ix]
+    naive = naive.loc[ix]
+    gt = df_true.loc[ix]
+
+    # gt = df_true.loc[df_pred.index]
     metrics = pd.DataFrame(
         [
             rmse(df_pred, gt),
@@ -118,3 +123,5 @@ def compute_metrics(f_ground_truth, f_predictions, mincount=10):
 if __name__ == "__main__":
     f_gt = sys.argv[1]
     f_pred = sys.argv[2]
+    m = compute_metrics(f_gt, f_pred, 1)
+    print(m)
