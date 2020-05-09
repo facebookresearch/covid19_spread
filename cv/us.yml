@@ -11,6 +11,12 @@ prediction_interval_:
   output_mean: us_mean.csv
   output_std: us_std.csv
 backfill:
+  - 2020-04-05
+  - 2020-04-08
+  - 2020-04-12
+  - 2020-04-15
+  - 2020-04-19
+  - 2020-04-22
   - 2020-04-26
   - 2020-04-29
   - 2020-05-01
