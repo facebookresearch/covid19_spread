@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import argparse
 import importlib
 import pandas as pd
 import os
@@ -309,7 +308,6 @@ def backfill(
         f'/checkpoint/{os.environ["USER"]}/covid19/forecasts/{config["region"]}/{now}'
     )
     print(f"Backfilling in {basedir}")
-    ext = os.path.splitext(config[module]["data"])[-1]
     for date in dates:
         print(f"Running CV for {date.date()}")
         with tempfile.TemporaryDirectory() as tdir:
