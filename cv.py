@@ -267,9 +267,7 @@ def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, b
 @cli.command()
 @click.argument("config_pth")
 @click.argument("module")
-@click.option(
-    "-period", type=int, help="Number of days for sliding window", required=True
-)
+@click.option("-period", type=int, help="Number of days for sliding window")
 @click.option(
     "-start-date", type=click.DateTime(), default="2020-04-01", help="Start date"
 )
@@ -294,6 +292,9 @@ def backfill(
     Run the cross validation pipeline over multiple time points.
     """
     config = load_config(config_pth)
+    # allow to set backfill dates in config (function argument overrides)
+    if dates is None and "backfill" in config:
+        dates = pd.to_datetime(config["backfill"])
     assert (
         dates is not None or period is not None
     ), "Must specify either dates or period"
