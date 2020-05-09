@@ -176,7 +176,7 @@ def cli():
 @click.argument("config_pth")
 @click.argument("module")
 @click.option("-validate-only", type=click.BOOL, default=False)
-@click.option("-remote", type=click.BOOL, default=False)
+@click.option("-remote", is_flag=True)
 @click.option("-array-parallelism", type=click.INT, default=50)
 @click.option("-max-jobs", type=click.INT, default=200)
 @click.option("-basedir", default=None, help="Path to sweep base directory")
@@ -272,7 +272,7 @@ def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, b
     "-start-date", type=click.DateTime(), default="2020-04-01", help="Start date"
 )
 @click.option("-validate-only", type=click.BOOL, default=False)
-@click.option("-remote", type=click.BOOL, default=False)
+@click.option("-remote", is_flag=True)
 @click.option("-array-parallelism", type=click.INT, default=50)
 @click.option("-max-jobs", type=click.INT, default=200)
 @click.pass_context
