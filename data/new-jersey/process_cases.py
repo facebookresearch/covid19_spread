@@ -7,7 +7,6 @@ import pandas as pd
 import sys
 
 from collections import defaultdict as ddict
-from datetime import datetime
 from itertools import count
 
 
@@ -42,6 +41,7 @@ df = pd.read_csv(
     ],
 )
 
+window = 5
 smooth = "SMOOTH" in os.environ and os.environ["SMOOTH"] == "1"
 print("Smoothing data =", smooth)
 
@@ -73,7 +73,7 @@ print(ats)
 for county in counties:
     if smooth:
         _ws = df[county]
-        ws = _ws.rolling(window=3).mean().to_numpy()
+        ws = _ws.rolling(window=window).mean().to_numpy()
         ws[ws != ws] = 0
         ws[0] = _ws.iloc[0]
     else:
@@ -94,7 +94,7 @@ for county in counties:
         # print(tp, ts[i], w)
         _es = sorted(np.random.uniform(tp, ts[i], w))
         if len(es) > 0:
-            print(es[-1], _es[0], _es[-1])
+            # print(es[-1], _es[0], _es[-1])
             assert es[-1] < _es[0], (_es[0], es[-1])
         es += _es
         # es += [ts[i]] * w
