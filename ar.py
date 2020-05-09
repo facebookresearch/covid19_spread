@@ -88,9 +88,15 @@ class BetaLatent(nn.Module):
         self.dim = dim
         self.tmax = tmax
         self.rnn = nn.RNN(1, dim, layers)
-        self.h0 = nn.Parameter(th.randn(layers, self.M, dim))
+        self.h0 = nn.Parameter(th.zeros(layers, self.M, dim))
         self.v = nn.Linear(dim, 1, bias=True)
         self.fpos = th.sigmoid
+
+        # initialize weights
+        nn.init.xavier_normal_(self.v.weight)
+        for p in self.rnn.parameters():
+            if p.dim() == 2:
+                nn.init.xavier_normal_(p)
 
     def forward(self, t):
         t = t.unsqueeze(-1).unsqueeze(-1).float()
@@ -167,9 +173,9 @@ class AR(nn.Module):
         super(AR, self).__init__()
         self.M = len(regions)
         # self.alphas = th.nn.Parameter(th.zeros((window_size, self.M, self.M)))
-        self.alphas = th.nn.Parameter(th.zeros((self.M, self.M)))
+        self.alphas = th.nn.Parameter(th.zeros((self.M, self.M)).fill_(-5))
         self.repro = th.nn.Parameter(th.ones((self.M, window_size)))
-        self.nu = th.nn.Parameter(th.ones((self.M, 1)))
+        self.nu = th.nn.Parameter(th.ones((self.M, 1)).fill_(10))
         self.beta = beta_net
         self._dist = dist
         self.window = window_size
