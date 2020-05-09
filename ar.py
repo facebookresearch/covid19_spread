@@ -7,7 +7,7 @@ import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.distributions import NegativeBinomial, Poisson
+from torch.distributions import NegativeBinomial, Normal, Poisson
 import load
 import cv
 
@@ -183,6 +183,8 @@ class AR(nn.Module):
             return Poisson(scores)
         elif self._dist == "nb":
             return NegativeBinomial(scores, logits=self.nu)
+        elif self._dist == "normal":
+            return Normal(scores, F.softplus(self.nu))
         else:
             raise RuntimeError(f"Unknown loss")
 
@@ -391,11 +393,14 @@ class ARCV(cv.CV):
             graph = None
 
         func = AR(regions, beta_net, args.loss, args.window, graph).to(device)
+        params = []
+        exclude = {"nu"}
+        for name, p in dict(func.named_parameters()).items():
+            wd = 0 if name in exclude else weight_decay
+            # print(name, wd)
+            params.append({"params": p, "weight_decay": wd})
         optimizer = optim.AdamW(
-            func.parameters(),
-            lr=args.lr,
-            betas=[args.momentum, 0.999],
-            weight_decay=weight_decay,
+            params, lr=args.lr, betas=[args.momentum, 0.999], weight_decay=weight_decay
         )
 
         model = train(func, cases, regions, optimizer, checkpoint, args)
