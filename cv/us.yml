@@ -63,7 +63,7 @@ sir:
   data: data/usa/data.csv
   train:
     fpop: *fpop
-    window: 1
+    window: 10
     recovery_days: 10
     distancing_reduction: 0.8
     days: *vdays
