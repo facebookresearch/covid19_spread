@@ -46,18 +46,20 @@ class TestSIRCrossValidation:
     @pytest.mark.parametrize("train_params", [TrainParamsNY, TrainParamsUS])
     def test_run_train(self, checkpoint_path, train_params):
         """Verifies doubling times are > 0 and region lengths match"""
-        model = sir.run_train(train_params.fdat, train_params, checkpoint_path)
+        sir_cv = sir.SIRCV()
+        model = sir_cv.run_train(train_params.fdat, train_params, checkpoint_path)
         assert isinstance(model, list)
         assert len(model) == 2
 
         doubling_times, regions = model
-        assert (doubling_times > 0).all()
+        assert (doubling_times >= 0).all()
         assert doubling_times.shape == (len(regions),)
 
     @pytest.mark.parametrize("train_params", [TrainParamsNY, TrainParamsUS])
     def test_run_simulate(self, checkpoint_path, train_params):
         """Verifies predictions match expected length"""
-        model = sir.run_train(train_params.fdat, train_params, checkpoint_path)
+        sir_cv = sir.SIRCV()
+        model = sir_cv.run_train(train_params.fdat, train_params, checkpoint_path)
         # model is doubling_times
-        predictions_df = sir.run_simulate(train_params.fdat, train_params, model, {})
+        predictions_df = sir_cv.run_simulate(train_params.fdat, train_params, model, {})
         assert predictions_df.shape[0] == train_params.keep
