@@ -63,8 +63,12 @@ df = df[df.columns[(df.sum(axis=0) != 0).values]]
 print(df.head())
 
 
+population_counties = list(population.keys())
 df_pop = pd.DataFrame.from_dict(
-    {"county": df.columns, "population": [population[c] for c in df.columns]}
+    {
+        "county": population_counties,
+        "population": [population[county] for county in population_counties],
+    }
 )
 df_pop.to_csv("population.csv", index=False, header=False)
 df = df.transpose()  # row for each county, columns correspond to dates...
