@@ -87,8 +87,8 @@ matrix:
     momentum: [0.99]
     weight_decay: [0.95]
     fit_on: [14]
-    k_avg: [7] # 10
+    k_avg: [10]
     n_embedding: [250]
-    seed: [0]
+    seed: [1]
     t0: [0] #, 10] ######
     test_on: *vdays
