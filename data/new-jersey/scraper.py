@@ -2,45 +2,57 @@
 
 import requests
 import pandas
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 import os
 
+
 URL = "https://services7.arcgis.com/Z0rixLlManVefxqY/arcgis/rest/services/DailyCaseCounts/FeatureServer/0/query?f=json&where=1%3D1&returnGeometry=false&spatialRel=esriSpatialRelIntersects&outFields=*&orderByFields=TOTAL_CASES%20desc"
-
-yesterday = (date.today() - timedelta(days=1)).strftime("%Y%m%d")
-yesterday = f"data-{yesterday}.csv"
-
-assert os.path.exists(yesterday), "Unable to find yesterday's file!!!!"
-
-df = pandas.read_csv(yesterday, index_col=0)
-
-req = requests.get(URL)
-data = req.json()
-
-new_data = {
-    "Date": date.today().strftime("%m/%d/%Y"),
-    "Start day": df["Start day"].max() + 1,
-}
-
-for row in data["features"]:
-    county = row["attributes"]["COUNTY_LAB"]
-    new_data[" ".join(county.split()[:-1])] = row["attributes"]["TOTAL_CASES"]
+UNK_URL = "https://services7.arcgis.com/Z0rixLlManVefxqY/arcgis/rest/services/survey123_cb9a6e9a53ae45f6b9509a23ecdf7bcf/FeatureServer/0/query?f=json&where=1=1&returnGeometry=false&outFields=*&resultOffset=0&resultRecordCount=1&resultType=standard&orderByFields=_date%20desc"
 
 
-unknown = None
-while True:
-    try:
-        unknown = input(
-            "Enter number of unknown cases ( https://www.nj.gov/health/cd/topics/covid2019_dashboard.shtml ): "
+def get_latest(metric="cases"):
+    """
+    metric: str - 'cases' or 'deaths
+    """
+
+    # Fetch newest data from NJ DOH ESRI API
+    unk = requests.get(UNK_URL).json()
+    unk = unk["features"][0]["attributes"]
+    data = requests.get(URL).json()
+    df = pandas.DataFrame([x["attributes"] for x in data["features"]])
+    unk_time = datetime.fromtimestamp(unk["_date"] / 1000)
+
+    # Use NYT for historical data.  They lag behind by 1 day.
+    nyt = pandas.read_csv(
+        "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv",
+        parse_dates=["date"],
+    )
+    nyt = nyt[nyt["state"] == "New Jersey"]
+    nyt = nyt.pivot_table(index="date", columns="county", values=metric).fillna(0)
+    if (nyt.index.max() + timedelta(days=1)).date() == unk_time.date():
+        # NJ has a newer date, append it on...
+        df = df.rename(
+            columns={
+                "COUNTY_LAB": "county",
+                "Number_COVID_Cases_Confirmed": "cases",
+                "TOTAL_DEATHS": "deaths",
+            }
         )
-        unknown = float(unknown)
-        break
-    except Exception:
-        pass
+        df["date"] = unk_time
+        df = df.pivot_table(index="date", values=metric, columns="county")
+        df.columns = [c.split(" County")[0] for c in df.columns]
+        mapper = {"cases": "unknown_positives", "deaths": "unknown_deaths"}
+        df["Unknown"] = unk[mapper[metric]]
+        res = pandas.concat([nyt, df[nyt.columns]])
+        res.index = res.index.date
+        return res
+    else:
+        return nyt
 
-new_data["Unknown"] = unknown
-new_data = pandas.DataFrame([new_data])
 
-df = pandas.concat([df, new_data]).reset_index()
-today = date.today().strftime("%Y%m%d")
-df.to_csv(f"data-{today}.csv")
+def main():
+    df = get_latest()
+
+
+if __name__ == "__main__":
+    main()
