@@ -1,3 +1,4 @@
+import pdb
 import argparse
 import numpy as np
 import pandas as pd
@@ -10,12 +11,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 import cv
 
-from sklearn.experimental import enable_iterative_imputer
-from sklearn.impute import IterativeImputer
 
-###
-# run_train and run_simulate are key!!!
-###
+# from sklearn.experimental import enable_iterative_imputer
+# from sklearn.impute import IterativeImputer
 
 
 class BetaExpDecay(nn.Module):
@@ -38,97 +36,155 @@ class BetaExpDecay(nn.Module):
         return None
 
 
-def train(model, cases, regions, checkpoint, args):
+def convolve(x, k=1):
+    # np adds padding by default, we remove the edges
+    if k == 1:
+        return x
+    f = [1 / k] * k
+    # return np.convolve(x, f)[k-1:1-k]
+    return np.convolve(x, f, "valid")
 
-    #     import pdb
-    #     pdb.set_trace()
-    # fitter is the model fit class
-    M = len(regions)
+
+def prep_matrix(cases, eps, k=7):
+
+    # convolution in native pytorch - batched
     device = cases.device
+    M = len(cases)
 
-    ##### convolve ####
-    cases = cases.cpu().numpy()
-    cases_ = []
-    k = 7
-    for j in range(len(cases)):
-        cases_.append(np.convolve(cases[j], [1 / k] * k, "valid"))
-    cases = th.from_numpy(np.asarray(cases_))
-    ##### end convolve ####
+    tmax_pre = cases.size(1)
+
+    # k = 1 case also works as intended!!
+    f = th.Tensor([1 / k] * k).view(1, 1, -1).to(device)
+    tmp = cases.view(M, 1, -1)
+
+    cases = th.nn.functional.conv1d(tmp, f)
+    cases = cases.view(M, -1)
+
+    tmax_post = cases.size(1)
+
+    # they are the same if k == 1
+    # and differ by k - 1 otherwise
+    print("pre and post: ", tmax_pre, tmax_post)
 
     new_cases = cases[:, 1:] - cases[:, :-1]
-    #     assert (new_cases >= 0).all()
+    assert (new_cases >= 0).all()
     tmax = new_cases.size(1)
+    # this one less than tmax_post
+    # so k less than tmax_pre
+    print("after diff: ", tmax)
     # t = th.arange(tmax).to(device) + 1 # 1 to tmax inclusive
 
     # prepare training matrix
     train = new_cases / cases[:, :-1]  # elementwise division
-    train += args.beta_min
-    train[th.isinf(train)] = np.nan  # set inf's to nan's
+    train += eps  # add an epsilon to lift zero elements
+
+    train[th.isinf(train)] = np.nan  # set inf's to nan's | each row contains one
     # mask or ~mask # all I need is to swap nans and keep the size of the matrix
     # mask = th.isinf(train) + th.isnan(train) # + is logical or
+
     mask = th.isnan(train)
+
+    hop = train[~mask]
+    print("betas larger than 5: ", len(hop[hop > 5]))
+
     start_times = mask.sum(1)  # picking this index gives the first value...
 
     for j, idx in enumerate(start_times):
         row = train[j].clone()
         train[j] = th.cat((row[idx:], row[:idx]))
 
+    mask = th.isnan(train)
+
+    return train, start_times, mask
+
+
+def train(model, cases, regions, optimizer, checkpoint, args):
+    # since cv.py doesn't run this file add this seed here
+    th.manual_seed(args.seed)
+
+    M = len(regions)
+    device = cases.device
+
+    train_set, start_times, _ = prep_matrix(cases, args.eps, args.k_avg)
+
     # TODO
+    # instead of t0 add a number cutoff!!
+    # or perhaps a beta cutoff??
     # prep tr data with propoer masking shifting and reverting of it ...
     # add convolutions before train
     # add deconvolutions for prediction and evaluation
     # add MC implementation by hand (will help with GPU utilization on pytorch)
     # long term prediction should be evaluated either (1) in an averaged fashion or (just that last day)
     # no reason for beta to fluctuate - but we do need to capture the effects of policies/trends!!
-    #     import pdb
-    #     pdb.set_trace()
+    # check the rank of final matrix in both methods
 
-    ### compute the fit matrix model...
-    model.fit(train.cpu())
-    # res = model.transform(train.cpu())
-    #     print(model)
+    # https://stackoverflow.com/questions/8290397/how-to-split-an-iterable-in-constant-size-chunks
+    def batch(iterable, n=1):
+        l = len(iterable)
+        for ndx in range(0, l, n):
+            yield iterable[ndx : min(ndx + n, l)]
+
+    # TODO different losses
+    loss_func = th.nn.MSELoss()
+
+    # set nan's to zero
+    train_set[th.isnan(train_set)] = 0
+    # mini batch over non-zero entries
+    idx = train_set.nonzero()
+    bs = args.bs
+
+    for epoch in range(args.epochs):
+        p = th.randperm(len(idx))
+        idx = idx[p]
+        for e in batch(idx, bs):
+            rows, cols = e.T[0], e.T[1]
+            optimizer.zero_grad()
+            pred = model.score(rows, cols)
+            rating = train_set[rows, cols]
+            loss = loss_func(pred, rating)
+            # print(loss.item())
+
+            # back prop
+            loss.backward()
+            optimizer.step()
+        # TODO this is sample loss, implement full tr loss
+        print(loss.item())
+
     print(args)
-
     return model
 
 
 def simulate(model, cases, regions, args, dstart=None):
     # print(args.t0, args.test_on)
+    device = cases.device
 
-    offset = 0
-    ##### convolve ####
-    cases = cases.cpu().numpy()
-    cases_ = []
-    k = 7
-    offset = 0
-    for j in range(len(cases)):
-        cases_.append(np.convolve(cases[j], [1 / k] * k, "valid"))
-    cases = th.from_numpy(np.asarray(cases_))
-    ##### end convolve ####
+    train_set, start_times, mask = prep_matrix(cases, args.eps, args.k_avg)
 
-    new_cases = cases[:, 1:] - cases[:, :-1]
-    #     assert (new_cases >= 0).all()
-    tmax = new_cases.size(1)  # this is one less than total len of cases
+    #     for j, idx in enumerate(start_times):
+    #         row = train[j].clone()
+    #         train[j] = th.cat((row[idx:], row[:idx]))
 
-    ## prep the data in the same way as train but model is fit already
-    train = new_cases / cases[:, :-1]  # elementwise division
-    train += args.beta_min
-    train[th.isinf(train)] = np.nan  # set inf's to nan's
-    mask = th.isnan(train)
-    start_times = mask.sum(1)  # picking this index gives the first value...
-    for j, idx in enumerate(start_times):
-        row = train[j].clone()
-        train[j] = th.cat((row[idx:], row[:idx]))
+    # indices of what I want to complete
+    idx = mask.nonzero()
+    rows, cols = idx.T[0], idx.T[1]
+    preds = model.score(rows, cols)
 
-    test_preds = model.transform(train.cpu())
+    preds[th.isnan(preds)] = args.eps  # nan cheat (why do I get nans sometimes!!)
+    # quite a bit can be neg but not too bad they are at -eps...
+    preds[preds < args.eps] = args.eps  # eps cheat (why do I get lots of infs??)
 
+    test_preds = train_set.clone()
+    test_preds[mask] = preds
+
+    # test_preds = model.transform(train.cpu())
     # test_preds = model.simulate(tmax, new_cases, args.test_on)
 
     def fit(x, y):
         # x: times; y: betas
-        A = np.vstack([x, np.ones(len(x))]).T
-        res = np.linalg.lstsq(A, y, rcond=None)
-        slope, intercept = res[0]
+        one = th.ones(len(x))  # .to(device)
+        A = th.stack([x, one]).T
+        res = th.lstsq(y.view(-1, 1), A)  # see doc for conventions...
+        slope, intercept = res[0][:2]  # m > n see documentation
         return slope, intercept
 
     # keep betas
@@ -138,16 +194,29 @@ def simulate(model, cases, regions, args, dstart=None):
     test_cases_full = []
     test_cases_part = []
 
+    test_preds = test_preds.cpu()
+    cases = cases.cpu()
+    # do this part on CPU
+    # on GPU this loop is toooo slow
+    # actually numpy is much faster at this for some reason
+    tmax = len(
+        test_preds[0]
+    )  # after conv, after diff so original tmax_pre - k of the convolution
+    #     pdb.set_trace()
     for j, idx in enumerate(start_times):
+
         row = test_preds[j]
-        x = range(tmax - args.fit_on + 1, tmax + 1)
-        x_pred = range(tmax + 1, tmax + 1 + args.test_on + offset)
-        y = np.log(row[-args.fit_on :])
+        x = th.arange(tmax - args.fit_on + 1, tmax + 1).float()  # .to(device)
+        x_pred = th.arange(tmax + 1, tmax + 1 + args.test_on)  # .float()#.to(device)
+        y = th.log(row[-args.fit_on :])
         m, b = fit(x, y)
-        beta_pred = np.exp(m * x_pred + b)
+        beta_pred = th.exp(m * x_pred + b)
 
         # concat nan's... not a square matrix anymore
-        tmp = np.concatenate(([np.nan] * idx, row, beta_pred))
+        nans = th.Tensor([np.nan] * idx)
+        tmp = th.cat(
+            (nans, row, beta_pred)
+        )  # here I shift everything back to real time
         test_preds_full.append(tmp)
         test_preds_part.append(tmp[tmax : tmax + args.test_on])
 
@@ -157,28 +226,22 @@ def simulate(model, cases, regions, args, dstart=None):
             increment = (b + 1) * case_pred[-1]
             case_pred.append(increment.item())
 
-        case_pred = np.asarray([int(e) for e in case_pred])
+        case_pred = th.Tensor(case_pred)  # .int()#.to(device)
 
-        tmp = np.concatenate((cases[j].cpu(), case_pred[1:]))
+        tmp = th.cat((cases[j], case_pred[1:]))
 
         #### here deconvolve everything ###
 
-        #         import pdb
-        #         pdb.set_trace()
-
         test_cases_full.append(tmp)
         # here it is tmax + 1 bc tmax has been calculated on the difference!!!
-        test_cases_part.append(
-            tmp[tmax + 1 + offset : tmax + 1 + args.test_on + offset]
-        )
+        test_cases_part.append(tmp[tmax + 1 : tmax + 1 + args.test_on])
 
     # extend beta's with exp pred for args.test_on more days
     # use args.fit_on to fit betas
 
-    test_cases_part = np.asarray(test_cases_part)
-    test_cases_part = test_cases_part.astype(float)
+    test_cases_part = th.stack(test_cases_part)
 
-    df = pd.DataFrame(test_cases_part.T, columns=regions)
+    df = pd.DataFrame(test_cases_part.T.int().numpy(), columns=regions)
 
     if dstart is not None:
         base = pd.to_datetime(dstart)
@@ -186,7 +249,7 @@ def simulate(model, cases, regions, args, dstart=None):
         df["date"] = ds
 
         df.set_index("date", inplace=True)
-    # print(model.beta(th.arange(tmax + args.test_on).to(cases.device) + 1))
+
     return df
 
 
@@ -197,12 +260,31 @@ def initialize(args):
     return cases, regions, basedate, device
 
 
+class MC(nn.Module):
+    def __init__(self, regions, tmax, n_emb):
+        super(MC, self).__init__()
+        self.n_regions = len(regions)
+        self.n_days = tmax
+        self.n_emb = n_emb
+        self.regions_emb = th.nn.Embedding(self.n_regions, self.n_emb, sparse=False)
+        self.days_emb = th.nn.Embedding(self.n_days, self.n_emb, sparse=False)
+
+    def score(self, rs, ds, shift=0.1, scale=5):
+        # TODO how to pick scale properly??
+        # rs and ds are the samples fed
+        _score = (self.regions_emb(rs) * self.days_emb(ds)).sum(1)
+        #         _score = (th.sigmoid(_score) - shift) * scale
+        #         _score = th.relu(_score)
+        return _score
+
+
 class MatrixCCV(cv.CV):
     def run_train(self, dset, args, checkpoint):
         args.fdat = dset
         cases, regions, _, device = initialize(args)
         tmax = cases.size(1) + 1
-        weight_decay = 0
+        # is this tmax correct????
+        # even if this is somewhat larger those ones just won't be trained...
 
         # setup beta function for future days of long sequences
         if args.decay == "const":
@@ -212,19 +294,16 @@ class MatrixCCV(cv.CV):
         else:
             raise ValueError("Unknown beta function")
 
-        # func = MC(regions, beta_net, args.window).to(device)
+        model = MC(regions, tmax, args.n_embedding).to(device)
 
-        model = IterativeImputer(
-            random_state=args.seed,
-            tol=1e-3,
-            max_iter=args.max_iter,
-            sample_posterior=args.sample_posterior,  # changes a lot | True
-            n_nearest_features=args.nfeatures,  # may replace averaging | None
-            min_value=1e-6,  # min value
-            initial_strategy="median",  # try mean/median
+        # TODO play with the optimizer...
+        optimizer = optim.AdamW(
+            model.parameters(),
+            lr=args.lr,
+            betas=[args.momentum, 0.999],
+            weight_decay=args.weight_decay,
         )
-
-        model = train(model, cases, regions, checkpoint, args)
+        model = train(model, cases, regions, optimizer, checkpoint, args)
         return model
 
     def run_simulate(self, dset, args, model=None, sim_params=None):
@@ -243,18 +322,22 @@ CV_CLS = MatrixCCV
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("ODE demo")
     parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
-    parser.add_argument("-lr", type=float, default=5e-2)
-    parser.add_argument("-beta-min", type=float, default=1e-6)
-    parser.add_argument("-weight-decay", type=float, default=0)
+    parser.add_argument("-lr", type=float, default=5e-4)
+    parser.add_argument("-momentum", type=float, default=0.99)
+    parser.add_argument("-eps", type=float, default=1e-4)
+    parser.add_argument("-weight-decay", type=float, default=0.95)  # strong wd is req
     parser.add_argument("-niters", type=int, default=2000)
-    parser.add_argument("-max-iter", type=int, default=30, help="for the imputer")
+    parser.add_argument("-epochs", type=int, default=20000)
+    parser.add_argument("-bs", type=int, default=10000)
+    parser.add_argument("-n-embedding", type=int, default=30)
+    parser.add_argument("-k_avg", type=int, default=7, help="size of conv window")
     parser.add_argument("-amsgrad", default=False, action="store_true")
     parser.add_argument("-sample-posterior", type=int, default=0, help="0 or 1 for T/F")
     parser.add_argument("-nfeatures", type=int, default=3)
     parser.add_argument("-loss", default="lsq", choices=["lsq", "poisson"])
     parser.add_argument("-decay", default="exp")
     parser.add_argument("-t0", default=10, type=int)
-    parser.add_argument("-fit-on", default=7, type=int)
+    parser.add_argument("-fit-on", default=14, type=int)
     parser.add_argument("-test-on", default=7, type=int)
     parser.add_argument("-window", default=7, type=int)  # ??
     parser.add_argument("-checkpoint", type=str, default="/tmp/metasir_model.bin")
