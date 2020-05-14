@@ -80,11 +80,15 @@ matrix:
   train:
     fpop: *fpop
     decay: exp
-    max_iter: [10, 30, 60]
-    beta_min: [0.00001]
-    fit_on: [7]
-    sample_posterior: [0] #, 1]
-    nfeatures: [30, 20, 10] # somehow 10 or 30 doesn't work
-    seed: [0, 1, 2, 3, 4, 5]
-    t0: [0, 10] ######
+    epochs: 40000
+    bs: 100000 # 10000
+    eps: [0.00001]
+    lr: [0.0005]
+    momentum: [0.99]
+    weight_decay: [0.95]
+    fit_on: [14]
+    k_avg: [7] # 10
+    n_embedding: [250]
+    seed: [0]
+    t0: [0] #, 10] ######
     test_on: *vdays
