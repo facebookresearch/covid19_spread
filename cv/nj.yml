@@ -1,7 +1,7 @@
 region: new-jersey
 population: &fpop data/population-data/US-states/new-jersey-population.csv
 validation:
-  days: &vdays 14
+  days: &vdays 7
   output: validation-nj.csv
 forecast:
   output: forecast-nj.csv
@@ -47,23 +47,26 @@ sir:
     # number of days to keep for forecast
     keep: *vdays
 mhp:
-  data: data/new-jersey/timeseries.h5
+  data: data/new-jersey/timeseries_smooth.h5
   output: mhp_model.bin
   resources:
     gpus: 1
   simulate:
-    trials: 10
+    trials: 100
     max_events: 2000000
     days: *vdays
   train:
-    dim: [10, 15, 20]
-    base_intensity: [True, False]
-    alpha_scale: [-10, -15]
-    const_beta: [8, 10, 15]
+    dim: 10  # [10, 15, 20]
+    base_intensity: True # [True, False]
+    alpha_scale: -15 # [-10, -15]
+    const_beta: -1 # [8, 10, 15]
     weight_decay: [0]
     max_events: [1000000]
     maxcor: [100]
     optim: lbfgs
     max_events: 500000
     epochs: 200
-    sparse_grads: False
+    seed: 42
+    sparse_grads: True
+    sparse: True
+    quiet: True
