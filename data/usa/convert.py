@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import sys
 import torch as th
+from datetime import timedelta
 from os import listdir
 from os.path import isfile, join
 from process_cases import get_nyt
@@ -38,20 +39,28 @@ def read_population():
     return population
 
 
-# state_policies = pd.read_csv("us-state-policies-20200423.csv", index_col="State")
 metric = sys.argv[1] if len(sys.argv) == 2 else "cases"
 population = read_population()
 df = get_nyt(metric)
+df.index = pd.to_datetime(df.index)
+print(df.head())
+
+df_feat = pd.read_csv("features.csv", index_col="region")
+state_policies = pd.read_csv("policy_features.csv")
 
 # HACK: for deaths we do not have borough-level information
 if metric == "deaths":
-    population["New York City, New York"] = (
-        population["Bronx, New York"]
-        + population["Brooklyn, New York"]
-        + population["Queens, New York"]
-        + population["Manhattan, New York"]
-        + population["Richmond, New York"]
-    )
+    boroughs = [
+        "Bronx, New York",
+        "Brooklyn, New York",
+        "Queens, New York",
+        "Manhattan, New York",
+        "Richmond, New York",
+    ]
+    population["New York City, New York"] = sum([population[b] for b in boroughs])
+    boroughs[1] = "Kings, New York"
+    boroughs[3] = "New York, New York"
+    df_feat.loc["New York City, New York"] = np.mean([df_feat.loc[b] for b in boroughs])
 
 dates = df.index
 df.columns = [c.split("_")[1] + ", " + c.split("_")[0] for c in df.columns]
@@ -80,3 +89,22 @@ for _, g in df.groupby(lambda x: x.split(", ")[-1]):
 
 print(adj)
 th.save(th.from_numpy(adj), "state_graph.pt")
+
+for region in df.index:
+    df_feat.loc[region]
+df_feat = df_feat.loc[df.index]
+inc = df_feat["median_income"]
+inc = inc - inc.min()
+df_feat["median_income"] = inc / inc.max() * 100
+# df_feat = (df_feat - df_feat.mean(axis=0)) / df_feat.std(axis=0)
+print(df_feat)
+th.save(th.from_numpy(df_feat.values), "county_features.pt")
+
+n_policies = len(np.unique(state_policies["policy"]))
+state_policies = {s: v for (s, v) in state_policies.groupby("state")}
+pols = th.zeros(df.shape[0], df.shape[1], n_policies)
+for i, region in enumerate(df.index):
+    state = region.split(", ")[1]
+    _p = state_policies[state].iloc[:, 2:].transpose()
+    pols[i] = th.from_numpy(_p.values)
+th.save(pols, "policy_features.pt")
