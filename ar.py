@@ -82,15 +82,23 @@ class BetaPowerLawDecay(nn.Module):
 
 
 class BetaLatent(nn.Module):
-    def __init__(self, regions, dim, layers, tmax):
+    def __init__(self, regions, dim, layers, tmax, time_features):
         super(BetaLatent, self).__init__()
         self.M = len(regions)
-        self.dim = dim
         self.tmax = tmax
-        self.rnn = nn.RNN(1, dim, layers)
-        self.h0 = nn.Parameter(th.zeros(layers, self.M, dim))
-        self.v = nn.Linear(dim, 1, bias=True)
         self.fpos = th.sigmoid
+        self.time_features = time_features
+        self.dim = dim
+        input_dim = 1
+
+        self.h0 = nn.Parameter(th.zeros(layers, self.M, dim))
+        if time_features is not None:
+            self.w_time = nn.Linear(time_features.size(2), dim)
+            nn.init.xavier_normal_(self.w_time.weight)
+            # input_dim += dim
+            input_dim += time_features.size(2)
+        self.rnn = nn.RNN(input_dim, self.dim, layers)
+        self.v = nn.Linear(self.dim, 1, bias=False)
 
         # initialize weights
         nn.init.xavier_normal_(self.v.weight)
@@ -99,8 +107,13 @@ class BetaLatent(nn.Module):
                 nn.init.xavier_normal_(p)
 
     def forward(self, t):
-        t = t.unsqueeze(-1).unsqueeze(-1).float()
+        t = t.unsqueeze(-1).unsqueeze(-1).float()  # .div_(self.tmax)
         t = t.expand(t.size(0), self.M, 1)
+        if self.time_features is not None:
+            # f = self.w_time(self.time_features).narrow(0, 0, t.size(0))
+            f = self.time_features.narrow(0, 0, t.size(0))
+            # f = f.unsqueeze(0).expand(t.size(0), self.M, self.dim)
+            t = th.cat([t, f], dim=2)
         ht, hn = self.rnn(t, self.h0)
         beta = self.fpos(self.v(ht))
         return beta.squeeze().t()
@@ -169,20 +182,23 @@ class BetaPolynomial(nn.Module):
 
 
 class AR(nn.Module):
-    def __init__(self, regions, beta_net, dist, window_size, graph):
+    def __init__(self, regions, beta_net, dist, window_size, graph, features):
         super(AR, self).__init__()
         self.M = len(regions)
-        # self.alphas = th.nn.Parameter(th.zeros((window_size, self.M, self.M)))
-        self.alphas = th.nn.Parameter(th.zeros((self.M, self.M)).fill_(-5))
-        self.repro = th.nn.Parameter(th.ones((self.M, window_size)))
-        self.nu = th.nn.Parameter(th.ones((self.M, 1)).fill_(10))
+        self.alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(-5))
+        self.repro = nn.Parameter(th.ones((self.M, window_size)))
+        self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(10))
         self.beta = beta_net
         self._dist = dist
         self.window = window_size
         self.graph = graph
+        self.features = features
         if graph is not None:
             assert graph.size(0) == self.M, graph.size()
             assert graph.size(1) == self.M, graph.size()
+        if features is not None:
+            self.w_feat = nn.Linear(features.size(1), 1)
+            nn.init.xavier_normal_(self.w_feat.weight)
 
     def dist(self, scores):
         if self._dist == "poisson":
@@ -195,8 +211,8 @@ class AR(nn.Module):
             raise RuntimeError(f"Unknown loss")
 
     def metapopulation_weights(self):
-        # with th.no_grad():
-        #     self.alphas.fill_diagonal_(-1e10)
+        with th.no_grad():
+            self.alphas.fill_diagonal_(-1e10)
         # W = F.softmax(self.alphas, dim=1)
         W = th.sigmoid(self.alphas)
         # W = F.softplus(self.alphas)
@@ -224,9 +240,9 @@ class AR(nn.Module):
 
         # beta evolution
         ys = ys.narrow(1, offset, ys.size(1) - offset)
-        # with th.no_grad():
-        #    mask = ys.clamp(min=0, max=1).round()
         beta = self.beta(t).narrow(1, -ys.size(1), ys.size(1))
+        if self.features is not None:
+            beta = beta + th.sigmoid(self.w_feat(self.features))
         return beta * Z.add_(Ys)
         # return beta * (Z.addmm_(W, ys))
         # return beta * Z
@@ -269,12 +285,17 @@ def train(model, cases, regions, optimizer, checkpoint, args):
         _loss = -dist.log_prob(
             new_cases.narrow(1, args.window, tmax - args.window)  # .clamp(min=1e-8)
         )
-        loss = _loss.mean()
+        loss = _loss.sum()
+        reg = 0
+        # if args.weight_decay > 0:
+        #    reg = args.weight_decay * (
+        #        th.sigmoid(model.alphas).sum() + F.softplus(model.repro).sum()
+        #    )
 
         assert loss == loss, (loss, scores, _loss)
 
         # back prop
-        loss.backward()
+        (loss + reg).backward()
         optimizer.step()
 
         # control
@@ -284,7 +305,7 @@ def train(model, cases, regions, optimizer, checkpoint, args):
                 gt = new_cases[:, -3:]
                 maes = th.abs(gt - pred)
             print(
-                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes.mean():.2f} | {model} | {args.loss}"
+                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | Reg {reg:.2f} | MAE {maes.mean():.2f} | {model} | {args.loss}"
             )
             th.save(model.state_dict(), checkpoint)
     print(f"Train MAE,{maes.mean():.2f}")
@@ -346,6 +367,7 @@ def initialize(args):
     device = th.device("cuda" if th.cuda.is_available() else "cpu")
     cases, regions, basedate = load.load_confirmed_csv(args.fdat)
     cases = cases.float().to(device)[:, args.t0 :]
+    print("Timeseries length", cases.size(1))
 
     # cheat to test compatibility
     # if zero (def value) it'll continue
@@ -363,11 +385,27 @@ def initialize(args):
     return cases, regions, basedate, device
 
 
+def _get_arg(args, v, device):
+    if hasattr(args, v):
+        return th.load(getattr(args, v)).to(device).float()
+    else:
+        return None
+
+
 class ARCV(cv.CV):
     def run_train(self, dset, args, checkpoint):
         args.fdat = dset
         cases, regions, _, device = initialize(args)
         tmax = cases.size(1) + 1
+
+        # setup optional features
+        graph = _get_arg(args, "graph", device)
+        features = _get_arg(args, "features", device)
+        time_features = _get_arg(args, "time_features", device)
+        if time_features is not None:
+            time_features = time_features.transpose(0, 1)
+            time_features = time_features.narrow(0, args.t0, cases.size(1))
+            print(time_features.size(), cases.size())
 
         weight_decay = 0
         # setup beta function
@@ -387,23 +425,19 @@ class ARCV(cv.CV):
             beta_net = BetaRBF(regions, dim, "gaussian", tmax)
         elif args.decay.startswith("latent"):
             dim, layers = args.decay[6:].split("_")
-            beta_net = BetaLatent(regions, int(dim), int(layers), tmax)
+            beta_net = BetaLatent(regions, int(dim), int(layers), tmax, time_features)
             weight_decay = args.weight_decay
         else:
             raise ValueError("Unknown beta function")
 
-        # setup base graph
-        if hasattr(args, "graph"):
-            graph = th.load(args.graph).to(device).float()
-        else:
-            graph = None
-
-        func = AR(regions, beta_net, args.loss, args.window, graph).to(device)
+        func = AR(regions, beta_net, args.loss, args.window, graph, features).to(device)
         params = []
+        # exclude = {"nu", "beta.w_feat.weight", "beta.w_feat.bias"}
+        # exclude = {"nu", "alphas", "repro"}
         exclude = {"nu"}
         for name, p in dict(func.named_parameters()).items():
             wd = 0 if name in exclude else weight_decay
-            # print(name, wd)
+            print(name, wd)
             params.append({"params": p, "weight_decay": wd})
         optimizer = optim.AdamW(
             params, lr=args.lr, betas=[args.momentum, 0.999], weight_decay=weight_decay
@@ -419,15 +453,7 @@ class ARCV(cv.CV):
             raise NotImplementedError
 
         cases, regions, basedate, device = initialize(args)
-
         forecast = simulate(model, cases, regions, args, basedate)
-
-        # adj = model.metapopulation_weights().cpu().numpy()
-        # df = pd.DataFrame(adj).round(2)
-        # df.columns = regions
-        # df["regions"] = regions
-        # df.set_index("regions", inplace=True)
-        # print(df)
 
         return forecast
 
