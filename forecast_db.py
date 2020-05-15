@@ -60,18 +60,19 @@ def mk_db():
     res = conn.execute(
         """
     CREATE TABLE IF NOT EXISTS infections(
-        date date,
+        date date NOT NULL,
         loc1 text,
         loc2 text,
         loc3 text,
-        counts real,
-        id text,
-        forecast_date date,
-        UNIQUE(id, forecast_date, date, loc1, loc2, loc3) ON CONFLICT REPLACE
+        counts real NOT NULL,
+        id text NOT NULL,
+        forecast_date date
     );
     """
     )
-
+    conn.execute(
+        "CREATE UNIQUE INDEX unique_infections ON infections(id, forecast_date, date, ifnull(loc1, 0), ifnull(loc2, 0), ifnull(loc3, 0))"
+    )
     conn.execute("CREATE INDEX date_idx ON infections(date);")
     conn.execute("CREATE INDEX loc_idx ON infections(loc1, loc2, loc3);")
     conn.execute("CREATE INDEX id_idx ON infections(id);")
@@ -79,16 +80,18 @@ def mk_db():
     res = conn.execute(
         """
     CREATE TABLE IF NOT EXISTS deaths(
-        date date,
+        date date NOT NULL,
         loc1 text,
         loc2 text,
         loc3 text,
-        counts real,
-        id text,
-        forecast_date date,
-        UNIQUE(id, forecast_date, date, loc1, loc2, loc3) ON CONFLICT REPLACE
+        counts real NOT NULL,
+        id text NOT NULL,
+        forecast_date date
     );
     """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX unique_deaths ON deaths(id, forecast_date, date, ifnull(loc1, 0), ifnull(loc2, 0), ifnull(loc3, 0))"
     )
     conn.execute("CREATE INDEX date_deaths_idx ON deaths(date);")
     conn.execute("CREATE INDEX loc_deaths_idx ON deaths(loc1, loc2, loc3);")
@@ -102,6 +105,12 @@ def cli():
 
 
 LOC_MAP = {"new-jersey": "New Jersey", "nys": "New York"}
+
+
+def to_sql(conn, df, table):
+    df.to_sql("temp____", conn, if_exists="replace", index=False)
+    cols = ", ".join(df.columns)
+    conn.execute(f"INSERT OR REPLACE INTO {table}({cols}) SELECT {cols} FROM temp____")
 
 
 def sync_max_forecasts(conn, remote_dir, local_dir):
@@ -141,7 +150,7 @@ def sync_max_forecasts(conn, remote_dir, local_dir):
                 df["id"] = f"{state}_{ty}"
                 df["loc2"] = LOC_MAP[state]
                 df["loc1"] = "United States"
-                df.to_sql(name="infections", index=False, con=conn, if_exists="append")
+                to_sql(conn, df, "infections")
 
 
 def sync_nyt(conn):
@@ -158,7 +167,7 @@ def sync_nyt(conn):
         df["loc1"] = "United States"
         df["date"] = pandas.to_datetime(df["date"])
         df["id"] = "nyt_ground_truth"
-        df.to_sql(name=metric, index=False, con=conn, if_exists="append")
+        to_sql(conn, df, metric)
 
     dump(get_nyt(metric="cases"), "infections")
     dump(get_nyt(metric="deaths"), "deaths")
@@ -215,9 +224,11 @@ def sync_ihme(conn):
                 )
                 # Filter out only the US states
                 df = states.merge(stats, left_on="loc2", right_on="location_name")[
-                    ["loc2", "date", "deaths_mean"]
+                    ["loc2", "date", "totdea_mean"]
                 ]
-                df = df.dropna().rename(columns={"deaths_mean": "counts"})
+                df = df[~df["totdea_mean"].isnull()].rename(
+                    columns={"totdea_mean": "counts"}
+                )
 
                 # Unfortunately, they don't explictly say what the forecast date is.  Here we try to infer it.
                 if "confirmed_infections" in stats.columns:
@@ -228,8 +239,8 @@ def sync_ihme(conn):
                 else:
                     # continue  # not sure this is sufficient for determining forecast_date
                     # This is a pretty hacky way of determining what the actual forecast date is
-                    # Find the latest date that has all whole number `deaths_mean` and at least
-                    # one non-zero deaths_mean
+                    # Find the latest date that has all whole number `totdea_mean` and at least
+                    # one non-zero totdea_mean
                     temp = df.copy()
                     temp["nonzero"] = temp["counts"] > 0
                     temp["round"] = temp["counts"] % 1 == 0
@@ -241,13 +252,11 @@ def sync_ihme(conn):
                     forecast_date = grouped[grouped["round"] & grouped["nonzero"]][
                         "date"
                     ].max()
-
                 print(forecast_date)
-
                 df["loc1"] = "United States"
                 df["forecast_date"] = forecast_date
                 df["id"] = "IHME"
-                df.to_sql(name="deaths", index=False, con=conn, if_exists="append")
+                to_sql(conn, df, "deaths")
         marker = tree.find("NextMarker").text
         if marker is None:
             break
@@ -282,8 +291,8 @@ def sync_los_alamos(conn):
                 )
             )
         )
-        deaths.to_sql("deaths", index=False, con=conn, if_exists="append")
-        cases.to_sql("infections", index=False, con=conn, if_exists="append")
+        to_sql(conn, deaths, "deaths")
+        to_sql(conn, cases, "infections")
 
 
 def dump_to_csv(conn, distribute):
