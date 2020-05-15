@@ -312,7 +312,9 @@ class MatrixCCV(cv.CV):
             raise NotImplementedError
         cases, regions, basedate, device = initialize(args)
         forecast = simulate(model, cases, regions, args, basedate)
-        return forecast
+        gt = pd.DataFrame(cases.cpu().numpy().transpose(), columns=regions)
+        gt.index = pd.date_range(end=basedate, periods=len(gt))
+        return pd.concat([gt, forecast]).sort_index().diff().loc[forecast.index]
 
 
 # needed in cv.py

@@ -345,9 +345,12 @@ def simulate(model, cases, regions, population, odeint, args, dstart=None):
 
 def initialize(args):
     device = th.device("cuda" if th.cuda.is_available() else "cpu")
-    # cases, regions, basedate = load.load_confirmed_by_region(args.fdat)
-    cases, regions, basedate = load.load_confirmed_csv(args.fdat)
-    populations, _ = load.load_populations_by_region(args.fpop, regions)
+    cases_df = load.load_confirmed_by_region(args.fdat, regions=None)
+    regions = cases_df.columns
+    basedate = cases_df.index.max()
+    cases = th.from_numpy(cases_df.values).transpose(1, 0)
+    populations = load.load_populations_by_region(args.fpop, regions=regions)
+    populations = populations["population"].values
     # initialize at time t0
     cases = cases.float().to(device)[:, args.t0 :]
     populations = th.from_numpy(np.array(populations))
@@ -422,9 +425,9 @@ class MetaSIRCV(cv.CV):
         df.columns = regions
         df["regions"] = regions
         df.set_index("regions", inplace=True)
-        print(df)
-
-        return forecast
+        gt = pd.DataFrame(cases.cpu().numpy().transpose(), columns=regions)
+        gt.index = pd.date_range(end=basedate, periods=len(gt))
+        return pd.concat([gt, forecast]).sort_index().diff().loc[forecast.index]
 
 
 CV_CLS = MetaSIRCV

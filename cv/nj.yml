@@ -47,6 +47,8 @@ sir:
     # number of days to keep for forecast
     keep: *vdays
 mhp:
+  preprocess:
+    smooth: 5
   data: data/new-jersey/timeseries.h5
   output: mhp_model.bin
   resources:

@@ -6,7 +6,7 @@ import os
 import torch as th
 import yaml
 from argparse import Namespace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 import common
 import metrics
@@ -22,6 +22,7 @@ import click
 from lib.click_lib import DefaultGroup
 import tempfile
 import shutil
+import load
 
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
@@ -36,6 +37,12 @@ class CV:
 
     def run_train(self, dset, model_params, model_out):
         ...
+
+    def preprocess(self, dset: str, preprocessed: str, preprocess_args: Dict[str, Any]):
+        if "smooth" in preprocess_args:
+            common.smooth(dset, preprocessed, preprocess_args["smooth"])
+        else:
+            shutil.copy(dset, preprocessed)
 
     def model_selection(self, basedir: str) -> List[BestRun]:
         best_run, best_MAE = None, float("inf")
@@ -61,7 +68,7 @@ def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
 
     # setup input/output paths
     dset = cfg[module]["data"]
-    val_in = _path("filtered_" + os.path.basename(dset))
+    val_in = _path(prefix + "filtered_" + os.path.basename(dset))
     val_out = _path(prefix + cfg["validation"]["output"])
     cfg[module]["train"]["fdat"] = val_in
 
@@ -72,18 +79,34 @@ def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
 
     filter_validation_days(dset, val_in, cfg["validation"]["days"])
 
+    # apply data pre-processing
+    preprocessed = _path(prefix + "preprocessed_" + os.path.basename(dset))
+    mod.preprocess(val_in, preprocessed, cfg[module].get("preprocess", {}))
+
     # -- train --
     train_params = Namespace(**cfg[module]["train"])
-    model = mod.run_train(val_in, train_params, _path(prefix + cfg[module]["output"]))
+    model = mod.run_train(
+        preprocessed, train_params, _path(prefix + cfg[module]["output"])
+    )
 
     # -- simulate --
     with th.no_grad():
         sim_params = cfg[module].get("simulate", {})
-        df_forecast = mod.run_simulate(
-            val_in, train_params, model, sim_params=sim_params
+        # Returns the number of new cases for each day
+        df_forecast_deltas = mod.run_simulate(
+            preprocessed, train_params, model, sim_params=sim_params
         )
+        gt = metrics.load_ground_truth(dset)
+        # Ground truth for the day before our first forecast
+        prev_day = gt.loc[[df_forecast_deltas.index.min() - timedelta(days=1)]]
+        # Stack the first day ground truth on top of the forecasts
+        common_cols = set(df_forecast_deltas.columns).intersection(set(gt.columns))
+        stacked = pd.concat([prev_day[common_cols], df_forecast_deltas[common_cols]])
+        # Cumulative sum to compute total cases for the forecasts
+        df_forecast = stacked.sort_index().cumsum().iloc[1:]
+
     print(f"Storing validation in {val_out}")
-    df_forecast.to_csv(val_out)
+    df_forecast.to_csv(val_out, index_label="date")
 
     # -- metrics --
     if cfg["validation"]["days"] > 0:

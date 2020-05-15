@@ -46,8 +46,6 @@ class MHPCV(cv.CV):
         simulator = mdl.mk_simulator()
         t_obs = ts[-1]
 
-        ground_truth = load_ground_truth(mdl_opt.dset)
-
         sim = simulate_tl_mhp(
             t_obs,
             sim_params["days"],
@@ -59,12 +57,10 @@ class MHPCV(cv.CV):
             max_events=sim_params["max_events"],
         )
 
-        sim = sim.set_index("county").transpose().sort_index()[ground_truth.columns]
+        sim = sim.set_index("county").transpose().sort_index()
         deltas = sim.diff(axis=0).fillna(0)
-        forecast = ground_truth[deltas.columns].loc[basedate] + deltas
-        forecast.index = pandas.date_range(start=basedate, periods=len(forecast))
-        forecast.index.name = "date"
-        return forecast[forecast.index > basedate]
+        deltas.index = pandas.date_range(start=basedate, periods=len(deltas))
+        return deltas[deltas.index > basedate]
 
 
 CV_CLS = MHPCV
