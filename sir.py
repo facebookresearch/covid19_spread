@@ -199,7 +199,8 @@ class SIRCV(cv.CV):
         # set dates
         df["date"] = _get_prediction_dates(cases_df, keep)
         df = df.set_index("date")
-        return df
+        # Return new cases per day (instead of cumulative cases)
+        return pd.concat([cases_df, df]).sort_index().diff().loc[df.index]
 
 
 CV_CLS = SIRCV

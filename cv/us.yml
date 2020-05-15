@@ -79,7 +79,7 @@ sir:
   data: data/usa/data.csv
   train:
     fpop: *fpop
-    window: 1
+    window: 10
     recovery_days: 10
     distancing_reduction: 0.8
     days: *vdays
@@ -107,4 +107,27 @@ dar:
     niters: [15000]
     loss: nb
     t0: 10
+    test_on: *vdays
+matrix:
+  output: mc_model.bin
+   resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 30
+  train:
+    fpop: *fpop
+    data: data/usa/data.csv
+    decay: exp
+    epochs: 40000
+    bs: 100000 # 10000
+    eps: [0.00001]
+    lr: [0.0005]
+    momentum: [0.99]
+    weight_decay: [0.95]
+    fit_on: [14]
+    k_avg: [10]
+    n_embedding: [250]
+    seed: [1]
+    t0: [0] #, 10] ######
     test_on: *vdays

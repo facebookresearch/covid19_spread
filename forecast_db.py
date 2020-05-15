@@ -18,7 +18,7 @@ import requests
 from xml.etree import ElementTree
 
 
-DB = "/checkpoint/mattle/covid19/forecast.db"
+DB = f'/private/home/{os.environ["USER"]}/covid19_spread/forecasts/forecast.db'
 
 
 class MaxBy:
@@ -60,41 +60,41 @@ def mk_db():
     res = conn.execute(
         """
     CREATE TABLE IF NOT EXISTS infections(
-        date date,
+        date date NOT NULL,
         loc1 text,
         loc2 text,
         loc3 text,
-        counts real,
-        id text,
-        forecast_date date,
-        UNIQUE(id, forecast_date, date, loc1, loc2, loc3) ON CONFLICT REPLACE
+        counts real NOT NULL,
+        id text NOT NULL,
+        forecast_date date
     );
     """
     )
+    conn.execute(
+        "CREATE UNIQUE INDEX unique_infections ON infections(id, forecast_date, date, ifnull(loc1, 0), ifnull(loc2, 0), ifnull(loc3, 0))"
+    )
     conn.execute("CREATE INDEX date_idx ON infections(date);")
-    conn.execute("CREATE INDEX loc_1_idx ON infections(loc1);")
-    conn.execute("CREATE INDEX loc_2_idx ON infections(loc2);")
-    conn.execute("CREATE INDEX loc_3_idx ON infections(loc3);")
+    conn.execute("CREATE INDEX loc_idx ON infections(loc1, loc2, loc3);")
     conn.execute("CREATE INDEX id_idx ON infections(id);")
     conn.execute("CREATE INDEX forecast_date_idx ON infections(forecast_date);")
     res = conn.execute(
         """
     CREATE TABLE IF NOT EXISTS deaths(
-        date date,
+        date date NOT NULL,
         loc1 text,
         loc2 text,
         loc3 text,
-        counts real,
-        id text,
-        forecast_date date,
-        UNIQUE(id, forecast_date, date, loc1, loc2, loc3) ON CONFLICT REPLACE
+        counts real NOT NULL,
+        id text NOT NULL,
+        forecast_date date
     );
     """
     )
+    conn.execute(
+        "CREATE UNIQUE INDEX unique_deaths ON deaths(id, forecast_date, date, ifnull(loc1, 0), ifnull(loc2, 0), ifnull(loc3, 0))"
+    )
     conn.execute("CREATE INDEX date_deaths_idx ON deaths(date);")
-    conn.execute("CREATE INDEX loc_1_deaths_idx ON deaths(loc1);")
-    conn.execute("CREATE INDEX loc_2_deaths_idx ON deaths(loc2);")
-    conn.execute("CREATE INDEX loc_3_deaths_idx ON deaths(loc3);")
+    conn.execute("CREATE INDEX loc_deaths_idx ON deaths(loc1, loc2, loc3);")
     conn.execute("CREATE INDEX id_deaths_idx ON deaths(id);")
     conn.execute("CREATE INDEX forecast_date_deaths_idx ON deaths(forecast_date);")
 
@@ -105,6 +105,12 @@ def cli():
 
 
 LOC_MAP = {"new-jersey": "New Jersey", "nys": "New York"}
+
+
+def to_sql(conn, df, table):
+    df.to_sql("temp____", conn, if_exists="replace", index=False)
+    cols = ", ".join(df.columns)
+    conn.execute(f"INSERT OR REPLACE INTO {table}({cols}) SELECT {cols} FROM temp____")
 
 
 def sync_max_forecasts(conn, remote_dir, local_dir):
@@ -144,13 +150,7 @@ def sync_max_forecasts(conn, remote_dir, local_dir):
                 df["id"] = f"{state}_{ty}"
                 df["loc2"] = LOC_MAP[state]
                 df["loc1"] = "United States"
-                state_agg = (
-                    df.groupby(["loc2", "date", "loc1", "id", "forecast_date"])
-                    .counts.sum()
-                    .reset_index()
-                )
-                df = pandas.concat([df, state_agg])
-                df.to_sql(name="infections", index=False, con=conn, if_exists="append")
+                to_sql(conn, df, "infections")
 
 
 def sync_nyt(conn):
@@ -167,12 +167,7 @@ def sync_nyt(conn):
         df["loc1"] = "United States"
         df["date"] = pandas.to_datetime(df["date"])
         df["id"] = "nyt_ground_truth"
-        # Aggregate to state level
-        state = df.groupby(["loc1", "loc2", "date", "id"]).counts.sum().reset_index()
-        # Aggregate to country level
-        country = df.groupby(["loc1", "date", "id"]).counts.sum().reset_index()
-        df = pandas.concat([df, state, country])
-        df.to_sql(name=metric, index=False, con=conn, if_exists="append")
+        to_sql(conn, df, metric)
 
     dump(get_nyt(metric="cases"), "infections")
     dump(get_nyt(metric="deaths"), "deaths")
@@ -188,9 +183,6 @@ def get_ihme_file(dir):
         csvs = [f for f in csvs if "hospitalization" in os.path.basename(f).lower()]
     if len(csvs) == 1:
         return csvs[0]
-    import pdb
-
-    pdb.set_trace()
     if len(csvs) == 0:
         raise ValueError("No CSVs found in IHME zip!")
     else:
@@ -230,10 +222,13 @@ def sync_ihme(conn):
                 stats = pandas.read_csv(stats_file).rename(
                     columns={"date_reported": "date"}
                 )
+                # Filter out only the US states
                 df = states.merge(stats, left_on="loc2", right_on="location_name")[
-                    ["loc2", "date", "deaths_mean"]
+                    ["loc2", "date", "totdea_mean"]
                 ]
-                df = df.dropna().rename(columns={"deaths_mean": "counts"})
+                df = df[~df["totdea_mean"].isnull()].rename(
+                    columns={"totdea_mean": "counts"}
+                )
 
                 # Unfortunately, they don't explictly say what the forecast date is.  Here we try to infer it.
                 if "confirmed_infections" in stats.columns:
@@ -242,32 +237,102 @@ def sync_ihme(conn):
                         "date"
                     ].max()
                 else:
-                    continue  # not sure this is sufficient for determining forecast_date
+                    # continue  # not sure this is sufficient for determining forecast_date
                     # This is a pretty hacky way of determining what the actual forecast date is
-                    # Find the latest date that has all whole number `deaths_mean` and at least
-                    # one non-zero deaths_mean
-                    stats["deaths_even"] = stats["deaths_mean"] % 1 == 0
-                    stats["deaths_gt_0"] = stats["deaths_mean"] > 0
-                    grouped = stats.groupby("date")["deaths_even"].all().reset_index()
-                    grouped = grouped.merge(
-                        stats.groupby("date")["deaths_gt_0"].any().reset_index()
-                    )
-                    forecast_date = grouped[
-                        grouped["deaths_even"] & grouped["deaths_gt_0"]
-                    ]["date"].max()
-                print(forecast_date)
+                    # Find the latest date that has all whole number `totdea_mean` and at least
+                    # one non-zero totdea_mean
+                    temp = df.copy()
+                    temp["nonzero"] = temp["counts"] > 0
+                    temp["round"] = temp["counts"] % 1 == 0
 
+                    grouped = temp.groupby("date")["round"].all().reset_index()
+                    grouped = grouped.merge(
+                        temp.groupby("date")["nonzero"].any().reset_index()
+                    )
+                    forecast_date = grouped[grouped["round"] & grouped["nonzero"]][
+                        "date"
+                    ].max()
+                print(forecast_date)
                 df["loc1"] = "United States"
                 df["forecast_date"] = forecast_date
                 df["id"] = "IHME"
-                df.to_sql(name="deaths", index=False, con=conn, if_exists="append")
+                to_sql(conn, df, "deaths")
         marker = tree.find("NextMarker").text
         if marker is None:
             break
 
 
+def sync_los_alamos(conn):
+    url = "https://covid-19.bsvgateway.org"
+    req = requests.get(f"{url}/forecast/forecast_metadata.json").json()
+
+    def fmt(df_):
+
+        df = df_[["dates", "q.50", "state"]].rename(
+            columns={"dates": "date", "q.50": "counts", "state": "loc2"}
+        )
+        df["loc1"] = "United States"
+        df["forecast_date"] = df_["fcst_date"].unique().item()
+        df["id"] = "los_alamos"
+        return df
+
+    for date in req["us"]["files"].keys():
+        cases = fmt(
+            pandas.read_csv(
+                os.path.join(
+                    url, req["us"]["files"][date]["quantiles_confirmed"].lstrip("./")
+                )
+            )
+        )
+        deaths = fmt(
+            pandas.read_csv(
+                os.path.join(
+                    url, req["us"]["files"][date]["quantiles_deaths"].lstrip("./")
+                )
+            )
+        )
+        to_sql(conn, deaths, "deaths")
+        to_sql(conn, cases, "infections")
+
+
+def dump_to_csv(conn, distribute):
+    basedir = f'/checkpoint/{os.environ["USER"]}/covid19/csvs'
+
+    def f(metric):
+        q = f"SELECT counts, loc2, loc3, date, forecast_date, id FROM {metric}"
+        df = pandas.read_sql(q, conn)
+        for (model, forecast_date), group in df.fillna("").groupby(
+            ["id", "forecast_date"]
+        ):
+            if forecast_date != "":
+                forecast_date = "_" + forecast_date
+
+            group = group[group["date"] >= group["forecast_date"]].copy()
+
+            group["location"] = group.apply(
+                lambda x: x.loc2 + (", " + x.loc3 if x.loc3 else ""), axis=1
+            )
+            group = group.pivot_table(
+                columns=["location"], values=["counts"], index="date"
+            )
+            group.columns = group.columns.get_level_values(-1)
+            outfile = os.path.join(basedir, metric, model, f"counts{forecast_date}.csv")
+            os.makedirs(os.path.dirname(outfile), exist_ok=True)
+            group.to_csv(outfile)
+
+    f("deaths")
+    f("infections")
+    check_call(["rsync", "-av", basedir, f"devfairh1:{os.path.dirname(basedir)}"])
+
+
 @click.command()
-def sync_forecasts():
+@click.option(
+    "--distribute",
+    type=click.BOOL,
+    default=False,
+    help="Distribute across clusters (H1/H2)",
+)
+def sync_forecasts(distribute=False):
     if not os.path.exists(DB):
         mk_db()
     conn = sqlite3.connect(DB)
@@ -277,14 +342,12 @@ def sync_forecasts():
     sync_max_forecasts(conn, remote_dir, local_dir)
     sync_nyt(conn)
     sync_ihme(conn)
-
-    check_call(
-        [
-            "scp",
-            f'/checkpoint/{os.environ["USER"]}/covid19/forecast.db',
-            f'devfairh1:/checkpoint/{os.environ["USER"]}/covid19/forecast.db',
-        ]
-    )
+    sync_los_alamos(conn)
+    conn.execute("REINDEX;")
+    if distribute:
+        DEST_DB = f"devfairh1:/private/home/{os.environ['USER']}/covid19_spread/forecasts/forecast.db"
+        check_call(["scp", DB, DEST_DB])
+    dump_to_csv(conn, distribute)
 
 
 if __name__ == "__main__":

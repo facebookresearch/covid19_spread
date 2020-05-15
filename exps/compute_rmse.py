@@ -67,8 +67,9 @@ def rmse(days, pth, with_ks=True, trials=10, prefix="", max_events=-1):
     with h5py.File(mdl_opt.dset, "r") as hf:
         assert "ground_truth" in hf.keys()
         ground_truth = pandas.DataFrame(hf["ground_truth"][:])
+        basedate = hf.attrs.get("gt_basedate", hf.attrs["basedate"])
         ground_truth.columns = pandas.date_range(
-            end=hf.attrs["gt_basedate"], periods=ground_truth.shape[1]
+            end=basedate, periods=ground_truth.shape[1]
         ).astype(str)
         ground_truth["county"] = hf["nodes"][:]
 

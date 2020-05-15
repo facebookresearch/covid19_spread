@@ -11,10 +11,20 @@ import submitit
 import sys
 import shutil
 from subprocess import check_output
+from functools import partial
+from exps.compute_rmse import rmse
 
 
-def train_and_forecast(name, **kwargs):
-    run_experiment(**kwargs)
+def train_and_forecast(name, forecast_only=False, **kwargs):
+
+    if forecast_only:
+        chkpnt_pth = os.path.join(kwargs["folder"], "model_full_data.bin.best")
+        assert os.path.exists(chkpnt_pth), f"Missing model checkpoing: {chkpnt_pth}!"
+        prefix = "" if kwargs["crossval"] else "full_data_"
+        rmse(kwargs["days"], chkpnt_pth, prefix=prefix)
+
+    else:
+        run_experiment(**kwargs)
     user = os.environ["USER"]
     forecast_dir = f"/checkpoint/{user}/covid19/forecasts/usa"
     os.makedirs(forecast_dir, exist_ok=True)
@@ -25,17 +35,22 @@ def train_and_forecast(name, **kwargs):
     df.to_csv(forecast_dir + f"/{name}_forecast_{basedate}.csv")
 
 
-def launch_job(job_dir, name, launched):
+def launch_job(job_dir, name, launched, forecast_only=False):
     if job_dir in launched:
         return launched
 
     executor = submitit.AutoExecutor(folder=job_dir)
     executor.update_parameters(
-        name=name, gpus_per_node=1, cpus_per_task=3, mem_gb=20, timeout_min=12 * 60,
+        name=name,
+        gpus_per_node=1 if not forecast_only else 0,
+        cpus_per_task=3,
+        mem_gb=20,
+        timeout_min=12 * 60,
     )
     params = json.load(open(os.path.join(job_dir, "params.json")))
     job = executor.submit(
         train_and_forecast,
+        forecast_only=forecast_only,
         name=name,
         grid={},
         days=7,
@@ -48,7 +63,7 @@ def launch_job(job_dir, name, launched):
     return launched
 
 
-def launch_best(sweep_dir):
+def launch_best(sweep_dir, forecast_only=False):
     results = []
     for d in os.listdir(sweep_dir):
         if re.match("\d+_\d+", d):
@@ -67,27 +82,29 @@ def launch_best(sweep_dir):
     df = pandas.DataFrame(results)
     print(f"Evaluated {len(df)} jobs")
 
+    launch = partial(launch_job, forecast_only=forecast_only)
+
     # Launch job by best MAE
     mae_cols = [c for c in df.columns if re.match("day_\d+_mean", c)]
     mae_col = sorted(mae_cols, key=lambda x: int(re.search("\d+", x).group(0)))[-1]
-    launched = launch_job(
+    launched = launch(
         os.path.dirname(df.sort_values(by=mae_col).iloc[0].pth),
         f"best_{mae_col}",
         set(),
     )
 
     # Launch job by best KS
-    launched = launch_job(
+    launched = launch(
         os.path.dirname(df.sort_values(by="ks").iloc[0].pth), "best_ks", launched
     )
 
     # Launch job by best pval
-    launched = launch_job(
+    launched = launch(
         os.path.dirname(df.sort_values(by="pval").iloc[-1].pth), "best_pval", launched
     )
 
     # Launch job by best LL
-    launched = launch_job(
+    launched = launch(
         os.path.dirname(df.sort_values(by="best_ll").iloc[-1].pth), "best_ll", launched
     )
 
@@ -97,7 +114,12 @@ def launch_best(sweep_dir):
 def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("sweep_dir")
+    parser.add_argument("-forecast-only", action="store_true", default=False)
     opt = parser.parse_args(args)
+
+    if opt.forecast_only:
+        launch_best(opt.sweep_dir, opt.forecast_only)
+        return
 
     dependent_jobs = []
     for d in os.listdir(opt.sweep_dir):
@@ -105,8 +127,6 @@ def main(args):
             dependent_jobs.append(d)
 
     dep = f'afterany:{dependent_jobs[0].strip().split("_")[0]}'
-
-    # dep = ','.join([f'afterany:{d}' for d in dependent_jobs])
 
     executor = submitit.AutoExecutor(folder=opt.sweep_dir)
     executor.update_parameters(

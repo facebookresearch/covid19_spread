@@ -92,7 +92,7 @@ if __name__ == "__main__":
     # construct experiment parameters
     grid = {
         "dim": [20, 30, 50],
-        "lr": [0.0005, 0.001, 0.01, 0.02],
+        "lr": [0.001, 0.01, 0.02],
         "momentum": [0.99],
         "scale": [0.8, 1.0, 1.2],
         "optim": ["adam"],
@@ -103,8 +103,10 @@ if __name__ == "__main__":
         "timescale": [1.0, 0.75, 0.5, 0.25],
     }
     if opt.deaths:
-        grid["max-events"] = [100000]
+        grid["max-events"] = [50000, 100000]
+        grid["timescale"] = [1.0, 1.1, 1.2]
         grid["epochs"] = [200]
+        grid["const-beta"] = [-1]
         opt.max_sim_events = 200000 if opt.max_sim_events < 0 else opt.max_sim_events
         grid["dset"] = [
             os.path.realpath(

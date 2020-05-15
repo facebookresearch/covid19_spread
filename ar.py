@@ -319,8 +319,6 @@ def simulate(model, cases, regions, args, dstart=None):
 
     test_preds = model.simulate(tmax, new_cases, args.test_on)
     test_preds = test_preds.cpu().numpy()
-    test_preds = np.cumsum(test_preds, axis=1)
-    test_preds = test_preds + cases.narrow(1, -1, 1).cpu().numpy()
 
     df = pd.DataFrame(test_preds.T, columns=regions)
     if dstart is not None:
