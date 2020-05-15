@@ -11,17 +11,29 @@ prediction_interval_:
   output_mean: us_mean.csv
   output_std: us_std.csv
 backfill:
-  - 2020-04-05
-  - 2020-04-08
+  # LANL
+  #- 2020-04-05
+  #- 2020-04-08
   - 2020-04-12
   - 2020-04-15
   - 2020-04-19
   - 2020-04-22
   - 2020-04-26
   - 2020-04-29
-  - 2020-05-01
   - 2020-05-03
   - 2020-05-06
+  # IHME
+  - 2020-05-01
+  # GLEAM
+  #- 2020-04-13
+  #- 2020-04-20
+  #- 2020-04-27
+  #- 2020-05-04
+  # MIT
+  #- 2020-04-22
+  #- 2020-04-27
+  #- 2020-04-30
+  #- 2020-05-04
 metasir:
   data: data/usa/data.csv
   output: metasir_model.bin
@@ -47,13 +59,17 @@ ar:
     timeout: 30
   train:
     fpop: *fpop
+    # features: data/usa/county_features.pt
+    # time_features: data/usa/policy_features.pt
     # graph: *fgraph
-    decay: [latent2_1, latent4_1, latent8_1, latent16_1]
+    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
+    decay: [latent2_1]
     window: [10, 15, 20, 25]
-    lr: [0.001, 0.005]
+    lr: [0.001]
     momentum: [0.9]
-    weight_decay: 0
-    niters: 20000
+    weight_decay: [0.1]
+    # weight_decay: [0.01]
+    niters: [20000]
     loss: nb
     t0: 10
     test_on: *vdays
@@ -69,3 +85,26 @@ sir:
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
+dar:
+  output: dar_model.bin
+  data: data/usa/data_deaths.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 30
+  train:
+    fpop: *fpop
+    # features: data/usa/county_features.pt
+    # time_features: data/usa/policy_features.pt
+    # graph: *fgraph
+    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
+    decay: [latent32_1]
+    window: [10, 15, 20, 25]
+    lr: [0.005]
+    momentum: [0.99]
+    weight_decay: [0]
+    niters: [15000]
+    loss: nb
+    t0: 10
+    test_on: *vdays
