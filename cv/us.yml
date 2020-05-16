@@ -57,6 +57,8 @@ ar:
     cpus: 1
     memgb: 15
     timeout: 30
+  preprocess:
+    smooth: 5
   train:
     fpop: *fpop
     # features: data/usa/county_features.pt
@@ -110,7 +112,7 @@ dar:
     test_on: *vdays
 matrix:
   output: mc_model.bin
-   resources:
+  resources:
     gpus: 1
     cpus: 1
     memgb: 15
