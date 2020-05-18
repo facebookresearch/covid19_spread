@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import sys
 import load
+from scipy.optimize import minimize
 
 from typing import List
 from datetime import timedelta, datetime
@@ -80,10 +81,10 @@ def simulate(
 
     meta = pd.DataFrame(
         {
-            "Doubling time": [round(doubling_time, 3)],
-            "R0": [round(beta / gamma * S0, 3)],
-            "beta": [round(beta * S0, 3)],
-            "gamma": [round(gamma, 3)],
+            "Doubling time": [np.around(doubling_time, decimals=3)],
+            "R0": [np.around(beta / gamma * S0, 3)],
+            "beta": [np.around(beta * S0, 3)],
+            "gamma": [np.around(gamma, 3)],
             "Peak days": [peak_days],
             "Peak cases": [peak_cases],
             # "MAE": [np.mean(mae)],
@@ -110,19 +111,43 @@ def estimate_growth_const(cases, window=None):
     growth_rate = np.exp(np.diff(np.log(cases))) - 1
     if window is not None:
         growth_rate = growth_rate[-window:]
-    doubling_time = np.log(2) / growth_rate
-    # FIXME: find a better way to account for infinite doubling times when
-    # cases have repeated values. For example, [0, 2, 10, 10, 15]
-    # Right now, infinite doubling times are excluded from the numerator
-    # of the mean calculation
-    doubling_time = _finite_mean(doubling_time)
+    doubling_times = np.log(2) / growth_rate
+
+    # impute mean for nan or inf
+    doubling_time = mean_doubling(doubling_times)
     return doubling_time
 
 
-def _finite_mean(values):
-    """Computes the mean while excluding infinity from the numerator"""
-    values_without_inf = values[np.isfinite(values)]
-    return values_without_inf.sum() / values.size
+def mean_doubling(doubling_times, cap=50):
+    """Returns mean accounting for inf and nans.
+    Imputes the mean for nans and returns the cap if 
+    doubling times contain infinity the mean is nan
+    """
+    doubling_time = doubling_times[np.isfinite(doubling_times)].mean()
+    if np.isnan(doubling_time) or any(np.isinf(doubling_times)):
+        return cap
+    return doubling_time
+
+
+def loss(
+    doubling_time, cases, population, recovery_days, distancing_reduction, days, keep
+):
+    _, infs = simulate(
+        cases[:keep],
+        population,
+        doubling_time,
+        recovery_days,
+        distancing_reduction,
+        days,
+        keep,
+    )
+    # prediction  = infected + recovered to match cases count
+    infected = infs["infected"].values
+    recovered = infs["recovered"].values
+    prediction = infected + recovered
+    loss_value = (cases[-keep:] - prediction).mean()
+    print("optimization loss value", loss_value)
+    return loss_value
 
 
 class SIRCV(cv.CV):
