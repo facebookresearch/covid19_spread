@@ -83,7 +83,7 @@ sir:
     fpop: *fpop
     window: 10
     recovery_days: 10
-    distancing_reduction: 0.8
+    distancing_reduction: 0.9
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
