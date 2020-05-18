@@ -96,7 +96,7 @@ def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
         df_forecast_deltas = mod.run_simulate(
             preprocessed, train_params, model, sim_params=sim_params
         )
-        gt = metrics.load_ground_truth(dset)
+        gt = metrics.load_ground_truth(val_in)
         # Ground truth for the day before our first forecast
         prev_day = gt.loc[[df_forecast_deltas.index.min() - timedelta(days=1)]]
         # Stack the first day ground truth on top of the forecasts
