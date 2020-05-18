@@ -6,12 +6,7 @@ from warnings import simplefilter
 # ignore all future warnings
 simplefilter(action="ignore", category=FutureWarning)
 
-# HACK: set path to timelord submodule
 import sys
-
-sys.path.insert(0, "./timelord")
-sys.path.insert(0, ".")
-
 import argparse
 import numpy as np
 import pandas as pd
