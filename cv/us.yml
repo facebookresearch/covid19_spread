@@ -63,9 +63,6 @@ sir:
   data: data/usa/data.csv
   train:
     fpop: *fpop
-    # window: [10, 15, 20, 25]
-    # recovery_days: [10, 12, 14]
-    # distancing_reduction: [0.2, 0.5, 0.75, 0.8, 0.9]
     window: 10
     recovery_days: 10
     distancing_reduction: 0.9

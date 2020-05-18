@@ -5,10 +5,9 @@ import numpy as np
 import pandas as pd
 import sys
 import load
-from scipy.optimize import minimize
 
 from typing import List
-from datetime import timedelta, datetime
+from datetime import timedelta
 import cv
 
 
@@ -127,27 +126,6 @@ def mean_doubling(doubling_times, cap=50):
     if np.isnan(doubling_time) or any(np.isinf(doubling_times)):
         return cap
     return doubling_time
-
-
-def loss(
-    doubling_time, cases, population, recovery_days, distancing_reduction, days, keep
-):
-    _, infs = simulate(
-        cases[:keep],
-        population,
-        doubling_time,
-        recovery_days,
-        distancing_reduction,
-        days,
-        keep,
-    )
-    # prediction  = infected + recovered to match cases count
-    infected = infs["infected"].values
-    recovered = infs["recovered"].values
-    prediction = infected + recovered
-    loss_value = (cases[-keep:] - prediction).mean()
-    print("optimization loss value", loss_value)
-    return loss_value
 
 
 class SIRCV(cv.CV):
