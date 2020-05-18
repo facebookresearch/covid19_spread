@@ -42,21 +42,24 @@ regions = {
 }
 
 
-def fetch_data():
+def fetch_data(metric: str = "cases"):
+    assert metric in {"deaths", "cases"}
     URL = "https://cnecovid.isciii.es/covid19/resources/agregados.csv"
     df = pandas.read_csv(URL, encoding="latin1", parse_dates=["FECHA"], dayfirst=True)
     df = df[~df["FECHA"].isnull()]
     df["loc"] = df["CCAA"].apply(lambda x: "Spain_" + regions[x])
-    df = df.rename(columns={"FECHA": "date", "PCR+": "cases"})
-    return df.pivot_table(values="cases", columns="loc", index="date").sort_index()
+    df = df.rename(columns={"FECHA": "date", "PCR+": "cases", "Fallecidos": "deaths"})
+    return df.pivot_table(values=metric, columns="loc", index="date").sort_index()
 
 
 def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--smooth", type=int, default=1)
+    parser.add_argument("--metric", choices=["cases", "deaths"], default="cases")
     opt = parser.parse_args()
 
-    df = fetch_data()
+    df = fetch_data(opt.metric)
+    df.transpose().to_csv(f"data_{opt.metric}.csv", index_label="region")
 
     counter = itertools.count()
     loc_map = ddict(counter.__next__)

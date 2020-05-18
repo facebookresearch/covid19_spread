@@ -47,7 +47,6 @@ def fetch_data(region: Region = Region.province):
         # Some entries say "In fase di definizione/aggiornamento", which Google translate
         # says: "Being defined / updated".  Not sure what this means, dropping for now...
         df = df[df["denominazione_provincia"] != "In fase di definizione/aggiornamento"]
-
     return df.pivot_table(index="date", columns="location", values="cases")
 
 
@@ -59,7 +58,11 @@ def main(args):
     )
     opt = parser.parse_args()
     data = fetch_data(getattr(Region, opt.resolution))
-
+    transposed = data.transpose()
+    transposed.columns = [str(c.date()) for c in transposed.columns]
+    transposed[sorted(transposed.columns)].to_csv(
+        "data_cases.csv", index_label="region"
+    )
     counter = itertools.count()
     loc_map = defaultdict(counter.__next__)
     episodes = mk_episode(data, data.columns, loc_map, opt.smooth)
