@@ -44,10 +44,10 @@ def fetch_data(region: Region = Region.province):
         df["location"] = (
             "Italy_" + df["denominazione_regione"] + "_" + df["denominazione_provincia"]
         )
+        # Some entries say "In fase di definizione/aggiornamento", which Google translate
+        # says: "Being defined / updated".  Not sure what this means, dropping for now...
+        df = df[df["denominazione_provincia"] != "In fase di definizione/aggiornamento"]
 
-    # Some entries say "In fase di definizione/aggiornamento", which Google translate
-    # says: "Being defined / updated".  Not sure what this means, dropping for now...
-    df = df[df["denominazione_provincia"] != "In fase di definizione/aggiornamento"]
     return df.pivot_table(index="date", columns="location", values="cases")
 
 
@@ -58,16 +58,12 @@ def main(args):
         "--resolution", choices=["region", "province"], default="province"
     )
     opt = parser.parse_args()
-    data = fetch_data(opt.resolution)
+    data = fetch_data(getattr(Region, opt.resolution))
 
     counter = itertools.count()
     loc_map = defaultdict(counter.__next__)
     episodes = mk_episode(data, data.columns, loc_map, opt.smooth)
     to_h5(data, "timeseries.h5", loc_map, [episodes])
-
-    import pdb
-
-    pdb.set_trace()
 
 
 if __name__ == "__main__":
