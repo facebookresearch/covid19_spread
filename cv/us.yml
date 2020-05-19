@@ -57,8 +57,8 @@ ar:
     cpus: 1
     memgb: 15
     timeout: 30
-  preprocess:
-    smooth: 5
+  #preprocess:
+  #  smooth: 5
   train:
     fpop: *fpop
     # features: data/usa/county_features.pt
@@ -101,25 +101,25 @@ dar:
     # time_features: data/usa/policy_features.pt
     # graph: *fgraph
     # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    decay: [latent32_1]
-    window: [10, 15, 20, 25]
-    lr: [0.005]
+    decay: [latent16_1]
+    window: [15, 10, 20, 25]
+    lr: [0.001, 0.005]
     momentum: [0.99]
-    weight_decay: [0]
-    niters: [15000]
+    weight_decay: [0.1, 0.01, 0]
+    niters: [20000]
     loss: nb
     t0: 10
     test_on: *vdays
 matrix:
   output: mc_model.bin
+  fpop: *fpop
+  data: data/usa/data.csv
   resources:
     gpus: 1
     cpus: 1
     memgb: 15
     timeout: 30
   train:
-    fpop: *fpop
-    data: data/usa/data.csv
     decay: exp
     epochs: 40000
     bs: 100000 # 10000
