@@ -91,7 +91,7 @@ class Recurring:
                 user = os.environ["USER"]
                 script = os.path.realpath(__file__)
                 schedule = self.schedule()
-                logfile = os.path.join(self.script_dir, ".launch_nj_sweep.log")
+                logfile = os.path.join(self.script_dir, ".launch_sweep.log")
                 home = os.path.expanduser("~")
                 cmd = [
                     "source /etc/profile.d/modules.sh",
