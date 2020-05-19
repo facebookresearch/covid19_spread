@@ -10,7 +10,7 @@ from collections import defaultdict as ddict
 from itertools import count
 
 
-def main(infile = None):
+def main(infile=None):
     usecols = [
         "Date",
         "Start day",
