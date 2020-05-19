@@ -328,6 +328,7 @@ def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, b
             launcher(cfg, module, remote, basedir)
 
     print(basedir)
+    return basedir, jobs
 
 
 @cli.command()
