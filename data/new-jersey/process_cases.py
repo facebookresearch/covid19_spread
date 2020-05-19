@@ -5,41 +5,44 @@ import numpy as np
 import os
 import pandas as pd
 import sys
-
+from scraper import get_latest
 from collections import defaultdict as ddict
 from itertools import count
 
 
-df = pd.read_csv(
-    sys.argv[1],
-    header=0,
-    usecols=[
-        "Date",
-        "Start day",
-        "Atlantic",
-        "Bergen",
-        "Burlington",
-        "Camden",
-        "Cape May",
-        "Cumberland",
-        "Essex",
-        "Gloucester",
-        "Hudson",
-        "Hunterdon",
-        "Mercer",
-        "Middlesex",
-        "Monmouth",
-        "Morris",
-        "Ocean",
-        "Passaic",
-        "Salem",
-        "Somerset",
-        "Sussex",
-        "Union",
-        "Warren",
-        "Unknown",
-    ],
-)
+if len(sys.argv) > 1:
+    df = pd.read_csv(
+        sys.argv[1],
+        header=0,
+        usecols=[
+            "Date",
+            "Start day",
+            "Atlantic",
+            "Bergen",
+            "Burlington",
+            "Camden",
+            "Cape May",
+            "Cumberland",
+            "Essex",
+            "Gloucester",
+            "Hudson",
+            "Hunterdon",
+            "Mercer",
+            "Middlesex",
+            "Monmouth",
+            "Morris",
+            "Ocean",
+            "Passaic",
+            "Salem",
+            "Somerset",
+            "Sussex",
+            "Union",
+            "Warren",
+            "Unknown",
+        ],
+    )
+else:
+    df = get_latest()
 
 window = 5
 smooth = "SMOOTH" in os.environ and os.environ["SMOOTH"] == "1"
