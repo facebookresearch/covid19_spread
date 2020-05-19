@@ -35,7 +35,7 @@ def get_latest(metric="cases"):
         df = df.rename(
             columns={
                 "COUNTY_LAB": "county",
-                "Number_COVID_Cases_Confirmed": "cases",
+                "TOTAL_CASES": "cases",
                 "TOTAL_DEATHS": "deaths",
             }
         )
@@ -45,9 +45,9 @@ def get_latest(metric="cases"):
         mapper = {"cases": "unknown_positives", "deaths": "unknown_deaths"}
         df["Unknown"] = unk[mapper[metric]]
         res = pandas.concat([nyt, df[nyt.columns]])
-        res.index = res.index.date
     else:
         res = nyt
+    res.index.name = "date"
     res = res.reset_index().rename(columns={"date": "Date"})
     res["Start day"] = np.arange(1, len(res) + 1)
     return res
