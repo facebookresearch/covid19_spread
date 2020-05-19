@@ -1,91 +1,71 @@
 #!/usr/bin/env python3
 
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from episode import mk_episode, to_h5
 import h5py
 import numpy as np
-import pandas as pd
-
+import pandas
+import requests
 from collections import defaultdict as ddict
 from itertools import count
+import argparse
+import itertools
 
-fout = "timeseries.h5"
-
-dparser = lambda x: pd.to_datetime(x, format="%Y-%m-%d")
-df = pd.read_csv(
-    "data.csv",
-    date_parser=dparser,
-    parse_dates=["fecha"],
-    usecols=["fecha", "CCAA", "cod_ine", "total"],
-)
-df = df[df.CCAA != "Total"]
-df = df.dropna()
-print(df)
-
-nevents = df["total"].sum()
-# nevents = len(df)
-print("Number of events", nevents)
-
-ncount = count()
-kreis_ids = ddict(ncount.__next__)
-_ns = []
-_ts = []
-_ags = []
+# Data comes from https://cnecovid.isciii.es/covid19/#documentaci%C3%B3n-y-datos (see link under Data section at bottom)
+# Additional context: https://github.com/CSSEGISandData/COVID-19/issues/2522
 
 
-t0 = (df["fecha"].values.astype(np.int64) // 10 ** 9).min()
-df_agg = df.groupby(["CCAA", "cod_ine"])
-for (name, aid), group in df_agg:
-    print(name, aid)
-    group = group.sort_values(by="fecha")
-    ts = group["fecha"].values.astype(np.int64) // 10 ** 9
-    ws = group["total"].values.astype(np.float)
-    es = []
-    for i in range(len(ts)):
-        w = int(ws[i])
-        if i == 0:
-            tp = ts[0] - w * 10
-        else:
-            tp = ts[i - 1]
-        _es = np.linspace(
-            max(tp, int(ts[i] - w * 10)) + 1, int(ts[i]), w, endpoint=True, dtype=np.int
-        )
-        es += _es.tolist()
-        # es += [ts[i]] * w
-    if len(es) > 0:
-        kid = kreis_ids[name]
-        _ts += es
-        _ns += [kid] * len(es)
-        _ags += [aid] * len(es)
+# https://en.wikipedia.org/wiki/ISO_3166-2:ES (autonomous communities)
+regions = {
+    "AN": "Andalucía",
+    "AR": "Aragón",
+    "AS": "Asturias",
+    "CN": "Canarias",
+    "CB": "Cantabria",
+    "CL": "Castilla y León",
+    "CM": "Castilla-La Mancha",
+    "CT": "Cataluña",
+    "CE": "Ceuta",
+    "EX": "Extremadura",
+    "GA": "Galicia",
+    "IB": "Islas Baleares",
+    "RI": "La Rioja",
+    "MD": "Madrid",
+    "ML": "Melilla",
+    "MC": "Murcia",
+    "NC": "Navarra",
+    "PV": "País Vasco",
+    "VC": "Valenciana",
+}
 
 
-# _ns = [kreis_ids[k] for k in df["District"]]
-# _ts = df["Date"].values.astype(np.int64) // 10 ** 9
-# _ags = df["AGS"]
-# _ws = df["Count"]
+def fetch_data(metric: str = "cases"):
+    assert metric in {"deaths", "cases"}
+    URL = "https://cnecovid.isciii.es/covid19/resources/agregados.csv"
+    df = pandas.read_csv(URL, encoding="latin1", parse_dates=["FECHA"], dayfirst=True)
+    df = df[~df["FECHA"].isnull()]
+    df["loc"] = df["CCAA"].apply(lambda x: "Spain_" + regions[x])
+    df = df.rename(columns={"FECHA": "date", "PCR+": "cases", "Fallecidos": "deaths"})
+    return df.pivot_table(values=metric, columns="loc", index="date").sort_index()
 
-# convert timestamps to number of days since first outbreak:
-min_ts = min(_ts)
-_ts = [t - min_ts for t in _ts]
-_ts = [t / (24 * 60 * 60.0) for t in _ts]
 
-assert len(_ts) == nevents, (len(_ts), nevents)
-knames = [None for _ in range(len(kreis_ids))]
-for kreis, i in kreis_ids.items():
-    knames[i] = kreis
+def main(args):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--smooth", type=int, default=1)
+    parser.add_argument("--metric", choices=["cases", "deaths"], default="cases")
+    opt = parser.parse_args()
 
-str_dt = h5py.special_dtype(vlen=str)
-ds_dt = h5py.special_dtype(vlen=np.dtype("int"))
-ts_dt = h5py.special_dtype(vlen=np.dtype("float32"))
-with h5py.File(fout, "w") as fout:
-    _dnames = fout.create_dataset("nodes", (len(knames),), dtype=str_dt)
-    _dnames[:] = knames
-    _cnames = fout.create_dataset("cascades", (1,), dtype=str_dt)
-    _cnames[:] = ["covid19_nl"]
-    ix = np.argsort(_ts)
-    node = fout.create_dataset("node", (1,), dtype=ds_dt)
-    node[0] = np.array(_ns, dtype=np.int)[ix]
-    time = fout.create_dataset("time", (1,), dtype=ts_dt)
-    time[0] = np.array(_ts, dtype=np.float)[ix]
-    _agss = fout.create_dataset("ags", (len(_dnames),), dtype=ds_dt)
-    _agss[:] = np.array(_ags, dtype=np.int)[ix]
-    # mark = fout.create_dataset("mark", (1,), dtype=ts_dt)
-    # mark[0] = np.array(_ws, dtype=np.float)[ix]
+    df = fetch_data(opt.metric)
+    df.transpose().to_csv(f"data_{opt.metric}.csv", index_label="region")
+
+    counter = itertools.count()
+    loc_map = ddict(counter.__next__)
+    episodes = mk_episode(df, df.columns, loc_map, opt.smooth)
+    to_h5(df, "timeseries.h5", loc_map, [episodes])
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

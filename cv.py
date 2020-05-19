@@ -29,22 +29,42 @@ BestRun = namedtuple("BestRun", ("pth", "name"))
 
 
 class CV:
-    def run_simulate(self, dset, train_params, model, sim_params):
+    def run_simulate(
+        self,
+        dset: str,
+        train_params: Dict[str, Any],
+        model: Any,
+        sim_params: Dict[str, Any],
+    ) -> pd.DataFrame:
+        """
+        Run a simulation given a trained model.  This should return a pandas DataFrame with each
+        column corresponding to a location and each row corresponding to a date.  The value
+        of each cell is the forecasted cases per day (*not* cumulative cases)
+        """
         ...
 
     def run_prediction_interval(self, args, nsamples, model=None):
         ...
 
     def run_train(self, dset, model_params, model_out):
+        """
+        Train a model
+        """
         ...
 
     def preprocess(self, dset: str, preprocessed: str, preprocess_args: Dict[str, Any]):
+        """
+        Perform any kind of model specific pre-processing.
+        """
         if "smooth" in preprocess_args:
             common.smooth(dset, preprocessed, preprocess_args["smooth"])
         else:
             shutil.copy(dset, preprocessed)
 
     def model_selection(self, basedir: str) -> List[BestRun]:
+        """
+        Evaluate a sweep returning a list of models to retrain on the full dataset.
+        """
         best_run, best_MAE = None, float("inf")
         for metrics_pth in glob(os.path.join(basedir, "*/metrics.csv")):
             metrics = pd.read_csv(metrics_pth, index_col="Measure")
@@ -96,7 +116,7 @@ def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
         df_forecast_deltas = mod.run_simulate(
             preprocessed, train_params, model, sim_params=sim_params
         )
-        gt = metrics.load_ground_truth(dset)
+        gt = metrics.load_ground_truth(val_in)
         # Ground truth for the day before our first forecast
         prev_day = gt.loc[[df_forecast_deltas.index.min() - timedelta(days=1)]]
         # Stack the first day ground truth on top of the forecasts

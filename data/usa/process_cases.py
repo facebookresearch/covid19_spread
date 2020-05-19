@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 
+import sys
+import os
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+from episode import mk_episode, to_h5
 from subprocess import check_call
 import os
 import csv
@@ -13,7 +17,6 @@ from collections import defaultdict
 import itertools
 import shutil
 import argparse
-import sys
 import datetime
 
 
@@ -108,100 +111,20 @@ def main(args):
 
     outfile = f"timeseries_smooth_{opt.smooth}_days_mode_{opt.mode}.h5"
 
-    def mk_episode(counties):
-        ats = np.arange(len(df)) + 1
-        timestamps = []
-        nodes = []
-
-        for county in counties:
-            ws = (
-                df[county]
-                .rolling(window=max(1, opt.smooth), min_periods=1)
-                .mean()
-                .to_numpy()
-            )
-            ix = np.where(ws > 0)[0]
-
-            if len(ix) < 1:
-                continue
-            ts = ats[ix]
-            ws = np.diff([0] + ws[ix].tolist())
-            es = []
-
-            for i in range(len(ts)):
-                w = int(ws[i])
-                if w <= 0:
-                    continue
-                tp = ts[i] - 1
-                _es = sorted(np.random.uniform(tp, ts[i], w))
-                if len(es) > 0:
-                    assert es[-1] < _es[0], (_es[0], es[-1])
-                es += _es
-            es = np.array(es)
-            if len(es) > 0:
-                timestamps.append(es)
-                nodes.append(np.full(es.shape, county_ids[county]))
-        if len(timestamps) == 0:
-            return None, None
-        times = np.concatenate(timestamps)
-        idx = np.argsort(times)
-        return times[idx], np.concatenate(nodes)[idx]
-
     episodes = []
     if opt.mode == "adjacent_states" or opt.mode == "deaths":
         for state, ns in neighbors.items():
             states = set([state] + ns)
             regex = "|".join(f"^{s}" for s in states)
             cols = [c for c in df.columns if re.match(regex, c)]
-            episodes.append(mk_episode(cols))
+            episodes.append(mk_episode(df, cols, county_ids, opt.smooth))
     elif opt.mode == "no_interaction":
         for county in df.columns:
-            ts, ns = mk_episode([county])
+            ts, ns = episodes.append(mk_episode(df, [county], county_ids, opt.smooth))
             if ts is not None:
                 episodes.append((ts, ns))
 
-    str_dt = h5py.special_dtype(vlen=str)
-    ds_dt = h5py.special_dtype(vlen=np.dtype("int"))
-    ts_dt = h5py.special_dtype(vlen=np.dtype("float32"))
-
-    counties, cids = zip(*list(county_ids.items()))
-
-    times, entities = zip(*episodes)
-
-    with h5py.File(outfile, "w") as hf:
-        hf.create_dataset(
-            "nodes", data=np.array(counties, dtype="O")[np.argsort(cids)], dtype=str_dt
-        )
-        hf.create_dataset("cascades", data=np.arange(len(episodes)))
-        hf.create_dataset("node", data=entities, dtype=ds_dt)
-        hf.create_dataset("time", data=times, dtype=ts_dt)
-        hf.attrs["basedate"] = str(df.index.max().date())
-
-        hf.create_dataset(
-            "ground_truth",
-            data=t.loc[np.array(counties, dtype="O")[np.argsort(cids)]].values,
-        )
-
-        # Group all events into a single episode
-        processed = np.array([], dtype="int")
-        all_times = []
-        all_nodes = []
-        for idx in range(len(times)):
-            # Extract events corresponding to entities we haven't processed yet.
-            mask = ~np.in1d(entities[idx], processed)
-            all_nodes.append(entities[idx][mask])
-            all_times.append(times[idx][mask])
-            unique_nodes = np.unique(all_nodes[-1])
-            assert np.intersect1d(processed, unique_nodes).size == 0
-            processed = np.concatenate([processed, unique_nodes])
-
-        all_times = np.concatenate(all_times)
-        idx = all_times.argsort()
-        all_times = all_times[idx]
-        all_nodes = np.concatenate(all_nodes)[idx]
-        hf.create_dataset("all_times", data=all_times, dtype="float64")
-        hf.create_dataset("all_nodes", data=all_nodes)
-        print(f"{len(counties)} counties")
+    to_h5(df, outfile, county_ids, episodes)
 
 
 if __name__ == "__main__":
