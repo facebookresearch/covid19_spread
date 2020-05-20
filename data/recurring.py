@@ -91,7 +91,7 @@ class Recurring:
                 user = os.environ["USER"]
                 script = os.path.realpath(__file__)
                 schedule = self.schedule()
-                logfile = os.path.join(self.script_dir, ".launch_sweep.log")
+                logfile = os.path.join(self.script_dir, f".{self.get_id()}.log")
                 home = os.path.expanduser("~")
                 cmd = [
                     "source /etc/profile.d/modules.sh",
@@ -126,27 +126,26 @@ class Recurring:
             conn.commit()
 
         self.update_data()
-        sweep_job, sweep_path = self.launch_job()
+        sweep_path = self.launch_job(latest_date)
 
         vals = (
             sweep_path,
             str(latest_date),
             datetime.datetime.now().timestamp(),
             "mhp",
-            sweep_job,
             self.get_id(),
         )
         conn.execute(
-            "INSERT INTO sweeps(path, basedate, launch_time, module, slurm_job, id) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO sweeps(path, basedate, launch_time, module, id) VALUES (?,?,?,?,?)",
             vals,
         )
         conn.commit()
 
-    def launch_job(self):
+    def launch_job(self, latest_date):
         # Launch the sweep
         config = os.path.join(script_dir, "../cv/nj.yml")
         with chdir(f"{script_dir}/../"):
             sweep_path, jobs = click.Context(cv.cv).invoke(
                 cv.cv, config_pth=config, module="mhp", remote=True
             )
-        return jobs[0].job_id.split("_")[0], sweep_path
+        return sweep_path
