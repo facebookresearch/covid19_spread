@@ -201,7 +201,9 @@ class SIRCV(cv.CV):
         df = pd.DataFrame(region_to_prediction)
         # set dates
         df["date"] = _get_prediction_dates(cases_df, keep)
+        df["date"] = pd.to_datetime(df["date"])
         df = df.set_index("date")
+
         # Return new cases per day (instead of cumulative cases)
         return pd.concat([cases_df, df]).sort_index().diff().loc[df.index]
 
