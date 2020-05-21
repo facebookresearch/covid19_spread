@@ -20,6 +20,7 @@ class TestLoad:
         """Confirms cases loaded are per region"""
         cases_df = load.load_confirmed_by_region(path)
         assert cases_df.index.name == "date"
+        assert type(cases_df.index) == pd.core.indexes.datetimes.DatetimeIndex
         assert (cases_df >= 0).all().all()
 
         regions = cases_df.columns
