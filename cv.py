@@ -139,7 +139,10 @@ def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
     if "prediction_interval" in cfg:
         with th.no_grad():
             df_mean, df_std = mod.run_prediction_interval(
-                train_params, cfg["prediction_interval"]["nsamples"], model
+                preprocessed,
+                train_params,
+                cfg["prediction_interval"]["nsamples"],
+                model,
             )
             df_mean.to_csv(_path(prefix + cfg["prediction_interval"]["output_mean"]))
             df_std.to_csv(_path(prefix + cfg["prediction_interval"]["output_std"]))
