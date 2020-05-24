@@ -7,7 +7,7 @@ import torch as th
 import yaml
 from argparse import Namespace
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import common
 import metrics
 import itertools
@@ -22,7 +22,7 @@ import click
 from lib.click_lib import DefaultGroup
 import tempfile
 import shutil
-import load
+import json
 
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
@@ -72,6 +72,11 @@ class CV:
                 best_MAE = metrics.loc["MAE"].values[-1]
                 best_run = os.path.dirname(metrics_pth)
         return [BestRun(best_run, "best_mae")]
+
+    def compute_metrics(
+        self, gt: str, forecast: str, model: Any, metric_args: Dict[str, Any]
+    ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+        return metrics.compute_metrics(gt, forecast).round(2), {}
 
 
 def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
@@ -131,8 +136,13 @@ def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
     # -- metrics --
     if cfg["validation"]["days"] > 0:
         # Only compute metrics if this is the validation run.
-        df_val = metrics.compute_metrics(cfg[module]["data"], val_out).round(2)
+        metric_args = cfg[module].get("metrics", {})
+        df_val, json_val = mod.compute_metrics(
+            cfg[module]["data"], val_out, model, metric_args
+        )
         df_val.to_csv(_path(prefix + "metrics.csv"))
+        with open(_path(prefix + "metrics.json"), "w") as fout:
+            json.dump(json_val, fout)
         print(df_val)
 
     # -- prediction interval --
@@ -185,6 +195,9 @@ def run_best(config, module, remote, basedir):
     mod = importlib.import_module(module).CV_CLS()
     best_runs = mod.model_selection(basedir)
 
+    with open(os.path.join(basedir, "model_selection.json"), "w") as fout:
+        json.dump([x._asdict() for x in best_runs], fout)
+
     cfg = copy.deepcopy(config)
     cfg["validation"]["days"] = 0
 
@@ -193,23 +206,34 @@ def run_best(config, module, remote, basedir):
     memgb = cfg[module].get("resources", {}).get("memgb", 20)
     timeout = cfg[module].get("resources", {}).get("timeout", 12 * 60)
 
-    for run in best_runs:
-        print(f"Starting {run.name}: {run.pth}")
-        job_config = load_config(os.path.join(run.pth, module + ".yml"))
+    best_runs_df = pd.DataFrame(best_runs)
+
+    def run_cv_and_copy_results(tags, module, pth, cfg, prefix):
+        run_cv(module, pth, cfg, prefix=prefix)
+        for tag in tags:
+            shutil.copy(
+                os.path.join(pth, f'final_model_{cfg["validation"]["output"]}'),
+                os.path.join(os.path.dirname(pth), f"forecasts/forecast_{tag}.csv"),
+            )
+
+    for pth, tags in best_runs_df.groupby("pth")["name"].agg(list).items():
+        os.makedirs(os.path.join(os.path.dirname(pth), f"forecasts"), exist_ok=True)
+        name = ",".join(tags)
+        print(f"Starting {name}: {pth}")
+        job_config = load_config(os.path.join(pth, module + ".yml"))
         cfg[module] = job_config
-        cfg["validation"]["output"] = run.name + "_forecast.csv"
-        launcher = run_cv
+        launcher = run_cv_and_copy_results
         if remote:
-            executor = submitit.AutoExecutor(folder=run.pth)
+            executor = submitit.AutoExecutor(folder=pth)
             executor.update_parameters(
-                name=run.name,
+                name=name,
                 gpus_per_node=ngpus,
                 cpus_per_task=ncpus,
                 mem_gb=memgb,
                 timeout_min=timeout,
             )
-            launcher = partial(executor.submit, run_cv)
-        launcher(module, run.pth, cfg, prefix="final_model_")
+            launcher = partial(executor.submit, run_cv_and_copy_results)
+        launcher(tags, module, pth, cfg, "final_model_")
 
 
 @click.group(cls=DefaultGroup, default_command="cv")
@@ -307,6 +331,7 @@ def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, b
             launcher(cfg, module, remote, basedir)
 
     print(basedir)
+    return basedir, jobs
 
 
 @cli.command()

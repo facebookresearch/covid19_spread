@@ -4,6 +4,7 @@ import requests
 import pandas
 from datetime import date, timedelta, datetime
 import os
+import numpy as np
 
 
 URL = "https://services7.arcgis.com/Z0rixLlManVefxqY/arcgis/rest/services/DailyCaseCounts/FeatureServer/0/query?f=json&where=1%3D1&returnGeometry=false&spatialRel=esriSpatialRelIntersects&outFields=*&orderByFields=TOTAL_CASES%20desc"
@@ -34,7 +35,7 @@ def get_latest(metric="cases"):
         df = df.rename(
             columns={
                 "COUNTY_LAB": "county",
-                "Number_COVID_Cases_Confirmed": "cases",
+                "TOTAL_CASES": "cases",
                 "TOTAL_DEATHS": "deaths",
             }
         )
@@ -44,14 +45,18 @@ def get_latest(metric="cases"):
         mapper = {"cases": "unknown_positives", "deaths": "unknown_deaths"}
         df["Unknown"] = unk[mapper[metric]]
         res = pandas.concat([nyt, df[nyt.columns]])
-        res.index = res.index.date
-        return res
     else:
-        return nyt
+        res = nyt
+    res.index.name = "date"
+    res = res.reset_index().rename(columns={"date": "Date"})
+    res["Start day"] = np.arange(1, len(res) + 1)
+    return res
 
 
 def main():
     df = get_latest()
+    date_fmt = df["Date"].max().date().strftime("%Y%m%d")
+    df.to_csv(f"data-{date_fmt}.csv")
 
 
 if __name__ == "__main__":

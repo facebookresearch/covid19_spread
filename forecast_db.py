@@ -57,6 +57,8 @@ def regexp(expr, item):
 
 def mk_db():
     conn = sqlite3.connect(DB)
+    # forecast_date is the last date that we have ground truth data for.
+    # i.e. the last date the model sees during training
     res = conn.execute(
         """
     CREATE TABLE IF NOT EXISTS infections(
@@ -136,6 +138,7 @@ def sync_max_forecasts(conn, remote_dir, local_dir):
         for f in files:
             forecast_date = re.search("forecast-(\d+)_", f).group(1)
             forecast_date = datetime.datetime.strptime(forecast_date, "%Y%m%d").date()
+            forecast_date -= datetime.timedelta(days=1)
             res = conn.execute(
                 f"SELECT COUNT(1) FROM infections WHERE forecast_date=? AND id=?",
                 (forecast_date, f"{state}_{ty}"),
@@ -322,7 +325,9 @@ def dump_to_csv(conn, distribute):
 
     f("deaths")
     f("infections")
-    check_call(["rsync", "-av", basedir, f"devfairh1:{os.path.dirname(basedir)}"])
+    check_call(
+        ["rsync", "--delete", "-av", basedir, f"devfairh1:{os.path.dirname(basedir)}"]
+    )
 
 
 @click.command()

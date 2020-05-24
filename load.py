@@ -41,6 +41,7 @@ def _load_confirmed_by_region_csv(path, regions, filter_unknown):
     # set date as index
     df = df.rename(columns={"region": "date"})
     df = df.set_index("date")
+    df.index = pd.to_datetime(df.index)
     df = df.astype(float)
     if regions is not None:
         df = df[regions]

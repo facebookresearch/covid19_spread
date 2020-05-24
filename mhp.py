@@ -6,13 +6,18 @@ import torch as th
 import random
 from load import load_data
 from tlc import Episode
-from evaluation import simulate_tl_mhp
+from evaluation import simulate_tl_mhp, goodness_of_fit
 import pandas
 import copy
 import h5py
 from train import mk_parser
 import cv
 from metrics import load_ground_truth
+from typing import List, Tuple, Dict, Any
+from scipy.stats import kstest
+from glob import glob
+import os
+import json
 
 
 class MHPCV(cv.CV):
@@ -61,6 +66,61 @@ class MHPCV(cv.CV):
         deltas = sim.diff(axis=0).fillna(0)
         deltas.index = pandas.date_range(start=basedate, periods=len(deltas))
         return deltas[deltas.index > basedate]
+
+    def model_selection(self, basedir: str) -> List[cv.BestRun]:
+        results = []
+        for metrics_pth in glob(os.path.join(basedir, "*/metrics.csv")):
+            metrics = pandas.read_csv(metrics_pth, index_col="Measure")
+            metrics_json = json.load(open(metrics_pth.replace(".csv", ".json")))
+            results.append(
+                {
+                    "job_pth": os.path.dirname(metrics_pth),
+                    "mae": metrics.loc["MAE"].values[-1],
+                    "avg_mae": metrics.loc["MAE"].mean(),
+                    "ks": metrics_json["avg_ks"],
+                    "pval": metrics_json["avg_pval"],
+                }
+            )
+        df = pandas.DataFrame(results)
+        return [
+            cv.BestRun(df.sort_values(by="mae").iloc[0].job_pth, "best_mae"),
+            cv.BestRun(df.sort_values(by="avg_mae").iloc[0].job_pth, "best_avg_mae"),
+            cv.BestRun(df.sort_values(by="ks").iloc[0].job_pth, "best_ks"),
+            cv.BestRun(df.sort_values(by="pval").iloc[-1].job_pth, "best_pval"),
+        ]
+
+    def compute_metrics(
+        self, gt: str, forecast: str, model: str, metric_args: Dict[str, Any]
+    ) -> Tuple[pandas.DataFrame, Dict[str, Any]]:
+        df_val, json_val = super().compute_metrics(gt, forecast, model, metric_args)
+
+        # Run KS Test
+        mdl, mdl_opt = train.CovidModel.from_checkpoint(model, map_location="cpu")
+        nodes, ns, ts, basedate = load_data(gt)
+        M = len(nodes)
+        nts = (ts - ts.min()) / mdl_opt.timescale
+        episode = Episode(
+            th.from_numpy(nts).double(), th.from_numpy(ns).long(), True, M
+        )
+        beta, A, mus = map(lambda x: x.numpy(), mdl.get_params())
+        residuals = goodness_of_fit(episode, 0.001, mus, beta.item(), A, nodes)
+        ks, pval = zip(
+            *[
+                kstest(residuals[x], "expon")
+                if len(residuals[x]) > 1 and nodes[x] != "Unknown"
+                else (np.nan, np.nan)
+                for x in range(M)
+            ]
+        )
+        ks = [
+            {"loc": n, "ks": k, "pval": p}
+            for n, k, p in zip(nodes, ks, pval)
+            if "Unknown" not in n
+        ]
+        ks_df = pandas.DataFrame(ks)
+        avg_ks = ks_df.mean().ks
+        avg_pval = ks_df.mean().pval
+        return df_val, {**json_val, "ks": ks, "avg_ks": avg_ks, "avg_pval": avg_pval}
 
 
 CV_CLS = MHPCV
