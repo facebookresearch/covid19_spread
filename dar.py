@@ -13,7 +13,7 @@ import cv
 
 
 class WeightsRNN(nn.Module):
-    def __init__(self, regions, dim, layers, tmax, time_features):
+    def __init__(self, regions, dim, layers, tmax, time_features, regularizer):
         super(WeightsRNN, self).__init__()
         self.M = len(regions)
         self.tmax = tmax
@@ -25,6 +25,8 @@ class WeightsRNN(nn.Module):
         self.u0 = nn.Parameter(th.zeros(layers, self.M, dim))
         self.v0 = nn.Parameter(th.zeros(layers, self.M, dim))
         self.s0 = nn.Parameter(th.zeros(layers, self.M, dim))
+        self.w_u = nn.Linear(dim, dim)
+        self.w_v = nn.Linear(dim, dim)
         self.w_s = nn.Linear(dim, 1)
         if time_features is not None:
             self.w_time = nn.Linear(time_features.size(2), dim)
@@ -34,8 +36,8 @@ class WeightsRNN(nn.Module):
         self.rnn_u = nn.RNN(input_dim, self.dim, layers)
         self.rnn_v = nn.RNN(input_dim, self.dim, layers)
         self.rnn_s = nn.RNN(input_dim, self.dim, layers)
-        self.init_params(self.rnn_u)
-        self.init_params(self.rnn_v)
+        for p in [self.rnn_u, self.rnn_v, self.rnn_s, self.w_u, self.w_v, self.w_s]:
+            self.init_params(p)
 
     def init_params(self, w):
         # initialize weights
@@ -43,8 +45,8 @@ class WeightsRNN(nn.Module):
             if p.dim() == 2:
                 nn.init.xavier_normal_(p)
 
-    def forward(self, t, ys, window):
-        t = t.unsqueeze(-1).unsqueeze(-1).float()  # .div_(self.tmax)
+    def forward(self, t):
+        t = t.unsqueeze(-1).unsqueeze(-1).float().div_(self.tmax)
         t = t.expand(t.size(0), self.M, 1)
         if self.time_features is not None:
             # f = self.w_time(self.time_features).narrow(0, 0, t.size(0))
@@ -53,40 +55,82 @@ class WeightsRNN(nn.Module):
             t = th.cat([t, f], dim=2)
         ut, _ = self.rnn_u(t, self.u0)
         vt, _ = self.rnn_v(t, self.v0)
-        st, _ = self.rnn_s(t, self.s0)
 
-        ut = F.softplus(ut)
-        vt = F.softplus(vt).transpose(1, 2)
-        st = F.softplus(self.w_s(st)).squeeze()
-        # cross-correlation
-        length = ys.size(1) - window
-        ys = ys.t().unsqueeze(-1)
-        # print(vt.size(), ys.size())
-        ys = th.bmm(vt, ys)
-        # print(ut.size(), ys.size())
-        ys = th.bmm(ut, ys)
-        # print(vt.size(), ys.size())
-        ys = ys.squeeze()
-        ys = ys + st * ys
-        ys = th.stack(
-            [
-                ys.narrow(0, i, window).mean(dim=0)
-                for i in range(ys.size(0) - window + 1)
-            ]
-        )
-        # print(ys.size())
-        # fail
-
-        return ys.squeeze().t()
+        # print(vt[-1])
+        ut = self.w_u(ut)
+        vt = self.w_v(vt).transpose(1, 2)
+        zs = th.bmm(ut, vt)
+        return th.sigmoid(zs)
 
     def __repr__(self):
         return f"{self.rnn_u}"
+
+
+class RescalRNN(nn.Module):
+    def __init__(self, regions, dim, layers, tmax, time_features, regularizer):
+        super(RescalRNN, self).__init__()
+        self.M = len(regions)
+        self.tmax = tmax
+        self.fpos = th.sigmoid
+        self.time_features = time_features
+        self.dim = dim
+        input_dim = 1
+
+        self.u = nn.Parameter(th.randn(self.M, dim))
+        self.v = nn.Parameter(th.randn(self.M, dim))
+        self.s0 = nn.Parameter(th.zeros(layers, self.M, dim))
+        self.w_s = nn.Linear(dim, dim)
+        self.regularizer = regularizer
+        if time_features is not None:
+            self.w_time = nn.Linear(time_features.size(2), dim)
+            nn.init.xavier_normal_(self.w_time.weight)
+            # input_dim += dim
+            input_dim += time_features.size(2)
+        self.rnn_s = nn.RNN(input_dim, self.dim, layers)
+        for p in [self.rnn_s, self.w_s]:
+            self.init_params(p)
+        nn.init.xavier_normal_(self.u)
+        nn.init.xavier_normal_(self.v)
+
+    def init_params(self, w):
+        # initialize weights
+        for p in w.parameters():
+            if p.dim() == 2:
+                nn.init.xavier_normal_(p)
+
+    def forward(self, t):
+        t = t.unsqueeze(-1).unsqueeze(-1).float().div_(self.tmax)
+        t = t.expand(t.size(0), self.M, 1)
+        if self.time_features is not None:
+            # f = self.w_time(self.time_features).narrow(0, 0, t.size(0))
+            f = self.time_features.narrow(0, 0, t.size(0))
+            # f = f.unsqueeze(0).expand(t.size(0), self.M, self.dim)
+            t = th.cat([t, f], dim=2)
+        st, _ = self.rnn_s(t, self.s0)
+
+        # print(vt[-1])
+        ut = self.u
+        vt = self.v.t()
+        st = self.w_s(st)
+        ut = ut.unsqueeze(0).expand(t.size(0), ut.size(0), ut.size(1))
+        vt = vt.unsqueeze(0).expand(t.size(0), vt.size(0), vt.size(1))
+        zs = th.bmm(ut * st, vt)
+        # zs = F.softplus(zs)
+        # zs = zs / zs.max()
+        zs = th.sigmoid(zs)
+        with th.no_grad():
+            self.w_stats = (zs.min().item(), zs.mean().item(), zs.max().item())
+        return zs
+
+    def __repr__(self):
+        return f"{self.rnn_s} | W({self.w_stats[0]:.2f}, {self.w_stats[1]:.2f}, {self.w_stats[2]:.2f})"
 
 
 class DeepAR(nn.Module):
     def __init__(self, regions, w_net, dist, window_size, graph, features):
         super(DeepAR, self).__init__()
         self.M = len(regions)
+        self.repro = nn.Parameter(th.ones((self.M, window_size)))
         self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(10))
         self.w_net = w_net
         self._dist = dist
@@ -110,24 +154,48 @@ class DeepAR(nn.Module):
         else:
             raise RuntimeError(f"Unknown loss")
 
-    def score(self, t, ys):
+    def _score(self, t, ys):
         assert t.size(-1) == ys.size(-1), (t.size(), ys.size())
         offset = self.window - 1
 
         # beta evolution
         # ys = ys.narrow(1, offset, ys.size(1) - offset)
         Ys = self.w_net(t, ys, self.window)
-
+        assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
         return Ys
+
+    def score(self, t, ys):
+        assert t.size(-1) == ys.size(-1), (t.size(), ys.size())
+        offset = self.window - 1
+        length = ys.size(1) - self.window + 1
+
+        # cross-correlation
+        W = self.w_net(t)
+        Ys = th.bmm(W, ys.t().unsqueeze(-1))
+        Ys = Ys.squeeze(-1).t()
+        # print(W.size(), ys.size(), Ys.size())
+
+        Z = F.conv1d(
+            Ys.unsqueeze(0),
+            # F.softplus(self.repro).unsqueeze(1).expand(self.M, 1, self.window),
+            F.softplus(self.repro).unsqueeze(1),
+            groups=self.M,
+        )
+        Z = Z.squeeze(0)
+        Z.div_(float(self.window))
+
+        assert Z.size(-1) == t.size(-1) - offset, (Z.size(-1), t.size(-1), offset)
+        return Z
 
     def simulate(self, tobs, ys, days, deterministic=True):
         preds = ys.clone()
         offset = self.window + 1
-        t = th.arange(offset).to(ys.device) + (tobs + 1 - offset)
         for d in range(days):
-            p = preds.narrow(-1, -offset, offset)
-            s = self.score(t + d, p).narrow(1, -1, 1)
+            t = th.arange(tobs + d).to(ys.device) + 1
+            s = self.score(t, preds)
+            # assert s.size(1) == tobs + d, (s.size(), ys.size(), tobs, d)
             assert (s >= 0).all(), s.squeeze()
+            s = s.narrow(1, -1, 1)
             if deterministic:
                 y = self.dist(s).mean
             else:
@@ -138,20 +206,20 @@ class DeepAR(nn.Module):
         return preds
 
     def __repr__(self):
-        return f"AR | {self.w_net}"
+        return f"DAR | {self.w_net}"
 
 
-def train(model, cases, regions, optimizer, checkpoint, args):
+def train(model, new_cases, regions, optimizer, checkpoint, args):
+    print(args)
+    print(f"max inc = {new_cases.max()}")
     M = len(regions)
-    device = cases.device
-    new_cases = cases[:, 1:] - cases[:, :-1]
-    assert (new_cases >= 0).all()
+    device = new_cases.device
     tmax = new_cases.size(1)
     t = th.arange(tmax).to(device) + 1
 
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
-        scores = model.score(t, new_cases).clamp_(min=1e-8)
+        scores = model.score(t, new_cases).clamp(min=1e-8)
 
         # compute loss
         dist = model.dist(scores.narrow(1, 0, tmax - args.window))
@@ -164,6 +232,7 @@ def train(model, cases, regions, optimizer, checkpoint, args):
 
         # back prop
         loss.backward()
+        th.nn.utils.clip_grad_norm_(model.parameters(), 10)
         optimizer.step()
 
         # control
@@ -173,80 +242,11 @@ def train(model, cases, regions, optimizer, checkpoint, args):
                 gt = new_cases[:, -3:]
                 maes = th.abs(gt - pred)
             print(
-                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | MAE {maes.mean():.2f} | {model} | {args.loss}"
+                f"[{itr:04d}] Loss {loss.item() / M:.2f} | MAE {maes.mean():.2f} | {model} | {args.loss} ({scores[:, -1].min().item():.2f}, {scores[:, -1].max().item():.2f})"
             )
             th.save(model.state_dict(), checkpoint)
     print(f"Train MAE,{maes.mean():.2f}")
     return model
-
-
-def simulate(model, cases, regions, args, dstart=None):
-    new_cases = cases[:, 1:] - cases[:, :-1]
-    assert (new_cases >= 0).all()
-    tmax = new_cases.size(1)
-
-    test_preds = model.simulate(tmax, new_cases, args.test_on)
-    test_preds = test_preds.cpu().numpy()
-
-    df = pd.DataFrame(test_preds.T, columns=regions)
-    if dstart is not None:
-        base = pd.to_datetime(dstart)
-        ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
-        df["date"] = ds
-
-        df.set_index("date", inplace=True)
-    return df
-
-
-def prediction_interval(model, cases, regions, nsamples, args, dstart=None):
-    new_cases = cases[:, 1:] - cases[:, :-1]
-    assert (new_cases >= 0).all()
-    tmax = new_cases.size(1)
-    samples = []
-
-    for i in range(nsamples):
-        test_preds = model.simulate(tmax, new_cases, args.test_on, False)
-        test_preds = test_preds.cpu().numpy()
-        test_preds = np.cumsum(test_preds, axis=1)
-        test_preds = test_preds + cases.narrow(1, -1, 1).cpu().numpy()
-        samples.append(test_preds)
-    samples = np.stack(samples, axis=0)
-    print(samples.shape)
-    test_preds_mean = np.mean(samples, axis=0)
-    test_preds_std = np.std(samples, axis=0)
-    df_mean = pd.DataFrame(test_preds_mean.T, columns=regions)
-    df_std = pd.DataFrame(test_preds_std.T, columns=regions)
-    if dstart is not None:
-        base = pd.to_datetime(dstart)
-        ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
-        df_mean["date"] = ds
-        df_std["date"] = ds
-
-        df_mean.set_index("date", inplace=True)
-        df_std.set_index("date", inplace=True)
-    return df_mean, df_std
-
-
-def initialize(args):
-    device = th.device("cuda" if th.cuda.is_available() else "cpu")
-    cases, regions, basedate = load.load_confirmed_csv(args.fdat)
-    cases = cases.float().to(device)[:, args.t0 :]
-    print("Timeseries length", cases.size(1))
-
-    # cheat to test compatibility
-    # if zero (def value) it'll continue
-    if not hasattr(args, "keep_counties"):
-        pass
-    elif args.keep_counties == -1:
-        cases = cases.sum(0).reshape(1, -1)
-        regions = ["all"]
-    elif args.keep_counties > 0:
-        k = args.keep_counties
-        # can also sort on case numbers and pick top-k
-        cases = cases[:k]
-        regions = regions[:k]
-
-    return cases, regions, basedate, device
 
 
 def _get_arg(args, v, device):
@@ -257,10 +257,22 @@ def _get_arg(args, v, device):
 
 
 class DeepARCV(cv.CV):
+    def initialize(self, args):
+        device = th.device("cuda" if th.cuda.is_available() else "cpu")
+        cases, regions, basedate = load.load_confirmed_csv(args.fdat)
+        new_cases = cases[:, 1:] - cases[:, :-1]
+        assert (new_cases >= 0).all()
+
+        new_cases = new_cases.float().to(device)[:, args.t0 :]
+        print("Timeseries length", new_cases.size(1))
+
+        args.window = min(args.window, cases.size(1) - 4)
+        return new_cases, regions, basedate, device
+
     def run_train(self, dset, args, checkpoint):
         args.fdat = dset
-        cases, regions, _, device = initialize(args)
-        tmax = cases.size(1) + 1
+        new_cases, regions, _, device = self.initialize(args)
+        tmax = new_cases.size(1) + 1
 
         # setup optional features
         graph = _get_arg(args, "graph", device)
@@ -269,14 +281,14 @@ class DeepARCV(cv.CV):
         if time_features is not None:
             time_features = time_features.transpose(0, 1)
             time_features = time_features.narrow(0, args.t0, cases.size(1))
-            print(time_features.size(), cases.size())
+            print(time_features.size(), new_cases.size())
 
-        weight_decay = 0
         # setup beta function
         if args.decay.startswith("latent"):
             dim, layers = args.decay[6:].split("_")
-            beta_net = WeightsRNN(regions, int(dim), int(layers), tmax, time_features)
-            weight_decay = args.weight_decay
+            beta_net = RescalRNN(
+                regions, int(dim), int(layers), tmax, time_features, args.weight_decay
+            )
         else:
             raise ValueError("Unknown beta function")
 
@@ -285,38 +297,31 @@ class DeepARCV(cv.CV):
         )
         params = []
         # exclude = {"nu", "beta.w_feat.weight", "beta.w_feat.bias"}
-        exclude = {"nu"}
+        exclude = {
+            "nu",
+            # "w_net.u0",
+            # "w_net.v0",
+            # "w_net.s0",
+            # "w_net.w_u.weight",
+            # "w_net.w_u.bias",
+            # "w_net.w_v.weight",
+            # "w_net.w_v.bias",
+            # "w_net.w_s.weight",
+            # "w_net.w_s.bias",
+        }
         for name, p in dict(func.named_parameters()).items():
-            wd = 0 if name in exclude else weight_decay
+            wd = 0 if name in exclude else args.weight_decay
             print(name, wd)
             params.append({"params": p, "weight_decay": wd})
         optimizer = optim.AdamW(
-            params, lr=args.lr, betas=[args.momentum, 0.999], weight_decay=weight_decay
+            params,
+            lr=args.lr,
+            betas=[args.momentum, 0.999],
+            weight_decay=args.weight_decay,
         )
 
-        model = train(func, cases, regions, optimizer, checkpoint, args)
-
+        model = train(func, new_cases, regions, optimizer, checkpoint, args)
         return model
-
-    def run_simulate(self, dset, args, model=None, sim_params=None):
-        args.fdat = dset
-        if model is None:
-            raise NotImplementedError
-
-        cases, regions, basedate, device = initialize(args)
-        forecast = simulate(model, cases, regions, args, basedate)
-
-        return forecast
-
-    def run_prediction_interval(self, args, nsamples, model=None):
-        if model is None:
-            raise NotImplementedError
-
-        cases, regions, basedate, device = initialize(args)
-        df_mean, df_std = prediction_interval(
-            model, cases, regions, nsamples, args, basedate
-        )
-        return df_mean, df_std
 
 
 CV_CLS = DeepARCV

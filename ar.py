@@ -229,21 +229,27 @@ class AR(nn.Module):
         # self-correlation
         Z = F.conv1d(
             ys.unsqueeze(0), F.softplus(self.repro).unsqueeze(1), groups=self.M
-        ).squeeze()
+        )
+        Z = Z.squeeze(0)
         Z.div_(float(self.window))
 
         # cross-correlation
         W = self.metapopulation_weights()
         Ys = th.stack([ys.narrow(1, i, length) for i in range(self.window)])
-        # Ys = th.bmm(W, Ys).mean(dim=0)
         Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(dim=0)
+        # Ys = th.bmm(W, Ys).mean(dim=0)
 
         # beta evolution
         ys = ys.narrow(1, offset, ys.size(1) - offset)
         beta = self.beta(t).narrow(1, -ys.size(1), ys.size(1))
         if self.features is not None:
             beta = beta + th.sigmoid(self.w_feat(self.features))
-        return beta * Z.add_(Ys)
+        Ys = beta * Z.add_(Ys)
+        # Ys = beta * Ys
+        # Ys = beta * Z
+
+        assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
+        return Ys
         # return beta * (Z.addmm_(W, ys))
         # return beta * Z
 
@@ -268,28 +274,29 @@ class AR(nn.Module):
         return f"AR | {self.beta}"
 
 
-def train(model, cases, regions, optimizer, checkpoint, args):
+def train(model, new_cases, regions, optimizer, checkpoint, args):
+    print(args)
+    print(f"max inc = {new_cases.max()}")
     M = len(regions)
-    device = cases.device
-    new_cases = cases[:, 1:] - cases[:, :-1]
-    assert (new_cases >= 0).all()
+    device = new_cases.device
     tmax = new_cases.size(1)
     t = th.arange(tmax).to(device) + 1
+    size_pred = tmax - args.window
 
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
         scores = model.score(t, new_cases).clamp_(min=1e-8)
+        assert scores.size(1) == size_pred + 1
+        assert size_pred + args.window == new_cases.size(1)
 
         # compute loss
-        dist = model.dist(scores.narrow(1, 0, tmax - args.window))
-        _loss = -dist.log_prob(
-            new_cases.narrow(1, args.window, tmax - args.window)  # .clamp(min=1e-8)
-        )
+        dist = model.dist(scores.narrow(1, 0, size_pred))
+        _loss = -dist.log_prob(new_cases.narrow(1, args.window, size_pred))
         loss = _loss.sum()
         reg = 0
         # if args.weight_decay > 0:
         #    reg = args.weight_decay * (
-        #        th.sigmoid(model.alphas).sum() + F.softplus(model.repro).sum()
+        #        model.metapopulation_weights().sum()  # + F.softplus(model.repro).sum()
         #    )
 
         assert loss == loss, (loss, scores, _loss)
@@ -299,88 +306,22 @@ def train(model, cases, regions, optimizer, checkpoint, args):
         optimizer.step()
 
         # control
-        if itr % 50 == 0:
+        if itr % 100 == 0:
             with th.no_grad(), np.printoptions(precision=3, suppress=True):
                 pred = dist.mean[:, -3:]
                 gt = new_cases[:, -3:]
                 maes = th.abs(gt - pred)
-            print(
-                f"Iter {itr:04d} | Loss {loss.item() / M:.2f} | Reg {reg:.2f} | MAE {maes.mean():.2f} | {model} | {args.loss}"
-            )
+                _a = model.metapopulation_weights()
+                print(
+                    f"[{itr:04d}] Loss {loss.item() / M:.2f} | "
+                    f"MAE {maes.mean():.2f} | "
+                    f"{model} | "
+                    f"{args.loss} ({scores[:, -1].min().item():.2f}, {scores[:, -1].max().item():.2f}) | "
+                    f"alpha ({_a.min().item():.2f}, {_a.mean().item():.2f}, {_a.max().item():.2f})"
+                )
             th.save(model.state_dict(), checkpoint)
     print(f"Train MAE,{maes.mean():.2f}")
     return model
-
-
-def simulate(model, cases, regions, args, dstart=None):
-    new_cases = cases[:, 1:] - cases[:, :-1]
-    assert (new_cases >= 0).all()
-    tmax = new_cases.size(1)
-
-    test_preds = model.simulate(tmax, new_cases, args.test_on)
-    test_preds = test_preds.cpu().numpy()
-
-    df = pd.DataFrame(test_preds.T, columns=regions)
-    if dstart is not None:
-        base = pd.to_datetime(dstart)
-        ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
-        df["date"] = ds
-
-        df.set_index("date", inplace=True)
-
-    # print(model.beta(th.arange(tmax + args.test_on).to(cases.device) + 1))
-    return df
-
-
-def prediction_interval(model, cases, regions, nsamples, args, dstart=None):
-    new_cases = cases[:, 1:] - cases[:, :-1]
-    assert (new_cases >= 0).all()
-    tmax = new_cases.size(1)
-    samples = []
-
-    for i in range(nsamples):
-        test_preds = model.simulate(tmax, new_cases, args.test_on, False)
-        test_preds = test_preds.cpu().numpy()
-        test_preds = np.cumsum(test_preds, axis=1)
-        test_preds = test_preds + cases.narrow(1, -1, 1).cpu().numpy()
-        samples.append(test_preds)
-    samples = np.stack(samples, axis=0)
-    print(samples.shape)
-    test_preds_mean = np.mean(samples, axis=0)
-    test_preds_std = np.std(samples, axis=0)
-    df_mean = pd.DataFrame(test_preds_mean.T, columns=regions)
-    df_std = pd.DataFrame(test_preds_std.T, columns=regions)
-    if dstart is not None:
-        base = pd.to_datetime(dstart)
-        ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
-        df_mean["date"] = ds
-        df_std["date"] = ds
-
-        df_mean.set_index("date", inplace=True)
-        df_std.set_index("date", inplace=True)
-    return df_mean, df_std
-
-
-def initialize(args):
-    device = th.device("cuda" if th.cuda.is_available() else "cpu")
-    cases, regions, basedate = load.load_confirmed_csv(args.fdat)
-    cases = cases.float().to(device)[:, args.t0 :]
-    print("Timeseries length", cases.size(1))
-
-    # cheat to test compatibility
-    # if zero (def value) it'll continue
-    if not hasattr(args, "keep_counties"):
-        pass
-    elif args.keep_counties == -1:
-        cases = cases.sum(0).reshape(1, -1)
-        regions = ["all"]
-    elif args.keep_counties > 0:
-        k = args.keep_counties
-        # can also sort on case numbers and pick top-k
-        cases = cases[:k]
-        regions = regions[:k]
-
-    return cases, regions, basedate, device
 
 
 def _get_arg(args, v, device):
@@ -391,10 +332,22 @@ def _get_arg(args, v, device):
 
 
 class ARCV(cv.CV):
+    def initialize(self, args):
+        device = th.device("cuda" if th.cuda.is_available() else "cpu")
+        cases, regions, basedate = load.load_confirmed_csv(args.fdat)
+        new_cases = cases[:, 1:] - cases[:, :-1]
+        assert (new_cases >= 0).all()
+
+        new_cases = new_cases.float().to(device)[:, args.t0 :]
+        print("Timeseries length", new_cases.size(1))
+
+        args.window = min(args.window, cases.size(1) - 4)
+        return new_cases, regions, basedate, device
+
     def run_train(self, dset, args, checkpoint):
         args.fdat = dset
-        cases, regions, _, device = initialize(args)
-        tmax = cases.size(1) + 1
+        new_cases, regions, _, device = self.initialize(args)
+        tmax = new_cases.size(1) + 1
 
         # setup optional features
         graph = _get_arg(args, "graph", device)
@@ -402,8 +355,8 @@ class ARCV(cv.CV):
         time_features = _get_arg(args, "time_features", device)
         if time_features is not None:
             time_features = time_features.transpose(0, 1)
-            time_features = time_features.narrow(0, args.t0, cases.size(1))
-            print(time_features.size(), cases.size())
+            time_features = time_features.narrow(0, args.t0, new_cases.size(1))
+            print(time_features.size(), new_cases.size())
 
         weight_decay = 0
         # setup beta function
@@ -431,7 +384,7 @@ class ARCV(cv.CV):
         func = AR(regions, beta_net, args.loss, args.window, graph, features).to(device)
         params = []
         # exclude = {"nu", "beta.w_feat.weight", "beta.w_feat.bias"}
-        # exclude = {"nu", "alphas", "repro"}
+        # exclude = {"nu", "alphas"}
         exclude = {"nu"}
         for name, p in dict(func.named_parameters()).items():
             wd = 0 if name in exclude else weight_decay
@@ -441,29 +394,9 @@ class ARCV(cv.CV):
             params, lr=args.lr, betas=[args.momentum, 0.999], weight_decay=weight_decay
         )
 
-        model = train(func, cases, regions, optimizer, checkpoint, args)
+        model = train(func, new_cases, regions, optimizer, checkpoint, args)
 
         return model
-
-    def run_simulate(self, dset, args, model=None, sim_params=None):
-        args.fdat = dset
-        if model is None:
-            raise NotImplementedError
-
-        cases, regions, basedate, device = initialize(args)
-        forecast = simulate(model, cases, regions, args, basedate)
-
-        return forecast
-
-    def run_prediction_interval(self, args, nsamples, model=None):
-        if model is None:
-            raise NotImplementedError
-
-        cases, regions, basedate, device = initialize(args)
-        df_mean, df_std = prediction_interval(
-            model, cases, regions, nsamples, args, basedate
-        )
-        return df_mean, df_std
 
 
 CV_CLS = ARCV

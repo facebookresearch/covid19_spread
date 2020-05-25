@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import importlib
+import numpy as np
 import pandas as pd
 import os
 import torch as th
@@ -23,6 +24,7 @@ from lib.click_lib import DefaultGroup
 import tempfile
 import shutil
 import json
+from tensorboardX import SummaryWriter
 
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
@@ -30,21 +32,63 @@ BestRun = namedtuple("BestRun", ("pth", "name"))
 
 class CV:
     def run_simulate(
-        self,
-        dset: str,
-        train_params: Dict[str, Any],
-        model: Any,
-        sim_params: Dict[str, Any],
+        self, dset: str, args: Dict[str, Any], model: Any, sim_params: Dict[str, Any]
     ) -> pd.DataFrame:
         """
         Run a simulation given a trained model.  This should return a pandas DataFrame with each
         column corresponding to a location and each row corresponding to a date.  The value
         of each cell is the forecasted cases per day (*not* cumulative cases)
         """
-        ...
+        args.fdat = dset
+        if model is None:
+            raise NotImplementedError
 
-    def run_prediction_interval(self, args, nsamples, model=None):
-        ...
+        cases, regions, basedate, device = self.initialize(args)
+        tmax = cases.size(1)
+
+        test_preds = model.simulate(tmax, cases, args.test_on)
+        test_preds = test_preds.cpu().numpy()
+
+        df = pd.DataFrame(test_preds.T, columns=regions)
+        if basedate is not None:
+            base = pd.to_datetime(basedate)
+            ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
+            df["date"] = ds
+
+            df.set_index("date", inplace=True)
+
+        return df
+
+    def run_prediction_interval(self, dset, args, nsamples, model=None):
+        args.fdat = dset
+        if model is None:
+            raise NotImplementedError
+
+        cases, regions, basedate, device = self.initialize(args)
+        tmax = cases.size(1)
+        samples = []
+
+        for i in range(nsamples):
+            test_preds = model.simulate(tmax, cases, args.test_on, False)
+            test_preds = test_preds.cpu().numpy()
+            # FIXME: this doesn't work with smoothing
+            test_preds = np.cumsum(test_preds, axis=1)
+            test_preds = test_preds + cases.narrow(1, -1, 1).cpu().numpy()
+            samples.append(test_preds)
+        samples = np.stack(samples, axis=0)
+        test_preds_mean = np.mean(samples, axis=0)
+        test_preds_std = np.std(samples, axis=0)
+        df_mean = pd.DataFrame(test_preds_mean.T, columns=regions)
+        df_std = pd.DataFrame(test_preds_std.T, columns=regions)
+        if basedate is not None:
+            base = pd.to_datetime(basedate)
+            ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
+            df_mean["date"] = ds
+            df_std["date"] = ds
+
+            df_mean.set_index("date", inplace=True)
+            df_std.set_index("date", inplace=True)
+        return df_mean, df_std
 
     def run_train(self, dset, model_params, model_out):
         """
@@ -78,6 +122,14 @@ class CV:
     ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         return metrics.compute_metrics(gt, forecast).round(2), {}
 
+    def setup_tensorboard(self, basedir):
+        """
+        Setup dir and writer for tensorboard logging
+        """
+        logdir = os.path.join(basedir, "../tensorboard")
+        os.makedirs(logdir, exist_ok=True)
+        self.tb_writer = SummaryWriter(logdir=logdir)
+
 
 def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
     """Runs cross validaiton for one set of hyperaparmeters"""
@@ -108,11 +160,15 @@ def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
     preprocessed = _path(prefix + "preprocessed_" + os.path.basename(dset))
     mod.preprocess(val_in, preprocessed, cfg[module].get("preprocess", {}))
 
+    # setup logging
+    mod.setup_tensorboard(basedir)
+
     # -- train --
     train_params = Namespace(**cfg[module]["train"])
     model = mod.run_train(
         preprocessed, train_params, _path(prefix + cfg[module]["output"])
     )
+    mod.tb_writer.close()
 
     # -- simulate --
     with th.no_grad():

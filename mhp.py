@@ -67,6 +67,11 @@ class MHPCV(cv.CV):
         deltas.index = pandas.date_range(start=basedate, periods=len(deltas))
         return deltas[deltas.index > basedate]
 
+    def run_prediction_interval(self, dset, args, nsamples, model=None):
+        args.fdat = dset
+        if model is None:
+            raise NotImplementedError
+
     def model_selection(self, basedir: str) -> List[cv.BestRun]:
         results = []
         for metrics_pth in glob(os.path.join(basedir, "*/metrics.csv")):
