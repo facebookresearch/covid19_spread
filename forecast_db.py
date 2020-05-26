@@ -106,7 +106,7 @@ def cli():
     pass
 
 
-LOC_MAP = {"new-jersey": "New Jersey", "nys": "New York"}
+LOC_MAP = {"new-jersey": "New Jersey", "nystate": "New York"}
 
 
 def to_sql(conn, df, table):
@@ -125,15 +125,15 @@ def sync_max_forecasts(conn, remote_dir, local_dir):
         cwd=f"{local_dir}/new-jersey",
     )
     check_call(
-        ["scp", f"{remote_dir}/nys/forecast-[0-9]*_fast.csv", "."],
-        cwd=f"{local_dir}/nys",
+        ["scp", f"{remote_dir}/nystate/forecast-[0-9]*_fast.csv", "."],
+        cwd=f"{local_dir}/nystate",
     )
     check_call(
-        ["scp", f"{remote_dir}/nys/forecast-[0-9]*_slow.csv", "."],
-        cwd=f"{local_dir}/nys",
+        ["scp", f"{remote_dir}/nystate/forecast-[0-9]*_slow.csv", "."],
+        cwd=f"{local_dir}/nystate",
     )
     files = glob(f"local_dir/new-jersey/forecast-*_(fast|slow).csv")
-    for state, ty in itertools.product(["new-jersey", "nys"], ["slow", "fast"]):
+    for state, ty in itertools.product(["new-jersey", "nystate"], ["slow", "fast"]):
         files = glob(f"{local_dir}/{state}/forecast-*_{ty}.csv")
         for f in files:
             forecast_date = re.search("forecast-(\d+)_", f).group(1)
@@ -153,6 +153,7 @@ def sync_max_forecasts(conn, remote_dir, local_dir):
                 df["id"] = f"{state}_{ty}"
                 df["loc2"] = LOC_MAP[state]
                 df["loc1"] = "United States"
+                df = df[df["loc3"] != "ALL REGIONS"]
                 to_sql(conn, df, "infections")
 
 
