@@ -50,11 +50,6 @@ sqlite3.register_adapter(datetime.datetime, adapt_date)
 sqlite3.register_converter("date", convert_date)
 
 
-def regexp(expr, item):
-    reg = re.compile(expr)
-    return reg.search(item) is not None
-
-
 def mk_db():
     conn = sqlite3.connect(DB)
     # forecast_date is the last date that we have ground truth data for.
@@ -342,10 +337,9 @@ def sync_forecasts(distribute=False):
     if not os.path.exists(DB):
         mk_db()
     conn = sqlite3.connect(DB)
-    conn.create_function("REGEXP", 2, regexp)
     remote_dir = "devfairh1:/private/home/maxn/covid19_spread/forecasts"
     local_dir = f'/checkpoint/{os.environ["USER"]}/covid19/forecasts'
-    sync_max_forecasts(conn, remote_dir, local_dir)
+    # sync_max_forecasts(conn, remote_dir, local_dir)
     sync_nyt(conn)
     sync_ihme(conn)
     sync_los_alamos(conn)
