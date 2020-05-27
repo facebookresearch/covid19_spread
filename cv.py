@@ -126,9 +126,7 @@ class CV:
         """
         Setup dir and writer for tensorboard logging
         """
-        logdir = os.path.join(basedir, "../tensorboard")
-        os.makedirs(logdir, exist_ok=True)
-        self.tb_writer = SummaryWriter(logdir=logdir)
+        self.tb_writer = SummaryWriter(logdir=basedir)
 
 
 def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
