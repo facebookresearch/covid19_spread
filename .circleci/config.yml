@@ -43,7 +43,6 @@ jobs:
                     source ~/.bashrc
                     conda activate covid19_spread
                     make data-usa
-                    make data-nj
                     make data-ny
 
             - run:
