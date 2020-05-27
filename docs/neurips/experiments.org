@@ -18,9 +18,10 @@
 - Weekly backfill on US Nytimes data
 - Weekly backfill on Italy/Spain (others?)
 - Separate forecast horizons (allows us to also do CV on earlier days)
-  - 7 days: ["2020-04-01", "2020-04-08", "2020-04-15", "2020-04-22", "2020-04-29", "2020-05-06", "2020-05-13", "2020-05-20", "2020-05-27"]
-  - 14 days: ["2020-04-01", "2020-04-15", "2020-04-29", "2020-05-13", "2020-05-27"]
-  - 21 days: ["2020-04-01", "2020-04-22", "2020-05-13"]
+  - dates: ["2020-04-01", "2020-04-08", "2020-04-15", "2020-04-22", "2020-04-29", "2020-05-06"]
+  - 7 days
+  - 14 days
+  - 21 days
 *** Baselines
 - [ ] Standard AR model (univariate)
 - [ ] Standard AR model (multivariate)
