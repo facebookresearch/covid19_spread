@@ -47,18 +47,9 @@ jobs:
                     make data-ny
 
             - run:
-                name: Run Unit Tests
+                name: Run Tests
                 command: |
                     conda init bash
                     source ~/.bashrc
                     conda activate covid19_spread
-                    python -m pytest tests/ -v -m "not integration" 
-
-            - run:
-                name: Run Integration Tests
-                command: |
-                    conda init bash
-                    source ~/.bashrc
-                    conda activate covid19_spread
-                    python -m pytest tests/ -v -m "integration" 
-
+                    python -m pytest tests/ 
