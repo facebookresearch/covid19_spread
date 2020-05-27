@@ -24,9 +24,7 @@ jobs:
                     conda init bash
                     source ~/.bashrc
                     conda activate covid19_spread
-                    git submodule sync
-                    git submodule update --init --recursive
-                    cd timelord && N_COMPILE_JOBS=2 python3 setup.py build -f develop
+                    make timelord
 
             - run:
                 name: Check Formatting
@@ -52,6 +50,4 @@ jobs:
                     conda init bash
                     source ~/.bashrc
                     conda activate covid19_spread
-                    cd timelord && N_COMPILE_JOBS=2 python3 setup.py build -f develop
-                    cd ..
-                    python -m pytest tests/ 
+                    python3 -m pytest tests/ 
