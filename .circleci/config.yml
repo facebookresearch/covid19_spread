@@ -42,6 +42,7 @@ jobs:
                     conda init bash
                     source ~/.bashrc
                     conda activate covid19_spread
+                    apt install curl --assume-yes
                     make data-usa
                     make data-ny
 
