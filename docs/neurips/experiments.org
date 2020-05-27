@@ -1,0 +1,24 @@
+#+TITLE: Experiment TODOs
+
+* Main Experiment
+** Setting
+- Forecast Deaths and Confirmed Cases
+- Weekly backfill on US Nytimes data
+- Weekly backfill on Italy/Spain (others?)
+- Separate forecast horizons (allows us to also do CV on earlier days)
+  - 7 days
+  - 14 days
+  - 21 days
+** Baselines
+- [ ] Standard AR model (univariate)
+- [ ] Standard AR model (multivariate)
+- [ ] S(E)IR
+- [ ] MHPs
+- [ ] Naive
+
+* Ablation
+- [ ] Univariate AR model
+- [ ] Multivariate AR model
+- [ ] Without Negative Binomial
+- [ ] Without Latent Beta
+- [ ] Without Coupling
