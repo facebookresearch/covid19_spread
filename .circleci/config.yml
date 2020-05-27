@@ -29,9 +29,36 @@ jobs:
                     cd timelord && N_COMPILE_JOBS=2 python3 setup.py build -f develop
 
             - run:
-                name: Run tests
+                name: Check Formatting
                 command: |
                     conda init bash
                     source ~/.bashrc
                     conda activate covid19_spread
                     black --check .  --exclude timelord
+
+            - run:
+                name: Make Data
+                command: |
+                    conda init bash
+                    source ~/.bashrc
+                    conda activate covid19_spread
+                    make data-usa
+                    make data-nj
+                    make data-ny
+
+            - run:
+                name: Run Unit Tests
+                command: |
+                    conda init bash
+                    source ~/.bashrc
+                    conda activate covid19_spread
+                    python -m pytest tests/ -v -m "not integration" 
+
+            - run:
+                name: Run Integration Tests
+                command: |
+                    conda init bash
+                    source ~/.bashrc
+                    conda activate covid19_spread
+                    python -m pytest tests/ -v -m "integration" 
+
