@@ -14,6 +14,7 @@ import sir
 
 basedir = os.getcwd()
 
+
 class TrainParamsNY:
     fdat = "data/nystate/timeseries.h5"
     fpop = "data/population-data/US-states/new-york-population.csv"
