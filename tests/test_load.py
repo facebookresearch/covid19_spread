@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 
-DATA_PATH_CSV = "data/usa/data.csv"
+DATA_PATH_CSV = "data/usa/data_cases.csv"
 DATA_PATH_H5 = "data/nystate/timeseries.h5"
 POP_PATH = "data/population-data/US-states/new-york-population.csv"
 

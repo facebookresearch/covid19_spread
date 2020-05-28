@@ -35,7 +35,7 @@ backfill:
   #- 2020-04-30
   #- 2020-05-04
 metasir:
-  data: data/usa/data.csv
+  data: data/usa/data_cases.csv
   output: metasir_model.bin
   train:
     fpop: *fpop
@@ -48,7 +48,7 @@ metasir:
     t0: 10
     fit_on: -10
     test_on: *vdays
-    adjoint: false    
+    adjoint: false
 ar:
   output: ar_model.bin
   data: data/usa/data_deaths.csv
@@ -78,7 +78,7 @@ ar:
 sir:
   module: sir
   output: sir_model.npy
-  data: data/usa/data.csv
+  data: data/usa/data_cases.csv
   train:
     fpop: *fpop
     window: 10

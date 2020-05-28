@@ -38,3 +38,16 @@ You can generate the HDF5 data file using the scripts that you have just checked
 cd data/geographical_region  # starting in covid19_spread folder
 make timeseries.h5
 ```
+
+## Tests
+
+To run tests:
+
+```
+python -m pytest tests/
+```
+
+To exclude integration tests:
+```
+python -m pytest tests/ -v -m "not integration" 
+```

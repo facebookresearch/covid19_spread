@@ -394,7 +394,7 @@ def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, b
     with snapshot.SnapshotManager(
         snapshot_dir=basedir + "/snapshot",
         with_submodules=True,
-        exclude=["data/*", "notebooks/*"],
+        exclude=["data/*", "notebooks/*", "tests/*"],
     ):
         jobs = list(launcher(partial(run_cv, module), basedirs, cfgs))
 
