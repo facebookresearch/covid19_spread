@@ -53,7 +53,5 @@ jobs:
                     conda init bash
                     source ~/.bashrc
                     conda activate covid19_spread
-                    make data-usa
-                    make data-ny
                     export USER=''
                     python3 -m pytest tests/ 
