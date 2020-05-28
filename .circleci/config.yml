@@ -24,6 +24,8 @@ jobs:
                     conda init bash
                     source ~/.bashrc
                     conda activate covid19_spread
+                    git submodule sync
+                    git submodule update --init --recursive
                     cd timelord && N_COMPILE_JOBS=2 python3 setup.py build -f develop
 
 
