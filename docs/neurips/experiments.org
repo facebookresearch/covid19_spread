@@ -1,0 +1,37 @@
+#+TITLE: Experiment TODOs
+
+** Data Analysis
+*** Overdispersion
+- To motivate the use of the negative binomial distribution, we need to show
+  that the data is overdispersed
+- Since we have a time-varying process, we can not simply compute mean and
+  variance for the entire time series.
+- Instead, we should compute mean and variance for each 1-2 week period
+  separately and show that variance is larger than the mean
+- Analysis should be done on county level
+- Think about good way to visualize this
+
+
+** Main Experiment
+*** Setting
+- Forecast Deaths and Confirmed Cases
+- Weekly backfill on US Nytimes data
+- Weekly backfill on Italy/Spain (others?)
+- Separate forecast horizons (allows us to also do CV on earlier days)
+  - dates: ["2020-04-01", "2020-04-08", "2020-04-15", "2020-04-22", "2020-04-29", "2020-05-06"]
+  - 7 days
+  - 14 days
+  - 21 days
+*** Baselines
+- [ ] Standard AR model (univariate)
+- [ ] Standard AR model (multivariate)
+- [ ] S(E)IR
+- [ ] MHPs
+- [ ] Naive
+
+** Ablation
+- [ ] Univariate AR model
+- [ ] Multivariate AR model
+- [ ] Without Negative Binomial
+- [ ] Without Latent Beta
+- [ ] Without Coupling

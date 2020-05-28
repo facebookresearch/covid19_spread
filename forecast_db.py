@@ -50,11 +50,6 @@ sqlite3.register_adapter(datetime.datetime, adapt_date)
 sqlite3.register_converter("date", convert_date)
 
 
-def regexp(expr, item):
-    reg = re.compile(expr)
-    return reg.search(item) is not None
-
-
 def mk_db():
     conn = sqlite3.connect(DB)
     # forecast_date is the last date that we have ground truth data for.
@@ -106,7 +101,7 @@ def cli():
     pass
 
 
-LOC_MAP = {"new-jersey": "New Jersey", "nys": "New York"}
+LOC_MAP = {"new-jersey": "New Jersey", "nystate": "New York"}
 
 
 def to_sql(conn, df, table):
@@ -125,15 +120,15 @@ def sync_max_forecasts(conn, remote_dir, local_dir):
         cwd=f"{local_dir}/new-jersey",
     )
     check_call(
-        ["scp", f"{remote_dir}/nys/forecast-[0-9]*_fast.csv", "."],
-        cwd=f"{local_dir}/nys",
+        ["scp", f"{remote_dir}/nystate/forecast-[0-9]*_fast.csv", "."],
+        cwd=f"{local_dir}/nystate",
     )
     check_call(
-        ["scp", f"{remote_dir}/nys/forecast-[0-9]*_slow.csv", "."],
-        cwd=f"{local_dir}/nys",
+        ["scp", f"{remote_dir}/nystate/forecast-[0-9]*_slow.csv", "."],
+        cwd=f"{local_dir}/nystate",
     )
     files = glob(f"local_dir/new-jersey/forecast-*_(fast|slow).csv")
-    for state, ty in itertools.product(["new-jersey", "nys"], ["slow", "fast"]):
+    for state, ty in itertools.product(["new-jersey", "nystate"], ["slow", "fast"]):
         files = glob(f"{local_dir}/{state}/forecast-*_{ty}.csv")
         for f in files:
             forecast_date = re.search("forecast-(\d+)_", f).group(1)
@@ -153,6 +148,7 @@ def sync_max_forecasts(conn, remote_dir, local_dir):
                 df["id"] = f"{state}_{ty}"
                 df["loc2"] = LOC_MAP[state]
                 df["loc1"] = "United States"
+                df = df[df["loc3"] != "ALL REGIONS"]
                 to_sql(conn, df, "infections")
 
 
@@ -341,10 +337,9 @@ def sync_forecasts(distribute=False):
     if not os.path.exists(DB):
         mk_db()
     conn = sqlite3.connect(DB)
-    conn.create_function("REGEXP", 2, regexp)
     remote_dir = "devfairh1:/private/home/maxn/covid19_spread/forecasts"
     local_dir = f'/checkpoint/{os.environ["USER"]}/covid19/forecasts'
-    sync_max_forecasts(conn, remote_dir, local_dir)
+    # sync_max_forecasts(conn, remote_dir, local_dir)
     sync_nyt(conn)
     sync_ihme(conn)
     sync_los_alamos(conn)
