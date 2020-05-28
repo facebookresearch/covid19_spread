@@ -20,7 +20,7 @@ class TestCV:
 
     def test_filter_validation_days(self, tmp_path):
         """Tests split of validation days using tmp_path fixtures"""
-        data_path = "data/usa/data.csv"
+        data_path = "data/usa/data_cases.csv"
         output_path = tmp_path / "val.csv"
         cv.filter_validation_days(data_path, output_path, 7)
 
@@ -40,5 +40,5 @@ class TestCVIntegration:
     def test_cv_sir_nj(self, tmpdir):
         """Runs integration test with tmpdir fixture that's cleaned up after tests"""
         runner = CliRunner()
-        result = runner.invoke(cv.cv, f"cv/nj.yml sir -basedir {tmpdir}")
+        result = runner.invoke(cv.cv, f"cv/ny.yml sir -basedir {tmpdir}")
         assert result.exit_code == 0
