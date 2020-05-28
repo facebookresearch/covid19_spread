@@ -28,7 +28,6 @@ jobs:
                     git submodule update --init --recursive
                     cd timelord && N_COMPILE_JOBS=2 python3 setup.py build -f develop
 
-
             - run:
                 name: Check Formatting
                 command: |
@@ -36,6 +35,9 @@ jobs:
                     source ~/.bashrc
                     conda activate covid19_spread
                     black --check .  --exclude timelord
+
+            - attach_workspace:
+                at: ~/covid19_spread
 
             - run:
                 name: Make Data
