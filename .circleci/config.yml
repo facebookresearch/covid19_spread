@@ -24,7 +24,8 @@ jobs:
                     conda init bash
                     source ~/.bashrc
                     conda activate covid19_spread
-                    make timelord
+                    cd timelord && N_COMPILE_JOBS=2 python3 setup.py build -f develop
+
 
             - run:
                 name: Check Formatting
