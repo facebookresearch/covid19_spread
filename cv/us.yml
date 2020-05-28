@@ -14,8 +14,8 @@ backfill:
   # LANL
   #- 2020-04-05
   #- 2020-04-08
-  - 2020-04-12
-  - 2020-04-15
+  #- 2020-04-12
+  #- 2020-04-15
   - 2020-04-19
   - 2020-04-22
   - 2020-04-26
@@ -69,7 +69,7 @@ ar:
     window: [10, 15, 20, 25]
     lr: [0.001]
     momentum: [0.9]
-    weight_decay: [0.1]
+    weight_decay: [0.1, 0.2]
     # weight_decay: [0.01]
     niters: [20000]
     loss: nb
@@ -87,8 +87,8 @@ sir:
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
-dar:
-  output: dar_model.bin
+gar:
+  output: var_model.bin
   data: data/usa/data_deaths.csv
   resources:
     gpus: 1
@@ -100,12 +100,38 @@ dar:
     # features: data/usa/county_features.pt
     # time_features: data/usa/policy_features.pt
     # graph: *fgraph
+    dim: 64
+    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
+    decay: [latent2_1]
+    layers: [5, 10]
+    window: [2, 5, 10]
+    lr: [0.001]
+    momentum: [0.9]
+    weight_decay: [0.1]
+    niters: [20000]
+    loss: nb
+    t0: 10
+    test_on: *vdays
+dar:
+  output: var_model.bin
+  data: data/usa/data_deaths.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 30
+  train:
+    fpop: *fpop
+    # features: data/usa/county_features.pt
+    # time_features: data/usa/policy_features.pt
+    # graph: *fgraph
+    dim: 64
     # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
     decay: [latent16_1]
-    window: [15, 10, 20, 25]
-    lr: [0.001, 0.005]
-    momentum: [0.99]
-    weight_decay: [0.1, 0.01, 0]
+    window: [10, 15, 20]
+    lr: [0.001]
+    momentum: [0.9]
+    weight_decay: [0.1]
     niters: [20000]
     loss: nb
     t0: 10
@@ -132,4 +158,29 @@ matrix:
     n_embedding: [250]
     seed: [1]
     t0: [0] #, 10] ######
+    test_on: *vdays
+car:
+  output: car_model.bin
+  data: data/usa/data_deaths.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 30
+  #preprocess:
+  #  smooth: 5
+  train:
+    fpop: *fpop
+    # features: data/usa/county_features.pt
+    # time_features: data/usa/policy_features.pt
+    # graph: *fgraph
+    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
+    decay: [latent2_1]
+    window: [15, 20, 25]
+    lr: [0.001]
+    momentum: [0.9]
+    weight_decay: [0.3]
+    niters: [30000]
+    loss: nb
+    t0: 10
     test_on: *vdays
