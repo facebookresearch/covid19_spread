@@ -89,7 +89,6 @@ def _compute_metrics(df_true, df_pred, mincount=10):
     common_cols = list(set(df_true.columns).intersection(set(df_pred.columns)))
     df_pred = df_pred[common_cols]
     df_true = df_true[common_cols]
-
     z = len(df_pred)
     # print(df_pred.round(2))
 
@@ -102,6 +101,7 @@ def _compute_metrics(df_true, df_pred, mincount=10):
     naive.index = df_pred.index
 
     ix = df_pred.index.intersection(df_true.index)
+
     df_pred = df_pred.loc[ix]
     naive = naive.loc[ix]
     gt = df_true.loc[ix]
@@ -119,8 +119,10 @@ def _compute_metrics(df_true, df_pred, mincount=10):
     )
     metrics["Measure"] = ["RMSE", "MAE", "MAPE", "RMSE_NAIVE", "MAE_NAIVE"]
     metrics.set_index("Measure", inplace=True)
-    metrics.loc["MAE_MASE"] = metrics.loc["MAE"] / metrics.loc["MAE_NAIVE"]
-    metrics.loc["RMSE_MASE"] = metrics.loc["RMSE"] / metrics.loc["RMSE_NAIVE"]
+    if metrics.shape[1] > 0:
+        metrics.loc["MAE_MASE"] = metrics.loc["MAE"] / metrics.loc["MAE_NAIVE"]
+        metrics.loc["RMSE_MASE"] = metrics.loc["RMSE"] / metrics.loc["RMSE_NAIVE"]
+
     return metrics
 
 

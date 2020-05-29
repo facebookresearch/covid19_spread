@@ -42,3 +42,11 @@ class TestCVIntegration:
         runner = CliRunner()
         result = runner.invoke(cv.cv, f"cv/ny.yml sir -basedir {tmpdir}")
         assert result.exit_code == 0
+
+    def test_cv_sir_basedate(self, tmpdir):
+        """Runs integration test with tmpdir fixture that's cleaned up after tests"""
+        runner = CliRunner()
+        result = runner.invoke(
+            cv.cv, f"cv/ny.yml sir -basedir {tmpdir} -basedate 2020-04-01"
+        )
+        assert result.exit_code == 0
