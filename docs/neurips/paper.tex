@@ -1,4 +1,4 @@
-% Created 2020-05-28 Thu 09:15
+% Created 2020-05-29 Fri 23:26
 % Intended LaTeX compiler: pdflatex
 \documentclass{article}
                                   \usepackage[nonatbib]{neurips_2020}
@@ -54,7 +54,7 @@ improves the robustness of forecasts.
 \end{abstract}
 
 \section{Introduction}
-\label{sec:org9b937a0}
+\label{sec:orgc60d05b}
 \begin{itemize}
 \item Forecasting the spread the of COVID-19 is an important task in the public
 health response to the disease. Not only important to understand the progress
@@ -87,7 +87,7 @@ by public health agencies like Robert Koch Institute \citep{salmon2016surveillan
 \end{itemize}
 
 \section{Method}
-\label{sec:org4028fe0}
+\label{sec:org7821981}
 \begin{itemize}
 \item We assume we have a set of time series which are different realizations of the
 the same underlying contagion process.
@@ -118,7 +118,7 @@ through policies, social distancing etc.). Similar
 \end{itemize}
 
 \subsection{Time Varying Process}
-\label{sec:org2d4718a}
+\label{sec:orgab37315}
 \begin{equation*}
     y_{t+1} = \beta_t AR(p)
 \end{equation*}
@@ -132,16 +132,16 @@ where
 \end{align*}
 
 \subsection{Latent Coupling}
-\label{sec:orgcd8f8cd}
+\label{sec:org58a1c62}
 
 \subsubsection{Univariate Coupling}
-\label{sec:orgf421778}
+\label{sec:org45e30c6}
 \begin{equation}
     y_i^{t+1} = \beta_i \sum_{k=0}^p w^k y_i^{t-k} + \epsilon
 \end{equation}
 
 \subsubsection{Multivariate Coupling}
-\label{sec:orge92bbb3}
+\label{sec:orgb89969b}
 \begin{equation}
     y_i^{t+1} = \beta_i \sum_{k=0}^p \sum_{j=1}^m w^k \alpha_{ij} y_j^{t-k} + \epsilon
 \end{equation}
@@ -155,7 +155,7 @@ is problematic: runtime is \(O(M^2T)\). Moreover, not all pairs can be aligned.
 
 
 \subsection{Maximum Likelihood Estimation}
-\label{sec:orgb473ba4}
+\label{sec:org8d2991e}
 The popularity of the NB distribution is due largely to its ability to model
 count data with varying degrees of overdispersion. The distribution is commonly
 expressed in terms of the mean \(\mu\) and dispersion parameter \(\nu\) such that the
@@ -170,8 +170,19 @@ probability of observing a non-negative integer \(y\) is
     y^{t+1}_{i} \sim \text{NB}(\eta_i^{t}, \nu_i)
 \end{equation*}
 
+\begin{minipage}{.335\linewidth}
+\begin{center}
+\includegraphics[width=\columnwidth]{img/overdispersion_states.png}
+\end{center}
+\end{minipage}
+\begin{minipage}{.45\linewidth}
+\begin{center}
+\includegraphics[width=\columnwidth]{img/overdispersion_counties.png}
+\end{center}
+\end{minipage}
+
 \section{Related Work}
-\label{sec:orgaf7d266}
+\label{sec:org4e138ff}
 \cite{lloyd_smith2007negativebinomial}
 \begin{itemize}
 \item We are not regressing dependent variables onto counts. Instead we use latent
@@ -180,9 +191,9 @@ structure of the underlying process.
 \end{itemize}
 
 \section{Experiments}
-\label{sec:orgd2a2489}
+\label{sec:orgf0dde8b}
 \subsection{Main Experiment}
-\label{sec:org931ecc2}
+\label{sec:orgf880694}
 \begin{itemize}
 \item Forecast Deaths and Confirmed Cases
 \item Weekly backfill on US Nytimes data
@@ -202,8 +213,10 @@ structure of the underlying process.
 \item Naive
 \end{itemize}
 \end{itemize}
+
+**
 \subsection{Ablation}
-\label{sec:org898a4bb}
+\label{sec:org1ff294f}
 \begin{itemize}
 \item Univariate
 \item Multivariate
@@ -213,7 +226,7 @@ structure of the underlying process.
 \end{itemize}
 
 \subsection{Analysis of Adjacency matrices}
-\label{sec:org93940cb}
+\label{sec:orgd29c52d}
 \begin{itemize}
 \item coupled
 \item uncoupled
@@ -221,7 +234,7 @@ structure of the underlying process.
 \end{itemize}
 
 \section{Conclusion}
-\label{sec:org62d2636}
+\label{sec:org40dbb91}
 
 \printbibliography
 \end{document}
