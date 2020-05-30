@@ -1,4 +1,5 @@
 version: 2
+
 jobs:
     build:
         docker:
@@ -26,12 +27,31 @@ jobs:
                     conda activate covid19_spread
                     git submodule sync
                     git submodule update --init --recursive
-                    cd timelord && N_COMPILE_JOBS=2 python3 setup.py build -f develop
+                    cd timelord && N_COMPILE_JOBS=1 python3 setup.py build -f develop
 
             - run:
-                name: Run tests
+                name: Check Formatting
                 command: |
                     conda init bash
                     source ~/.bashrc
                     conda activate covid19_spread
                     black --check .  --exclude timelord
+
+            - run:
+                name: Make Data
+                command: |
+                    conda init bash
+                    source ~/.bashrc
+                    conda activate covid19_spread
+                    apt install curl --assume-yes
+                    make data-usa
+                    make data-ny
+
+            - run:
+                name: Run Tests
+                command: |
+                    conda init bash
+                    source ~/.bashrc
+                    conda activate covid19_spread
+                    export USER=''
+                    python3 -m pytest tests/ 

@@ -18,6 +18,44 @@ from scipy.stats import kstest
 from glob import glob
 import os
 import json
+import tlc
+from tqdm import tqdm
+import threading
+from multiprocessing import cpu_count
+
+
+def mk_cpu_model(model):
+    cpu_model = tlc.SparseSoftplusEmbeddingModel(model.nnodes, model.dim, model.scale)
+    cpu_model.params[0].copy_(model.mus_.weight[:-1].cpu())
+    cpu_model.params[1].copy_(model.beta_.cpu())
+    cpu_model.params[2].copy_(model.self_A.weight[:-1].cpu())
+    cpu_model.params[3].copy_(model.U.weight[:-1].cpu())
+    cpu_model.params[4].copy_(model.V.weight[:-1].cpu())
+    return cpu_model
+
+
+def ks_test(episode, step, model, nodes):
+    cpu_model = mk_cpu_model(model)
+    next_dim = [0]
+    result = []
+    with tqdm(total=len(nodes)) as pbar:
+
+        def _ks(tid):
+            while next_dim[0] < len(nodes):
+                dim = next_dim[0]
+                next_dim[0] += 1
+                residuals = tlc.rescale_interarrival_times(dim, episode, cpu_model)
+                ks, pval = kstest(residuals, "expon")
+                result.append(
+                    {"node": nodes[dim], "ks": float(ks), "pval": float(pval)}
+                )
+                pbar.update(1)
+
+        threads = [threading.Thread(target=_ks, args=(i,)) for i in range(cpu_count())]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+
+    return pandas.DataFrame(result)
 
 
 class MHPCV(cv.CV):
@@ -108,23 +146,10 @@ class MHPCV(cv.CV):
             th.from_numpy(nts).double(), th.from_numpy(ns).long(), True, M
         )
         beta, A, mus = map(lambda x: x.numpy(), mdl.get_params())
-        residuals = goodness_of_fit(episode, 0.001, mus, beta.item(), A, nodes)
-        ks, pval = zip(
-            *[
-                kstest(residuals[x], "expon")
-                if len(residuals[x]) > 1 and nodes[x] != "Unknown"
-                else (np.nan, np.nan)
-                for x in range(M)
-            ]
-        )
-        ks = [
-            {"loc": n, "ks": k, "pval": p}
-            for n, k, p in zip(nodes, ks, pval)
-            if "Unknown" not in n
-        ]
-        ks_df = pandas.DataFrame(ks)
+        ks_df = ks_test(episode, 0.001, mdl, nodes)
         avg_ks = ks_df.mean().ks
         avg_pval = ks_df.mean().pval
+        ks = list(ks_df.to_dict(orient="index").values())
         return df_val, {**json_val, "ks": ks, "avg_ks": avg_ks, "avg_pval": avg_pval}
 
 

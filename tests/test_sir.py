@@ -12,6 +12,9 @@ import load
 import sir
 
 
+basedir = os.getcwd()
+
+
 class TrainParamsNY:
     fdat = "data/nystate/timeseries.h5"
     fpop = "data/population-data/US-states/new-york-population.csv"
@@ -23,7 +26,7 @@ class TrainParamsNY:
 
 
 class TrainParamsUS:
-    fdat = "data/usa/data.csv"
+    fdat = "data/usa/data_cases.csv"
     fpop = "data/usa/population.csv"
     window = 30
     recovery_days = 10
