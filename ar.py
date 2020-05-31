@@ -10,75 +10,8 @@ import torch.optim as optim
 from torch.distributions import NegativeBinomial, Normal, Poisson
 import load
 import cv
-
-
-class BetaConst(nn.Module):
-    def __init__(self, regions):
-        super(BetaConst, self).__init__()
-        self.M = len(regions)
-        self.b = th.nn.Parameter(th.ones(self.M, 1, dtype=th.float).fill_(-4))
-        self.fpos = F.softplus
-
-    def forward(self, t):
-        return self.fpos(self.b).expand(self.M, t.size(-1))
-
-
-class BetaExpDecay(nn.Module):
-    def __init__(self, regions):
-        super(BetaExpDecay, self).__init__()
-        M = len(regions)
-        self.a = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
-        self.b = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
-        self.c = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
-        self.fpos = F.softplus
-
-    def forward(self, t):
-        t = t.unsqueeze(0)
-        beta = self.fpos(self.a) * th.exp(-self.fpos(self.b) * t + self.fpos(self.c))
-        return beta
-
-    def __repr__(self):
-        with th.no_grad():
-            return f"Exp = ({self.fpos(self.a).mean().item():.3f}, {self.fpos(self.b).mean().item():.3f})"
-
-
-class BetaLogistic(nn.Module):
-    def __init__(self, regions):
-        super(BetaLogistic, self).__init__()
-        M = len(regions)
-        self.C = th.nn.Parameter(th.ones(M, 1, dtype=th.float))
-        self.k = th.nn.Parameter(th.ones(M, 1, dtype=th.float))
-        self.m = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
-        self.fpos = F.softplus
-
-    def forward(self, t):
-        return self.fpos(self.C) / (
-            1 + th.exp(self.fpos(self.k) * (t - self.fpos(self.m)))
-        )
-
-
-class BetaPowerLawDecay(nn.Module):
-    def __init__(self, regions):
-        super(BetaPowerLawDecay, self).__init__()
-        M = len(regions)
-        # self.a = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
-        # self.b = th.nn.Parameter(th.ones(M, dtype=th.float).fill_(-4))
-        self.a = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
-        self.b = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
-        self.c = th.nn.Parameter(th.ones(M, 1, dtype=th.float).fill_(-4))
-        self.fpos = F.softplus
-
-    def forward(self, t):
-        t = t.unsqueeze(0).float()
-        a = self.fpos(self.a)
-        m = self.fpos(self.b)
-        beta = (a * m).pow_(a) / t ** (a + 1) + self.fpos(self.c)  # pareto
-        # beta = (a * t).pow_(-m) + self.fpos(self.c)
-        return beta
-
-    def __repr__(self):
-        with th.no_grad():
-            return f"Power law = ({self.fpos(self.a).mean().item():.3f}, {self.fpos(self.b).mean().item():.3f})"
+import decay
+from wavenet import Wavenet, CausalConv1d
 
 
 class BetaLatent(nn.Module):
@@ -117,68 +50,29 @@ class BetaLatent(nn.Module):
         ht, hn = self.rnn(t, self.h0)
         beta = self.fpos(self.v(ht))
         return beta.squeeze().t()
+        # return beta.permute(2, 1, 0)
 
     def __repr__(self):
         return f"{self.rnn}"
 
 
-class BetaRBF(nn.Module):
-    def __init__(self, regions, dim, kernel, tmax):
-        super(BetaRBF, self).__init__()
-        self.M = len(regions)
-        self.dim = dim
-        self.tmax = tmax
-        # self.bs = nn.Parameter(th.ones(self.M, dim, dtype=th.float).fill_(-4))
-        # self.bs = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
-        self.w = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
-        self.c = nn.Parameter(th.randn(self.M, dim, dtype=th.float))
-        self.b = nn.Parameter(th.ones(self.M, 1, dtype=th.float))
-        self.v = nn.Parameter(th.randn(self.M, 1, dtype=th.float))
-        self.temp = nn.Parameter(th.randn(self.M, 1, dtype=th.float))
-        self.fpos = F.softplus
-        self.kernel = kernel
+class BetaWavenet(nn.Module):
+    def __init__(self, regions, blocks, layers, kernel_size):
+        super(BetaWavenet, self).__init__()
+        M = len(regions)
+        self.wavenet = Wavenet(blocks, layers, 4, kernel_size, groups=1)
+        self.W = nn.Linear(M, M)
 
-    def gaussian(self, t):
-        t = t.float().unsqueeze(0).unsqueeze(0)
-        temp = self.temp.unsqueeze(-1)
-        c = self.c.unsqueeze(-1)
-        d = (t - c) ** 2  # / self.fpos(temp)
-        return th.exp(-d)
-
-    def forward(self, t):
-        # reshape tensors
-        w = self.w.unsqueeze(-1)
-        if self.kernel == "gaussian":
-            scores = self.gaussian(t)
-        elif self.kernel == "polyharmonic":
-            scores = self.polyharmonic(t)
-        beta = self.fpos(th.sum(w * scores, dim=1) + self.v * t + self.b)
-        # beta = self.fpos(self.bs.narrow(-1, int(t), 1))
-        return beta.squeeze()
+    def forward(self, t, ys):
+        # assert t.size(-1) == ys.size(-1), (t.size(), ys.size())
+        # print(ys.size(), t.size())
+        Z = self.wavenet(ys)
+        Z = self.W(Z.t()).t()
+        Z = F.softplus(Z)
+        return Z
 
     def __repr__(self):
-        return f"RBF | {self.c.data.mean(dim=0)}"
-
-
-class BetaPolynomial(nn.Module):
-    def __init__(self, regions, degree, tmax):
-        super(BetaPolynomial, self).__init__()
-        self.M = len(regions)
-        self.degree = degree
-        self.tmax = tmax
-        self.w = nn.Parameter(th.ones(self.M, degree + 1, dtype=th.float))
-        self.fpos = F.softplus
-
-    def forward(self, t):
-        # reshape tensors
-        t = t.float() / self.tmax
-        t = [th.pow(t, d).unsqueeze(0) for d in range(self.degree + 1)]
-        t = th.cat(t, dim=0)
-        beta = self.fpos(th.mm(self.w, t))
-        return beta
-
-    def __repr__(self):
-        return f"Poly | {self.w.data}"
+        return f"Wave"
 
 
 class AR(nn.Module):
@@ -186,8 +80,9 @@ class AR(nn.Module):
         super(AR, self).__init__()
         self.M = len(regions)
         self.alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(-5))
-        self.repro = nn.Parameter(th.ones((self.M, window_size)))
-        self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(10))
+        self.repro = nn.Parameter(th.ones((self.M, window_size)).fill_(1))
+        # self.repro = nn.Parameter(th.ones((1, window_size)))
+        self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(8))
         self.beta = beta_net
         self._dist = dist
         self.window = window_size
@@ -216,6 +111,7 @@ class AR(nn.Module):
         # W = F.softmax(self.alphas, dim=1)
         W = th.sigmoid(self.alphas)
         # W = F.softplus(self.alphas)
+        # W = W / self.M
         # W = W / W.sum()
         if self.graph is not None:
             W = W * self.graph
@@ -224,28 +120,32 @@ class AR(nn.Module):
     def score(self, t, ys):
         assert t.size(-1) == ys.size(-1), (t.size(), ys.size())
         offset = self.window - 1
-        length = ys.size(1) - self.window + 1
 
+        # ws = F.softplus(self.repro)
+        ws = F.softplus(self.repro)
+        ws = ws.expand(self.M, self.window)
         # self-correlation
-        Z = F.conv1d(
-            ys.unsqueeze(0), F.softplus(self.repro).unsqueeze(1), groups=self.M
-        )
+        Z = F.conv1d(ys.unsqueeze(0), ws.unsqueeze(1), groups=self.M)
         Z = Z.squeeze(0)
-        Z.div_(float(self.window))
+        Z = Z.div(float(self.window))
 
         # cross-correlation
+        length = ys.size(1) - self.window + 1
         W = self.metapopulation_weights()
         Ys = th.stack([ys.narrow(1, i, length) for i in range(self.window)])
         Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(dim=0)
+        # Ys = th.mm(W, Z)
         # Ys = th.bmm(W, Ys).mean(dim=0)
+        with th.no_grad():
+            self.train_stats = (Z.sum().item(), Ys.sum().item())
 
         # beta evolution
         ys = ys.narrow(1, offset, ys.size(1) - offset)
-        beta = self.beta(t).narrow(1, -ys.size(1), ys.size(1))
+        beta = self.beta(t).narrow(-1, -ys.size(1), ys.size(1))
         if self.features is not None:
             beta = beta + th.sigmoid(self.w_feat(self.features))
-        Ys = beta * Z.add_(Ys)
-        # Ys = beta * Ys
+        # Ys = beta[0] * Z + beta[1] * Ys
+        Ys = beta * Z.add(Ys)
         # Ys = beta * Z
 
         assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
@@ -271,7 +171,7 @@ class AR(nn.Module):
         return preds
 
     def __repr__(self):
-        return f"AR | {self.beta}"
+        return f"AR({self.window}) | {self.beta} | EX ({self.train_stats[0]:.1e}, {self.train_stats[1]:.1e})"
 
 
 def train(model, new_cases, regions, optimizer, checkpoint, args):
@@ -335,8 +235,9 @@ class ARCV(cv.CV):
     def initialize(self, args):
         device = th.device("cuda" if th.cuda.is_available() else "cpu")
         cases, regions, basedate = load.load_confirmed_csv(args.fdat)
+        assert (cases == cases).all(), th.where(cases != cases)
         new_cases = cases[:, 1:] - cases[:, :-1]
-        assert (new_cases >= 0).all()
+        assert (new_cases >= 0).all(), th.where(new_cases < 0)
 
         new_cases = new_cases.float().to(device)[:, args.t0 :]
         print("Timeseries length", new_cases.size(1))
@@ -361,22 +262,26 @@ class ARCV(cv.CV):
         weight_decay = 0
         # setup beta function
         if args.decay == "const":
-            beta_net = BetaConst(regions)
+            beta_net = decay.BetaConst(regions)
         elif args.decay == "exp":
-            beta_net = BetaExpDecay(regions)
+            beta_net = decay.BetaExpDecay(regions)
         elif args.decay == "logistic":
-            beta_net = BetaLogistic(regions)
+            beta_net = decay.BetaLogistic(regions)
         elif args.decay == "powerlaw":
-            beta_net = BetaPowerLawDecay(regions)
+            beta_net = decay.BetaPowerLawDecay(regions)
         elif args.decay.startswith("poly"):
             degree = int(args.decay[4:])
-            beta_net = BetaPolynomial(regions, degree, tmax)
+            beta_net = decay.BetaPolynomial(regions, degree, tmax)
         elif args.decay.startswith("rbf"):
             dim = int(args.decay[3:])
-            beta_net = BetaRBF(regions, dim, "gaussian", tmax)
+            beta_net = decay.BetaRBF(regions, dim, "gaussian", tmax)
         elif args.decay.startswith("latent"):
             dim, layers = args.decay[6:].split("_")
             beta_net = BetaLatent(regions, int(dim), int(layers), tmax, time_features)
+            weight_decay = args.weight_decay
+        elif args.decay.startswith("wave"):
+            blocks, layers, dim = args.decay[4:].split("_")
+            beta_net = BetaWavenet(regions, int(blocks), int(layers), int(2))
             weight_decay = args.weight_decay
         else:
             raise ValueError("Unknown beta function")
