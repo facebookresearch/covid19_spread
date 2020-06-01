@@ -29,6 +29,21 @@ from tensorboardX import SummaryWriter
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
 
+pi_multipliers = {0.99: 2.58, 0.95: 1.96, 0.80: 1.28}
+
+
+def mk_executor(name: str, folder: str, extra_params: Dict[str, Any]):
+    executor = submitit.AutoExecutor(folder=folder)
+    executor.update_parameters(
+        name=name,
+        gpus_per_node=extra_params.get("gpus", 0),
+        cpus_per_task=extra_params.get("cpus", 3),
+        mem_gb=extra_params.get("memgb", 20),
+        array_parallelism=extra_params.get("array_parallelism", 50),
+        timeout_min=extra_params.get("timeout", 12 * 60),
+    )
+    return executor
+
 
 class CV:
     def run_simulate(
@@ -59,7 +74,9 @@ class CV:
 
         return df
 
-    def run_prediction_interval(self, dset, args, nsamples, model=None):
+    def run_prediction_interval(
+        self, dset, args, nsamples, intervals, orig_cases, model=None
+    ):
         args.fdat = dset
         if model is None:
             raise NotImplementedError
@@ -71,24 +88,34 @@ class CV:
         for i in range(nsamples):
             test_preds = model.simulate(tmax, cases, args.test_on, False)
             test_preds = test_preds.cpu().numpy()
-            # FIXME: this doesn't work with smoothing
+            # FIXME: refactor to use rebase_forecast_deltas
             test_preds = np.cumsum(test_preds, axis=1)
-            test_preds = test_preds + cases.narrow(1, -1, 1).cpu().numpy()
+            test_preds = test_preds + orig_cases
             samples.append(test_preds)
         samples = np.stack(samples, axis=0)
         test_preds_mean = np.mean(samples, axis=0)
         test_preds_std = np.std(samples, axis=0)
         df_mean = pd.DataFrame(test_preds_mean.T, columns=regions)
         df_std = pd.DataFrame(test_preds_std.T, columns=regions)
-        if basedate is not None:
-            base = pd.to_datetime(basedate)
-            ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
-            df_mean["date"] = ds
-            df_std["date"] = ds
 
-            df_mean.set_index("date", inplace=True)
-            df_std.set_index("date", inplace=True)
-        return df_mean, df_std
+        base = pd.to_datetime(basedate)
+        ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
+        df_mean["date"] = ds
+        df_std["date"] = ds
+        df_mean.set_index("date", inplace=True)
+        df_std.set_index("date", inplace=True)
+        _dfs = []
+        for p in intervals:
+            pim = pi_multipliers[p]
+            lower = df_mean - pim * df_std
+            upper = df_mean + pim * df_std
+            lower["piv"] = np.round(1 - p, 2)
+            upper["piv"] = p
+            _dfs += [lower, upper]
+        df_mean["piv"] = "mean"
+        df_std["piv"] = "std"
+        _df = pd.concat([df_mean] + _dfs + [df_std], axis=0)
+        return _df
 
     def run_train(self, dset, model_params, model_out):
         """
@@ -129,7 +156,7 @@ class CV:
         self.tb_writer = SummaryWriter(logdir=basedir)
 
 
-def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
+def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=None):
     """Runs cross validaiton for one set of hyperaparmeters"""
     try:
         basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
@@ -152,7 +179,15 @@ def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
     # -- store configs to reproduce results --
     log_configs(cfg, module, _path(f"{module}.yml"))
 
-    filter_validation_days(dset, val_in, cfg["validation"]["days"])
+    ndays = cfg["validation"]["days"]
+    if basedate is not None:
+        # If we want to train from a particular basedate, then also subtract
+        # out the different in days.  Ex: if ground truth contains data up to 5/20/2020
+        # but the basedate is 5/10/2020, then drop an extra 10 days in addition to validation.days
+        gt = metrics.load_ground_truth(dset)
+        assert gt.index.max() > basedate
+        ndays += (gt.index.max() - basedate).days
+    filter_validation_days(dset, val_in, ndays)
 
     # apply data pre-processing
     preprocessed = _path(prefix + "preprocessed_" + os.path.basename(dset))
@@ -175,41 +210,36 @@ def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix=""):
         df_forecast_deltas = mod.run_simulate(
             preprocessed, train_params, model, sim_params=sim_params
         )
-        gt = metrics.load_ground_truth(val_in)
-        # Ground truth for the day before our first forecast
-        prev_day = gt.loc[[df_forecast_deltas.index.min() - timedelta(days=1)]]
-        # Stack the first day ground truth on top of the forecasts
-        common_cols = set(df_forecast_deltas.columns).intersection(set(gt.columns))
-        stacked = pd.concat([prev_day[common_cols], df_forecast_deltas[common_cols]])
-        # Cumulative sum to compute total cases for the forecasts
-        df_forecast = stacked.sort_index().cumsum().iloc[1:]
+        df_forecast = rebase_forecast_deltas(val_in, df_forecast_deltas)
 
     print(f"Storing validation in {val_out}")
     df_forecast.to_csv(val_out, index_label="date")
 
     # -- metrics --
-    if cfg["validation"]["days"] > 0:
-        # Only compute metrics if this is the validation run.
-        metric_args = cfg[module].get("metrics", {})
-        df_val, json_val = mod.compute_metrics(
-            cfg[module]["data"], val_out, model, metric_args
-        )
-        df_val.to_csv(_path(prefix + "metrics.csv"))
-        with open(_path(prefix + "metrics.json"), "w") as fout:
-            json.dump(json_val, fout)
-        print(df_val)
+    metric_args = cfg[module].get("metrics", {})
+    df_val, json_val = mod.compute_metrics(
+        cfg[module]["data"], val_out, model, metric_args
+    )
+    df_val.to_csv(_path(prefix + "metrics.csv"))
+    with open(_path(prefix + "metrics.json"), "w") as fout:
+        json.dump(json_val, fout)
+    print(df_val)
 
     # -- prediction interval --
     if "prediction_interval" in cfg:
         with th.no_grad():
-            df_mean, df_std = mod.run_prediction_interval(
+            # FIXME: refactor to use rebase_forecast_deltas
+            gt = metrics.load_ground_truth(val_in)
+            prev_day = gt.loc[[df_forecast_deltas.index.min() - timedelta(days=1)]]
+            df_piv = mod.run_prediction_interval(
                 preprocessed,
                 train_params,
                 cfg["prediction_interval"]["nsamples"],
+                cfg["prediction_interval"]["intervals"],
+                prev_day.values.T,
                 model,
             )
-            df_mean.to_csv(_path(prefix + cfg["prediction_interval"]["output_mean"]))
-            df_std.to_csv(_path(prefix + cfg["prediction_interval"]["output_std"]))
+            df_piv.to_csv(_path(prefix + cfg["prediction_interval"]["output"]))
 
 
 def filter_validation_days(dset: str, val_in: str, validation_days: int):
@@ -245,7 +275,19 @@ def log_configs(cfg: Dict[str, Any], module: str, path: str):
         yaml.dump(cfg[module], f)
 
 
-def run_best(config, module, remote, basedir):
+def rebase_forecast_deltas(val_in, df_forecast_deltas):
+    gt = metrics.load_ground_truth(val_in)
+    # Ground truth for the day before our first forecast
+    prev_day = gt.loc[[df_forecast_deltas.index.min() - timedelta(days=1)]]
+    # Stack the first day ground truth on top of the forecasts
+    common_cols = set(df_forecast_deltas.columns).intersection(set(gt.columns))
+    stacked = pd.concat([prev_day[common_cols], df_forecast_deltas[common_cols]])
+    # Cumulative sum to compute total cases for the forecasts
+    df_forecast = stacked.sort_index().cumsum().iloc[1:]
+    return df_forecast
+
+
+def run_best(config, module, remote, basedir, basedate=None):
     mod = importlib.import_module(module).CV_CLS()
     best_runs = mod.model_selection(basedir)
 
@@ -254,21 +296,22 @@ def run_best(config, module, remote, basedir):
 
     cfg = copy.deepcopy(config)
     cfg["validation"]["days"] = 0
-
-    ngpus = cfg[module].get("resources", {}).get("gpus", 0)
-    ncpus = cfg[module].get("resources", {}).get("cpus", 3)
-    memgb = cfg[module].get("resources", {}).get("memgb", 20)
-    timeout = cfg[module].get("resources", {}).get("timeout", 12 * 60)
-
     best_runs_df = pd.DataFrame(best_runs)
 
     def run_cv_and_copy_results(tags, module, pth, cfg, prefix):
-        run_cv(module, pth, cfg, prefix=prefix)
+        run_cv(module, pth, cfg, prefix=prefix, basedate=basedate)
         for tag in tags:
             shutil.copy(
                 os.path.join(pth, f'final_model_{cfg["validation"]["output"]}'),
                 os.path.join(os.path.dirname(pth), f"forecasts/forecast_{tag}.csv"),
             )
+            if "prediction_interval" in cfg:
+                shutil.copy(
+                    os.path.join(
+                        pth, f'final_model_{cfg["prediction_interval"]["output"]}'
+                    ),
+                    os.path.join(os.path.dirname(pth), f"forecasts/piv_{tag}.csv"),
+                )
 
     for pth, tags in best_runs_df.groupby("pth")["name"].agg(list).items():
         os.makedirs(os.path.join(os.path.dirname(pth), f"forecasts"), exist_ok=True)
@@ -278,14 +321,7 @@ def run_best(config, module, remote, basedir):
         cfg[module] = job_config
         launcher = run_cv_and_copy_results
         if remote:
-            executor = submitit.AutoExecutor(folder=pth)
-            executor.update_parameters(
-                name=name,
-                gpus_per_node=ngpus,
-                cpus_per_task=ncpus,
-                mem_gb=memgb,
-                timeout_min=timeout,
-            )
+            executor = mk_executor(name, pth, cfg[module].get("resources", {}))
             launcher = partial(executor.submit, run_cv_and_copy_results)
         launcher(tags, module, pth, cfg, "final_model_")
 
@@ -303,7 +339,17 @@ def cli():
 @click.option("-array-parallelism", type=click.INT, default=50)
 @click.option("-max-jobs", type=click.INT, default=200)
 @click.option("-basedir", default=None, help="Path to sweep base directory")
-def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, basedir):
+@click.option("-basedate", type=click.DateTime(), help="Date to treat as last date")
+def cv(
+    config_pth,
+    module,
+    validate_only,
+    remote,
+    array_parallelism,
+    max_jobs,
+    basedir,
+    basedate,
+):
     """
     Run cross validation pipeline for a given module.
     """
@@ -342,19 +388,8 @@ def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, b
         cfgs = cfgs[:max_jobs]
 
     if remote:
-        ngpus = cfg[module].get("resources", {}).get("gpus", 0)
-        ncpus = cfg[module].get("resources", {}).get("cpus", 3)
-        memgb = cfg[module].get("resources", {}).get("memgb", 20)
-        timeout = cfg[module].get("resources", {}).get("timeout", 12 * 60)
-        executor = submitit.AutoExecutor(folder=basedir + "/%j")
-        executor.update_parameters(
-            name=f"cv_{region}",
-            gpus_per_node=ngpus,
-            cpus_per_task=ncpus,
-            mem_gb=memgb,
-            array_parallelism=array_parallelism,
-            timeout_min=timeout,
-        )
+        extra = cfg[module].get("resources", {})
+        executor = mk_executor(f"cv_{region}", basedir + "/%j", extra)
         launcher = executor.map_array
         basedirs = [f"{basedir}/%j" for _ in cfgs]
     else:
@@ -364,9 +399,11 @@ def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, b
     with snapshot.SnapshotManager(
         snapshot_dir=basedir + "/snapshot",
         with_submodules=True,
-        exclude=["data/*", "notebooks/*"],
+        exclude=["data/*", "notebooks/*", "tests/*"],
     ):
-        jobs = list(launcher(partial(run_cv, module), basedirs, cfgs))
+        jobs = list(
+            launcher(partial(run_cv, module, basedate=basedate), basedirs, cfgs)
+        )
 
         # Find the best model and retrain on the full dataset
         launcher = run_best
@@ -382,7 +419,7 @@ def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, b
             )
             launcher = partial(executor.submit, run_best) if remote else run_best
         if not validate_only:
-            launcher(cfg, module, remote, basedir)
+            launcher(cfg, module, remote, basedir, basedate=basedate)
 
     print(basedir)
     return basedir, jobs
@@ -395,7 +432,7 @@ def cv(config_pth, module, validate_only, remote, array_parallelism, max_jobs, b
 @click.option(
     "-start-date", type=click.DateTime(), default="2020-04-01", help="Start date"
 )
-@click.option("-validate-only", type=click.BOOL, default=False)
+@click.option("-validate-only", type=click.BOOL, default=False, is_flag=True)
 @click.option("-remote", is_flag=True)
 @click.option("-array-parallelism", type=click.INT, default=50)
 @click.option("-max-jobs", type=click.INT, default=200)
@@ -435,22 +472,15 @@ def backfill(
     print(f"Backfilling in {basedir}")
     for date in dates:
         print(f"Running CV for {date.date()}")
-        with tempfile.TemporaryDirectory() as tdir:
-            tfile = os.path.join(tdir, os.path.basename(config[module]["data"]))
-            tconfig = os.path.join(tdir, "config.yml")
-            days = (gt.index.max() - date).days
-            filter_validation_days(config[module]["data"], tfile, days)
-            current_config = copy.deepcopy(config)
-            current_config[module]["data"] = tfile
-            with open(tconfig, "w") as fout:
-                yaml.dump(current_config, fout)
-            cv_params = {
-                k: v for k, v in ctx.params.items() if k in {p.name for p in cv.params}
-            }
-            cv_params["config_pth"] = tconfig
-            ctx.invoke(
-                cv, basedir=os.path.join(basedir, f"sweep_{date.date()}"), **cv_params
-            )
+        cv_params = {
+            k: v for k, v in ctx.params.items() if k in {p.name for p in cv.params}
+        }
+        ctx.invoke(
+            cv,
+            basedir=os.path.join(basedir, f"sweep_{date.date()}"),
+            basedate=date,
+            **cv_params,
+        )
 
 
 if __name__ == "__main__":

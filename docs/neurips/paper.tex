@@ -1,4 +1,4 @@
-% Created 2020-05-27 Wed 15:23
+% Created 2020-05-29 Fri 23:26
 % Intended LaTeX compiler: pdflatex
 \documentclass{article}
                                   \usepackage[nonatbib]{neurips_2020}
@@ -15,9 +15,12 @@
 \usepackage{nicematrix}
 \usepackage{cleveref}
 \usepackage{txfonts}
+\usepackage{bm}
+\usepackage[backend=bibtex,natbib]{biblatex}
 \renewcommand{\vec}[1]{\bm{#1}}
 \newcommand{\Set}[1]{\mathcal{#1}}
 \newcommand{\todo}[1]{{\color{red}TODO: #1}}
+\addbibresource{./references.bib}
 \author{Maximilian Nickel}
 \date{}
 \title{Latent Coupling for High-Resolution \\  COVID-19 Spread Forecasting}
@@ -51,7 +54,7 @@ improves the robustness of forecasts.
 \end{abstract}
 
 \section{Introduction}
-\label{sec:org25bfe58}
+\label{sec:orgc60d05b}
 \begin{itemize}
 \item Forecasting the spread the of COVID-19 is an important task in the public
 health response to the disease. Not only important to understand the progress
@@ -59,6 +62,7 @@ of the disease, but also central to efficiently allocate scarce resources such
 as ventilators, personal protective equipment, and ICU beds.
 \item For resource allocation, it is especially important to do forecasts with a
 high spatial and temporal resolution
+\item Early detection of outbreaks
 \item At the same time, forecasting COVID-19 poses unique challenges
 \begin{itemize}
 \item Novel disease with unknown characteristics
@@ -75,35 +79,83 @@ infectious diseases like influence, measles etc.
 \item testing and reporting
 \end{itemize}
 \end{itemize}
+\item We build on prior work using autoregressive models designed for spatially and
+temporally aggregated surveillance data of endemic-epidemic processes
+\citep{held2005statistical,meyer2014powerlaw,meyer2016socialcontact}. Such
+autoregressive models are, for instance, used to monitor infectious diseases
+by public health agencies like Robert Koch Institute \citep{salmon2016surveillance}
 \end{itemize}
 
 \section{Method}
-\label{sec:org10c1259}
+\label{sec:org7821981}
 \begin{itemize}
-\item We assume we have a set of timeseries \(\Set{Y} = \{(y_i^1, \ldots,
-  y_i^T)\}_{i=1}^M\) which are different realizations of the the same underlying
-contagion process.
+\item We assume we have a set of time series which are different realizations of the
+the same underlying contagion process.
+\item Let \(\Set{Y} = \{(y_i^1, \ldots, y_i^T)\}_{i=1}^M\) denote the observed
+realizations and let \(\Set{Z} = \{(z_i^1, \ldots, z_i^T)\}_{i=1}^M\) denote the
+underlying contagion process.
+\item We want to disentangle different aspects in the model and couple the shared
+aspects across regions
+\item Autoregressive model of order \(p\)
+\begin{equation}
+  \text{AR}(p): y^{t+1} = \sum_{k=0}^p w_k y^{t-k} + \epsilon
+\end{equation}
+\item Our assumption is that the \emph{underlying} process is identical across sites,
+i.e.,
+\begin{equation}
+  \forall i: z_i^{t+1} = \sum_{k=0}^p w_k z_i^{t-k} + \epsilon
+\end{equation}
+\item To disentangle aspects, we use a factorized representation
+\begin{equation}
+\beta_i^t w_k \approx \alpha_{ij }\beta_j^t w_k
+\end{equation}
+
+\begin{description}
+\item[{\(\beta_i^t\)}] time-dependent scaling of the underlying process (e.g.,
+through policies, social distancing etc.). Similar
+\item[{\(\alpha_{ij}\)}] 
+\end{description}
 \end{itemize}
 
-\subsection{Latent Coupling}
-\label{sec:org869a27e}
-Autoregressive model of order \(p\) AR(p)
-\begin{equation}
-    y^{t+1} = \sum_{k=0}^p w_k y^{t-k} + \epsilon
-\end{equation}
+\subsection{Time Varying Process}
+\label{sec:orgab37315}
+\begin{equation*}
+    y_{t+1} = \beta_t AR(p)
+\end{equation*}
 
-\begin{equation}
-\beta_i^t y_i^t \approx \alpha_{ij }\beta_j^t y_j^t
-\end{equation}
+Many possible parameterizations for \(\beta_i^t\). For simplicty, we use a classic Elman RNN
+where
+\begin{align*}
+    \beta_i^t & = \sigma(\vec{w}^\top \vec{z}_t)
+    & \vec{z}_t & = \psi(W_z\vec{h}_t + \vec{b}_z) \\
+    && \vec{h}_t & = \psi(W_h\vec{x} + U\vec{h}_{t-1} + \vec{b}_h)
+\end{align*}
+
+\subsection{Latent Coupling}
+\label{sec:org58a1c62}
 
 \subsubsection{Univariate Coupling}
-\label{sec:orgd42cd60}
+\label{sec:org45e30c6}
+\begin{equation}
+    y_i^{t+1} = \beta_i \sum_{k=0}^p w^k y_i^{t-k} + \epsilon
+\end{equation}
 
 \subsubsection{Multivariate Coupling}
-\label{sec:org61f2c7e}
+\label{sec:orgb89969b}
+\begin{equation}
+    y_i^{t+1} = \beta_i \sum_{k=0}^p \sum_{j=1}^m w^k \alpha_{ij} y_j^{t-k} + \epsilon
+\end{equation}
+
+Direct reqgularization of form
+\begin{equation*}
+    \sum_i\sum_j\sum_t\|\beta_i^t y_i^t - \alpha_{ij}\beta_i^t y_j^t\|^2
+\end{equation*}
+is problematic: runtime is \(O(M^2T)\). Moreover, not all pairs can be aligned.
+
+
 
 \subsection{Maximum Likelihood Estimation}
-\label{sec:org088c534}
+\label{sec:org8d2991e}
 The popularity of the NB distribution is due largely to its ability to model
 count data with varying degrees of overdispersion. The distribution is commonly
 expressed in terms of the mean \(\mu\) and dispersion parameter \(\nu\) such that the
@@ -118,13 +170,30 @@ probability of observing a non-negative integer \(y\) is
     y^{t+1}_{i} \sim \text{NB}(\eta_i^{t}, \nu_i)
 \end{equation*}
 
+\begin{minipage}{.335\linewidth}
+\begin{center}
+\includegraphics[width=\columnwidth]{img/overdispersion_states.png}
+\end{center}
+\end{minipage}
+\begin{minipage}{.45\linewidth}
+\begin{center}
+\includegraphics[width=\columnwidth]{img/overdispersion_counties.png}
+\end{center}
+\end{minipage}
+
 \section{Related Work}
-\label{sec:org513f1fd}
+\label{sec:org4e138ff}
+\cite{lloyd_smith2007negativebinomial}
+\begin{itemize}
+\item We are not regressing dependent variables onto counts. Instead we use latent
+variables to disentangle and couple the different time series to infer the
+structure of the underlying process.
+\end{itemize}
 
 \section{Experiments}
-\label{sec:org23dcef3}
+\label{sec:orgf0dde8b}
 \subsection{Main Experiment}
-\label{sec:orga5ea523}
+\label{sec:orgf880694}
 \begin{itemize}
 \item Forecast Deaths and Confirmed Cases
 \item Weekly backfill on US Nytimes data
@@ -144,8 +213,10 @@ probability of observing a non-negative integer \(y\) is
 \item Naive
 \end{itemize}
 \end{itemize}
+
+**
 \subsection{Ablation}
-\label{sec:org3834428}
+\label{sec:org1ff294f}
 \begin{itemize}
 \item Univariate
 \item Multivariate
@@ -154,6 +225,16 @@ probability of observing a non-negative integer \(y\) is
 \item Without Coupling
 \end{itemize}
 
+\subsection{Analysis of Adjacency matrices}
+\label{sec:orgd29c52d}
+\begin{itemize}
+\item coupled
+\item uncoupled
+\item l1/Granger regularization
+\end{itemize}
+
 \section{Conclusion}
-\label{sec:org09e2e2a}
+\label{sec:org40dbb91}
+
+\printbibliography
 \end{document}
