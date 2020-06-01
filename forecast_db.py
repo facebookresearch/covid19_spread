@@ -300,10 +300,9 @@ def sync_mit(conn):
             }
         )
         value["loc1"] = "United States"
-        value["id"] = key
-        value["loc3"] = "ALL REGIONS"
+        value["id"] = "mit-delphi"
         value = value.drop(columns=["target", "location", "type", "quantile"])
-        value = value[["date", "loc1", "loc2", "loc3", "counts", "id", "forecast_date"]]
+        value = value[["date", "loc1", "loc2", "counts", "id", "forecast_date"]]
         to_sql(conn, value, "deaths")
 
 
