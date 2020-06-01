@@ -261,6 +261,7 @@ def sync_ihme(conn):
         if marker is None:
             break
 
+
 def sync_mit(conn):
     url = "https://github.com/reichlab/covid19-forecast-hub/tree/master/data-processed/MIT_CovidAnalytics-DELPHI"
     # Issue request: r => requests.models.Response
