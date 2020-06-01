@@ -16,6 +16,7 @@ import shutil
 from data.usa.process_cases import get_nyt
 import requests
 from xml.etree import ElementTree
+from bs4 import BeautifulSoup
 
 
 DB = f'/private/home/{os.environ["USER"]}/covid19_spread/forecasts/forecast.db'
@@ -259,6 +260,50 @@ def sync_ihme(conn):
         marker = tree.find("NextMarker").text
         if marker is None:
             break
+
+def sync_mit(conn):
+    url = "https://github.com/reichlab/covid19-forecast-hub/tree/master/data-processed/MIT_CovidAnalytics-DELPHI"
+    # Issue request: r => requests.models.Response
+    req = requests.get(url)
+
+    # Extract text: html_doc => str
+    html_doc = req.text
+    soup = BeautifulSoup(html_doc, "html.parser")
+    # Find all links
+    a_tags = soup.find_all("a")
+    urls = [
+        "https://raw.githubusercontent.com" + re.sub("/blob", "", link.get("href"))
+        for link in a_tags
+        if ".csv" in link.get("href")
+    ]
+
+    # Store a list of Data Frame names to be assigned to the list: df_list_names => list
+    df_list_names = [url.split(".csv")[0].split("/")[url.count("/")] for url in urls]
+
+    # Initialise an empty list the same length as the urls list: df_list => list
+    df_list = [pandas.DataFrame([None]) for i in range(len(urls))]
+
+    # Store an empty list of dataframes: df_list => list
+    df_list = [pandas.read_csv(url, sep=",") for url in urls]
+
+    # Name the dataframes in the list, coerce to a dictionary: df_dict => dict
+    df_dict = dict(zip(df_list_names, df_list))
+
+    for key, value in df_dict.items():
+        value = value.loc[value["type"] == "point"]
+        value = value.rename(
+            columns={
+                "target_end_date": "date",
+                "location_name": "loc2",
+                "value": "counts",
+            }
+        )
+        value["loc1"] = "United States"
+        value["id"] = key
+        value["loc3"] = "ALL REGIONS"
+        value = value.drop(columns=["target", "location", "type", "quantile"])
+        value = value[["date", "loc1", "loc2", "loc3", "counts", "id", "forecast_date"]]
+        to_sql(conn, value, "deaths")
 
 
 def sync_los_alamos(conn):
