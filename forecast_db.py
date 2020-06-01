@@ -388,6 +388,7 @@ def sync_forecasts(distribute=False):
     sync_nyt(conn)
     sync_ihme(conn)
     sync_los_alamos(conn)
+    sync_mit(conn)
     conn.execute("REINDEX;")
     if distribute:
         DEST_DB = f"devfairh1:/private/home/{os.environ['USER']}/covid19_spread/forecasts/forecast.db"
