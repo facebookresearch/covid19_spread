@@ -262,8 +262,8 @@ def sync_ihme(conn):
             break
 
 
-def sync_mit(conn):
-    url = "https://github.com/reichlab/covid19-forecast-hub/tree/master/data-processed/MIT_CovidAnalytics-DELPHI"
+def sync_reich_forecast(conn, name, mdl_id):
+    url = f"https://github.com/reichlab/covid19-forecast-hub/tree/master/data-processed/{name}"
     # Issue request: r => requests.models.Response
     req = requests.get(url)
 
@@ -291,7 +291,10 @@ def sync_mit(conn):
     df_dict = dict(zip(df_list_names, df_list))
 
     for key, value in df_dict.items():
-        value = value.loc[value["type"] == "point"]
+        value = value.loc[
+            (value["type"] == "point")
+            & value["target"].str.endswith("day ahead cum death")
+        ]
         value = value.rename(
             columns={
                 "target_end_date": "date",
@@ -300,10 +303,18 @@ def sync_mit(conn):
             }
         )
         value["loc1"] = "United States"
-        value["id"] = "mit-delphi"
+        value["id"] = mdl_id
         value = value.drop(columns=["target", "location", "type", "quantile"])
         value = value[["date", "loc1", "loc2", "counts", "id", "forecast_date"]]
         to_sql(conn, value, "deaths")
+
+
+def sync_mit(conn):
+    sync_reich_forecast(conn, "MIT_CovidAnalytics-DELPHI", "mit-delphi")
+
+
+def sync_yyg(conn):
+    sync_reich_forecast(conn, "YYG-ParamSearch", "yyg")
 
 
 def sync_los_alamos(conn):
@@ -389,6 +400,7 @@ def sync_forecasts(distribute=False):
     sync_ihme(conn)
     sync_los_alamos(conn)
     sync_mit(conn)
+    sync_yyg(conn)
     conn.execute("REINDEX;")
     if distribute:
         DEST_DB = f"devfairh1:/private/home/{os.environ['USER']}/covid19_spread/forecasts/forecast.db"
