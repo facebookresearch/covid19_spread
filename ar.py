@@ -182,7 +182,17 @@ class BetaPolynomial(nn.Module):
 
 
 class AR(nn.Module):
-    def __init__(self, regions, beta_net, dist, window_size, graph, features):
+    def __init__(
+        self,
+        regions,
+        beta_net,
+        dist,
+        window_size,
+        graph,
+        features,
+        activation="sigmoid",
+        no_cross_correlation=False,
+    ):
         super(AR, self).__init__()
         self.M = len(regions)
         self.alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(-5))
@@ -193,6 +203,8 @@ class AR(nn.Module):
         self.window = window_size
         self.graph = graph
         self.features = features
+        self.activation = activation
+        self.no_cross_correlation = no_cross_correlation
         if graph is not None:
             assert graph.size(0) == self.M, graph.size()
             assert graph.size(1) == self.M, graph.size()
@@ -214,7 +226,10 @@ class AR(nn.Module):
         with th.no_grad():
             self.alphas.fill_diagonal_(-1e10)
         # W = F.softmax(self.alphas, dim=1)
-        W = th.sigmoid(self.alphas)
+        if self.activation == "sigmoid":
+            W = th.sigmoid(self.alphas)
+        else:
+            W = F.softplus(self.alphas)
         # W = F.softplus(self.alphas)
         # W = W / W.sum()
         if self.graph is not None:
@@ -233,18 +248,22 @@ class AR(nn.Module):
         Z = Z.squeeze(0)
         Z.div_(float(self.window))
 
-        # cross-correlation
-        W = self.metapopulation_weights()
-        Ys = th.stack([ys.narrow(1, i, length) for i in range(self.window)])
-        Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(dim=0)
-        # Ys = th.bmm(W, Ys).mean(dim=0)
-
+        if not self.no_cross_correlation:
+            # cross-correlation
+            W = self.metapopulation_weights()
+            Ys = th.stack([ys.narrow(1, i, length) for i in range(self.window)])
+            Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(
+                dim=0
+            )
+            # Ys = th.bmm(W, Ys).mean(dim=0)
+            Z.add_(Ys)
         # beta evolution
         ys = ys.narrow(1, offset, ys.size(1) - offset)
         beta = self.beta(t).narrow(1, -ys.size(1), ys.size(1))
         if self.features is not None:
             beta = beta + th.sigmoid(self.w_feat(self.features))
-        Ys = beta * Z.add_(Ys)
+
+        Ys = beta * Z
         # Ys = beta * Ys
         # Ys = beta * Z
 
@@ -312,13 +331,16 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                 gt = new_cases[:, -3:]
                 maes = th.abs(gt - pred)
                 _a = model.metapopulation_weights()
+                forecast = model.simulate(new_cases.size(1), new_cases, 14).sum(0)
                 print(
                     f"[{itr:04d}] Loss {loss.item() / M:.2f} | "
                     f"MAE {maes.mean():.2f} | "
                     f"{model} | "
                     f"{args.loss} ({scores[:, -1].min().item():.2f}, {scores[:, -1].max().item():.2f}) | "
-                    f"alpha ({_a.min().item():.2f}, {_a.mean().item():.2f}, {_a.max().item():.2f})"
+                    f"alpha ({_a.min().item():.2f}, {_a.mean().item():.2f}, {_a.max().item():.2f}) | "
+                    f"{len(forecast)}-day-forecast: {forecast[-1].item()}"
                 )
+
             th.save(model.state_dict(), checkpoint)
     print(f"Train MAE,{maes.mean():.2f}")
     return model
@@ -381,7 +403,16 @@ class ARCV(cv.CV):
         else:
             raise ValueError("Unknown beta function")
 
-        func = AR(regions, beta_net, args.loss, args.window, graph, features).to(device)
+        func = AR(
+            regions,
+            beta_net,
+            args.loss,
+            args.window,
+            graph,
+            features,
+            activation=args.activation,
+            no_cross_correlation=args.no_cross_correlation,
+        ).to(device)
         params = []
         # exclude = {"nu", "beta.w_feat.weight", "beta.w_feat.bias"}
         # exclude = {"nu", "alphas"}
@@ -417,6 +448,8 @@ if __name__ == "__main__":
     parser.add_argument("-test-on", default=5, type=int)
     parser.add_argument("-checkpoint", type=str, default="/tmp/ar_model.bin")
     parser.add_argument("-keep-counties", type=int, default=0)
+    parser.add_argument("-activation", choices=["softplus", "sigmoid"])
+    parser.add_argument("-no-cross-correlation", action="store_true")
     args = parser.parse_args()
 
     cv = ARCV()
