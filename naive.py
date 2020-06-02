@@ -21,11 +21,11 @@ def simulate(latest_count, latest_delta, latest_date, days):
     """
     forecast = {
         -1: latest_count,
-        0: latest_count * (1 + latest_delta),
+        0: latest_count + latest_delta,
     }
     for day in range(1, days):
         delta = forecast[day - 1] - forecast[day - 2]
-        forecast[day] = forecast[day - 1] * (1 + delta)
+        forecast[day] = forecast[day - 1] + delta
 
     # remove latest confirmed from prediction
     forecast.pop(-1)
