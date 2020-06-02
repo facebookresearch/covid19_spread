@@ -377,7 +377,8 @@ def dump_to_csv(conn, distribute):
 
     f("deaths")
     f("infections")
-    check_call(
+    if distribute:
+        check_call(
         ["rsync", "--delete", "-av", basedir, f"devfairh1:{os.path.dirname(basedir)}"]
     )
 
