@@ -362,7 +362,7 @@ def dump_to_csv(conn, distribute):
             if forecast_date != "":
                 forecast_date = "_" + forecast_date
 
-            group = group[group["date"] >= group["forecast_date"]].copy()
+            group = group[group["date"] > group["forecast_date"]].copy()
 
             group["location"] = group.apply(
                 lambda x: x.loc2 + (", " + x.loc3 if x.loc3 else ""), axis=1
