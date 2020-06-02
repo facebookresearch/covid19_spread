@@ -2,53 +2,101 @@
 
 import numpy as np
 import pandas as pd
-import sys
-
+import cv
+import load
 from datetime import timedelta
-from load import load_data
 
 
-def load_ground_truth(path):
-    nodes, ns, ts, _ = load_data(path)
-    nodes = [n for n in nodes if n != "Unknown"]
-    tmax = int(np.ceil(ts.max()))
-    counts = {n: np.zeros(tmax) for n in nodes}
-    for t in range(1, tmax + 1):
-        ix2 = np.where(ts < t)[0]
-        for i, n in enumerate(nodes):
-            ix1 = np.where(ns == i)[0]
-            counts[n][t - 1] = len(np.intersect1d(ix1, ix2))
-    return nodes, counts
+def simulate(latest_count, latest_delta, latest_date, days):
+    """Forecasts 7 days ahead using naive model for a single region:
+    day_n+1 prediction = day_n + day_n * (day_n - day_n-1 confirmed)
 
+    Args:
+        latest_delta (int): day_n - day_n-1 confirmed
+        latest_count (int): day_n confirmed
+        latest_date (datetime): last date with confirmed cases
+        days (int): number of days to forecast
 
-cols, counts = load_ground_truth(sys.argv[1])
-basedate = pd.to_datetime(sys.argv[2])
-
-ix = basedate.strftime("%m/%d")
-
-offset = 0
-cols = []
-preds = []
-trend = []
-for d in range(0, 8):
-    pdate = basedate + timedelta(d)
-    cols.append(pdate.strftime("%m/%d"))
-    pred_triv = {
-        n: c[-(offset + 1)] + d * np.abs(c[-(offset + 1)] - c[-(offset + 2)])
-        for n, c in counts.items()
+    Returns: dataframe of predictions
+    """
+    forecast = {
+        -1: latest_count,
+        0: latest_count * (1 + latest_delta),
     }
-    preds.append(sum(pred_triv.values()))
+    for day in range(1, days):
+        delta = forecast[day - 1] - forecast[day - 2]
+        forecast[day] = forecast[day - 1] * (1 + delta)
 
-    _trend = {n: np.abs(c[-(d + 1)] - c[-(d + 2)]) for n, c in counts.items()}
-    trend.append(sum(_trend.values()))
+    # remove latest confirmed from prediction
+    forecast.pop(-1)
+    return forecast_to_dataframe(forecast, latest_date, days)
 
 
-df = pd.DataFrame([preds]).round(2)
-df.columns = cols
+def forecast_to_dataframe(forecast, latest_date, days):
+    """Converts dictionary of forecasts into dataframe with dates.
+    forcast (dict): {0: predicted case count, 1: ...}
+    """
+    prediction_end_date = latest_date + timedelta(days)
+    dates = pd.date_range(start=latest_date, end=prediction_end_date, closed="right")
+    forecast_list = [forecast[day] for day in range(days)]
+    df = pd.DataFrame.from_dict(zip(dates, forecast_list))
+    df.columns = ["date", "total cases"]
+    df = df.set_index("date")
+    return df
 
-print()
-print("Trend")
-print(pd.DataFrame([trend]))
-print(sum(trend))
-print("\nForecast")
-print(df)
+
+def train(region_cases_df):
+    """Returns latest count, delta, date needed for forecasting"""
+    latest_count = region_cases_df[-1]
+    latest_delta = region_cases_df[-1] - region_cases_df[-2]
+    latest_date = pd.to_datetime(region_cases_df.index.max())
+    return latest_count, latest_delta, latest_date
+
+
+def naive(data_path="data/usa/data.csv", days=7):
+    """Performs region level naive forecasts"""
+    cases_df = load.load_confirmed_by_region(data_path)
+    regions = cases_df.columns
+    forecasts = []
+    for region in regions:
+        latest_count, latest_delta, latest_date = train(cases_df[region])
+        forecast_df = simulate(latest_count, latest_delta, latest_date, days)
+        forecast_df = forecast_df.rename(columns={"total cases": region})
+        forecasts.append(forecast_df)
+
+    df = pd.concat(forecasts, axis=1)
+    return df
+
+
+class NaiveCV(cv.CV):
+    def run_train(self, dset, train_params, model_out):
+        """Returns delta between last two days and last confirmed total.
+
+        Args:
+            dset (str): path for confirmed cases
+            train_params (dict): training parameters
+            model_out (str): path for saving training checkpoints
+
+        Returns: list of (doubling_times (np.float64), regions (list of str))
+        """
+        pass
+
+    def run_simulate(self, dset, train_params, model, sim_params):
+        """Returns new cases count predictions"""
+        days = train_params.days
+        forecast_df = naive(data_path=dset, days=days)
+        cases_df = load.load_confirmed_by_region(dset)
+        new_cases_forecast_df = (
+            pd.concat([cases_df, forecast_df])
+            .sort_index()
+            .diff()
+            .loc[forecast_df.index]
+        )
+        return new_cases_forecast_df
+
+
+CV_CLS = NaiveCV
+
+
+if __name__ == "__main__":
+    print(naive())

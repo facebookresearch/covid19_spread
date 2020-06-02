@@ -184,3 +184,9 @@ car:
     loss: nb
     t0: 10
     test_on: *vdays
+naive:
+  module: naive
+  output: sir_model.npy
+  data: data/usa/data_cases.csv
+  train:
+    days: *vdays
