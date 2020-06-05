@@ -25,6 +25,7 @@ class BetaLatent(nn.Module):
         input_dim = 1
 
         self.h0 = nn.Parameter(th.zeros(layers, self.M, dim))
+        # self.h0 = nn.Parameter(th.zeros(layers, 1, dim))
         if time_features is not None:
             self.w_time = nn.Linear(time_features.size(2), dim)
             nn.init.xavier_normal_(self.w_time.weight)
@@ -49,6 +50,7 @@ class BetaLatent(nn.Module):
             t = th.cat([t, f], dim=2)
         ht, hn = self.rnn(t, self.h0)
         beta = self.fpos(self.v(ht))
+        # beta = beta.expand(beta.size(0), self.M, 1)
         return beta.squeeze().t()
         # return beta.permute(2, 1, 0)
 
@@ -78,10 +80,12 @@ class BetaWavenet(nn.Module):
 class AR(nn.Module):
     def __init__(self, regions, beta_net, dist, window_size, graph, features):
         super(AR, self).__init__()
+        self.regions = regions
+        # self.population = population.float().unsqueeze(1) / 100000
         self.M = len(regions)
         self.alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(-5))
-        self.repro = nn.Parameter(th.ones((self.M, window_size)).fill_(1))
-        # self.repro = nn.Parameter(th.ones((1, window_size)))
+        # self.repro = nn.Parameter(th.ones((self.M, window_size)).fill_(1))
+        self.repro = nn.Parameter(th.ones((1, window_size)))
         self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(8))
         self.beta = beta_net
         self._dist = dist
@@ -143,13 +147,13 @@ class AR(nn.Module):
         ys = ys.narrow(1, offset, ys.size(1) - offset)
         beta = self.beta(t).narrow(-1, -ys.size(1), ys.size(1))
         if self.features is not None:
-            beta = beta + th.sigmoid(self.w_feat(self.features))
+            Z = Z + F.softplus(self.w_feat(self.features))
         # Ys = beta[0] * Z + beta[1] * Ys
         Ys = beta * Z.add(Ys)
         # Ys = beta * Z
 
         assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
-        return Ys
+        return Ys, beta
         # return beta * (Z.addmm_(W, ys))
         # return beta * Z
 
@@ -159,7 +163,8 @@ class AR(nn.Module):
         t = th.arange(offset).to(ys.device) + (tobs + 1 - offset)
         for d in range(days):
             p = preds.narrow(-1, -offset, offset)
-            s = self.score(t + d, p).narrow(1, -1, 1)
+            s, _ = self.score(t + d, p)
+            s = s.narrow(1, -1, 1)
             assert (s >= 0).all(), s.squeeze()
             if deterministic:
                 y = self.dist(s).mean
@@ -168,6 +173,7 @@ class AR(nn.Module):
             assert (y >= 0).all(), y.squeeze()
             preds = th.cat([preds, y], dim=1)
         preds = preds.narrow(1, -days, days)
+        # preds = preds * self.population
         return preds
 
     def __repr__(self):
@@ -182,18 +188,22 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
     tmax = new_cases.size(1)
     t = th.arange(tmax).to(device) + 1
     size_pred = tmax - args.window
+    reg = th.zeros(1).to(device)
 
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
-        scores = model.score(t, new_cases).clamp_(min=1e-8)
+        scores, beta = model.score(t, new_cases)
+        scores = scores.clamp(min=1e-8)
         assert scores.size(1) == size_pred + 1
         assert size_pred + args.window == new_cases.size(1)
+        assert beta.size(0) == M
 
         # compute loss
         dist = model.dist(scores.narrow(1, 0, size_pred))
         _loss = -dist.log_prob(new_cases.narrow(1, args.window, size_pred))
         loss = _loss.sum()
-        reg = 0
+        if args.temp_smoothing > 0:
+            reg = args.temp_smoothing * ((beta[:, 1:] - beta[:, :-1]) ** 2).sum()
         # if args.weight_decay > 0:
         #    reg = args.weight_decay * (
         #        model.metapopulation_weights().sum()  # + F.softplus(model.repro).sum()
@@ -213,7 +223,8 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                 maes = th.abs(gt - pred)
                 _a = model.metapopulation_weights()
                 print(
-                    f"[{itr:04d}] Loss {loss.item() / M:.2f} | "
+                    f"[{itr:04d}] Loss {loss.item():.2f} | "
+                    f"Reg {reg.item():.2f} | "
                     f"MAE {maes.mean():.2f} | "
                     f"{model} | "
                     f"{args.loss} ({scores[:, -1].min().item():.2f}, {scores[:, -1].max().item():.2f}) | "
@@ -226,7 +237,11 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
 
 def _get_arg(args, v, device):
     if hasattr(args, v):
-        return th.load(getattr(args, v)).to(device).float()
+        arg = getattr(args, v)
+        if isinstance(arg, list):
+            ts = [th.load(a).to(device).float() for a in arg]
+            return th.cat(ts, dim=2)
+        return th.load(arg).to(device).float()
     else:
         return None
 
@@ -235,20 +250,22 @@ class ARCV(cv.CV):
     def initialize(self, args):
         device = th.device("cuda" if th.cuda.is_available() else "cpu")
         cases, regions, basedate = load.load_confirmed_csv(args.fdat)
+
+        # prepare population
+        # populations = load.load_populations_by_region(args.fpop, regions=regions)
+        # populations = th.from_numpy(populations["population"].values).to(device)
+
+        # prepare cases
         assert (cases == cases).all(), th.where(cases != cases)
         new_cases = cases[:, 1:] - cases[:, :-1]
         assert (new_cases >= 0).all(), th.where(new_cases < 0)
-
         new_cases = new_cases.float().to(device)[:, args.t0 :]
+        # new_cases = new_cases / populations.float().unsqueeze(1)
+
         print("Timeseries length", new_cases.size(1))
+        tmax = new_cases.size(1) + 1
 
         args.window = min(args.window, cases.size(1) - 4)
-        return new_cases, regions, basedate, device
-
-    def run_train(self, dset, args, checkpoint):
-        args.fdat = dset
-        new_cases, regions, _, device = self.initialize(args)
-        tmax = new_cases.size(1) + 1
 
         # setup optional features
         graph = _get_arg(args, "graph", device)
@@ -259,7 +276,7 @@ class ARCV(cv.CV):
             time_features = time_features.narrow(0, args.t0, new_cases.size(1))
             print(time_features.size(), new_cases.size())
 
-        weight_decay = 0
+        self.weight_decay = 0
         # setup beta function
         if args.decay == "const":
             beta_net = decay.BetaConst(regions)
@@ -278,29 +295,46 @@ class ARCV(cv.CV):
         elif args.decay.startswith("latent"):
             dim, layers = args.decay[6:].split("_")
             beta_net = BetaLatent(regions, int(dim), int(layers), tmax, time_features)
-            weight_decay = args.weight_decay
+            self.weight_decay = args.weight_decay
         elif args.decay.startswith("wave"):
             blocks, layers, dim = args.decay[4:].split("_")
             beta_net = BetaWavenet(regions, int(blocks), int(layers), int(2))
-            weight_decay = args.weight_decay
+            self.weight_decay = args.weight_decay
         else:
             raise ValueError("Unknown beta function")
 
-        func = AR(regions, beta_net, args.loss, args.window, graph, features).to(device)
+        self.func = AR(regions, beta_net, args.loss, args.window, graph, features).to(
+            device
+        )
+        return new_cases, regions, basedate, device
+
+    def run_train(self, dset, args, checkpoint):
+        args.fdat = dset
+        new_cases, regions, _, device = self.initialize(args)
+
         params = []
-        # exclude = {"nu", "beta.w_feat.weight", "beta.w_feat.bias"}
-        # exclude = {"nu", "alphas"}
-        exclude = {"nu"}
-        for name, p in dict(func.named_parameters()).items():
-            wd = 0 if name in exclude else weight_decay
+        exclude = {
+            "nu",
+            # "beta.h0",
+            # "repro",
+            # "beta.w_feat.weight",
+            # "beta.w_feat.bias",
+            # "beta.rnn.weight_ih_l0",
+            # "beta.rnn.weight_hh_l0",
+            # "beta.rnn.bias_ih_l0",
+            # "beta.rnn.bias_hh_l0",
+        }
+        for name, p in dict(self.func.named_parameters()).items():
+            wd = 0 if name in exclude else self.weight_decay
             print(name, wd)
             params.append({"params": p, "weight_decay": wd})
         optimizer = optim.AdamW(
-            params, lr=args.lr, betas=[args.momentum, 0.999], weight_decay=weight_decay
+            params,
+            lr=args.lr,
+            betas=[args.momentum, 0.999],  # , weight_decay=self.weight_decay
         )
 
-        model = train(func, new_cases, regions, optimizer, checkpoint, args)
-
+        model = train(self.func, new_cases, regions, optimizer, checkpoint, args)
         return model
 
 

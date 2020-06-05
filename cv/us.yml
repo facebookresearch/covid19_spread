@@ -3,27 +3,29 @@ population: &fpop data/usa/population.csv
 basegraph: &fgraph data/usa/state_graph.pt
 validation:
   days: &vdays 21
-  output: validation-us.csv
+  output: validation.csv
 forecast:
-  output: forecast-us.csv
+  output: forecast.csv
 prediction_interval_:
   nsamples: 10
-  output_mean: us_mean.csv
-  output_std: us_std.csv
+  output_mean: mean.csv
+  output_std: std.csv
 backfill:
   # LANL
   #- 2020-04-05
   #- 2020-04-08
   #- 2020-04-12
-  #- 2020-04-15
+  - 2020-04-15
   - 2020-04-19
   - 2020-04-22
   - 2020-04-26
   - 2020-04-29
   - 2020-05-03
   - 2020-05-06
+  - 2020-05-10
+  # - 2020-05-17
   # IHME
-  - 2020-05-01
+  # - 2020-05-01
   # GLEAM
   #- 2020-04-13
   #- 2020-04-20
@@ -39,12 +41,12 @@ metasir:
   output: metasir_model.bin
   train:
     fpop: *fpop
-    decay: rbf
+    decay: exp
     lr: 0.005
     weight_decay: 0
     niters: 10000
     method: euler
-    loss: lsq
+    loss: nb
     t0: 10
     fit_on: -10
     test_on: *vdays
@@ -57,21 +59,26 @@ ar:
     cpus: 1
     memgb: 15
     timeout: 30
-  #preprocess:
-  #  smooth: 5
+  preprocess:
+    smooth: 5
   train:
     fpop: *fpop
     # features: data/usa/county_features.pt
-    # time_features: data/usa/policy_features.pt
-    # graph: *fgraph
-    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
+    time_features: data/usa/mobility_features.pt
+    #time_features: [[data/usa/mobility_features.pt,
+    #data/usa/symptom_features.pt, data/usa/policy_features.pt]]
+    graph: *fgraph
+    #decay: [latent2_1]
     decay: [latent2_1]
     window: [10, 15, 20, 25]
     lr: [0.001]
-    momentum: [0.9]
+    momentum: [0.99]
     weight_decay: [0.1, 0.2]
+    # weight_decay: [0.1, 0.2, 0.3, 0.4, 0.5]
     # weight_decay: [0.01]
     niters: [20000]
+    temp_smoothing: 0
+    #temp_smoothing: [5, 25, 50, 75]
     loss: nb
     t0: 10
     test_on: *vdays
@@ -159,8 +166,8 @@ matrix:
     seed: [1]
     t0: [0] #, 10] ######
     test_on: *vdays
-car:
-  output: car_model.bin
+tsir:
+  output: tsir_model.bin
   data: data/usa/data_deaths.csv
   resources:
     gpus: 1
@@ -174,13 +181,12 @@ car:
     # features: data/usa/county_features.pt
     # time_features: data/usa/policy_features.pt
     # graph: *fgraph
-    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
     decay: [latent2_1]
-    window: [15, 20, 25]
+    window: [10, 15, 20, 25]
     lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.3]
-    niters: [30000]
+    momentum: [0.9, 0.99]
+    weight_decay: [0.1, 0.2]
+    niters: [20000]
     loss: nb
     t0: 10
     test_on: *vdays
