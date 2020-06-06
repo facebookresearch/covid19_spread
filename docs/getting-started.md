@@ -34,7 +34,10 @@ make data-ny
 make data-nj
 
 # usa data: pull New York Times and joins with NY counties
-make data-us`
+make data-us
+
+# usa deaths: generates data/usa/data_deaths.csv
+cd data/usa && python convert.py deaths
 ```
 
 # Training and Validation

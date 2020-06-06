@@ -16,6 +16,7 @@ import shutil
 from data.usa.process_cases import get_nyt
 import requests
 from xml.etree import ElementTree
+from bs4 import BeautifulSoup
 
 
 DB = f'/private/home/{os.environ["USER"]}/covid19_spread/forecasts/forecast.db'
@@ -261,6 +262,61 @@ def sync_ihme(conn):
             break
 
 
+def sync_reich_forecast(conn, name, mdl_id):
+    url = f"https://github.com/reichlab/covid19-forecast-hub/tree/master/data-processed/{name}"
+    # Issue request: r => requests.models.Response
+    req = requests.get(url)
+
+    # Extract text: html_doc => str
+    html_doc = req.text
+    soup = BeautifulSoup(html_doc, "html.parser")
+    # Find all links
+    a_tags = soup.find_all("a")
+    urls = [
+        "https://raw.githubusercontent.com" + re.sub("/blob", "", link.get("href"))
+        for link in a_tags
+        if ".csv" in link.get("href")
+    ]
+
+    # Store a list of Data Frame names to be assigned to the list: df_list_names => list
+    df_list_names = [url.split(".csv")[0].split("/")[url.count("/")] for url in urls]
+
+    # Initialise an empty list the same length as the urls list: df_list => list
+    df_list = [pandas.DataFrame([None]) for i in range(len(urls))]
+
+    # Store an empty list of dataframes: df_list => list
+    df_list = [pandas.read_csv(url, sep=",") for url in urls]
+
+    # Name the dataframes in the list, coerce to a dictionary: df_dict => dict
+    df_dict = dict(zip(df_list_names, df_list))
+
+    for key, value in df_dict.items():
+        value = value.loc[
+            (value["type"] == "point")
+            & value["target"].str.endswith("day ahead cum death")
+        ]
+        value = value.rename(
+            columns={
+                "target_end_date": "date",
+                "location_name": "loc2",
+                "value": "counts",
+            }
+        )
+        value["loc1"] = "United States"
+        value["id"] = mdl_id
+        value = value.drop(columns=["target", "location", "type", "quantile"])
+        value = value[["date", "loc1", "loc2", "counts", "id", "forecast_date"]]
+        to_sql(conn, value, "deaths")
+
+
+def sync_mit(conn):
+    sync_reich_forecast(conn, "MIT_CovidAnalytics-DELPHI", "mit-delphi")
+
+
+def sync_yyg(conn):
+    sync_reich_forecast(conn, "YYG-ParamSearch", "yyg")
+
+
 def sync_los_alamos(conn):
     url = "https://covid-19.bsvgateway.org"
     req = requests.get(f"{url}/forecast/forecast_metadata.json").json()
@@ -306,7 +362,7 @@ def dump_to_csv(conn, distribute):
             if forecast_date != "":
                 forecast_date = "_" + forecast_date
 
-            group = group[group["date"] >= group["forecast_date"]].copy()
+            group = group[group["date"] > group["forecast_date"]].copy()
 
             group["location"] = group.apply(
                 lambda x: x.loc2 + (", " + x.loc3 if x.loc3 else ""), axis=1
@@ -321,9 +377,16 @@ def dump_to_csv(conn, distribute):
 
     f("deaths")
     f("infections")
-    check_call(
-        ["rsync", "--delete", "-av", basedir, f"devfairh1:{os.path.dirname(basedir)}"]
-    )
+    if distribute:
+        check_call(
+            [
+                "rsync",
+                "--delete",
+                "-av",
+                basedir,
+                f"devfairh1:{os.path.dirname(basedir)}",
+            ]
+        )
 
 
 @click.command()
@@ -343,6 +406,8 @@ def sync_forecasts(distribute=False):
     sync_nyt(conn)
     sync_ihme(conn)
     sync_los_alamos(conn)
+    sync_mit(conn)
+    sync_yyg(conn)
     conn.execute("REINDEX;")
     if distribute:
         DEST_DB = f"devfairh1:/private/home/{os.environ['USER']}/covid19_spread/forecasts/forecast.db"

@@ -1,4 +1,4 @@
-% Created 2020-05-28 Thu 09:15
+% Created 2020-06-02 Tue 12:38
 % Intended LaTeX compiler: pdflatex
 \documentclass{article}
                                   \usepackage[nonatbib]{neurips_2020}
@@ -19,6 +19,7 @@
 \usepackage[backend=bibtex,natbib]{biblatex}
 \renewcommand{\vec}[1]{\bm{#1}}
 \newcommand{\Set}[1]{\mathcal{#1}}
+\renewcommand{\Pr}{\text{P}}
 \newcommand{\todo}[1]{{\color{red}TODO: #1}}
 \addbibresource{./references.bib}
 \author{Maximilian Nickel}
@@ -54,7 +55,7 @@ improves the robustness of forecasts.
 \end{abstract}
 
 \section{Introduction}
-\label{sec:org9b937a0}
+\label{sec:org3adcb67}
 \begin{itemize}
 \item Forecasting the spread the of COVID-19 is an important task in the public
 health response to the disease. Not only important to understand the progress
@@ -87,7 +88,7 @@ by public health agencies like Robert Koch Institute \citep{salmon2016surveillan
 \end{itemize}
 
 \section{Method}
-\label{sec:org4028fe0}
+\label{sec:org51a8bb1}
 \begin{itemize}
 \item We assume we have a set of time series which are different realizations of the
 the same underlying contagion process.
@@ -96,6 +97,20 @@ realizations and let \(\Set{Z} = \{(z_i^1, \ldots, z_i^T)\}_{i=1}^M\) denote the
 underlying contagion process.
 \item We want to disentangle different aspects in the model and couple the shared
 aspects across regions
+\item Hazard
+In an SIR model, given \(y_t\) infected individuals at time \(t\), the hazard (or
+force of infection) for a susceptible person at time \(t\) is given by
+\[
+  \lambda^\dagger_{t+1} = c(N) \frac{y_t}{N} p,
+  \]
+where \(c(N)\) denotes the unit rate of contacts that a susceptible person
+experiences, \(y_t/N\) denotes the probability that a random contact is
+infectious and
+\(p\) denotes the probability of infection per contact.
+\item Autoregressive models can be understood in a similar framework
+\begin{equation*}
+  \lambda
+\end{equation*}
 \item Autoregressive model of order \(p\)
 \begin{equation}
   \text{AR}(p): y^{t+1} = \sum_{k=0}^p w_k y^{t-k} + \epsilon
@@ -118,7 +133,7 @@ through policies, social distancing etc.). Similar
 \end{itemize}
 
 \subsection{Time Varying Process}
-\label{sec:org2d4718a}
+\label{sec:org55ef7a0}
 \begin{equation*}
     y_{t+1} = \beta_t AR(p)
 \end{equation*}
@@ -132,16 +147,16 @@ where
 \end{align*}
 
 \subsection{Latent Coupling}
-\label{sec:orgcd8f8cd}
+\label{sec:org5c315f5}
 
 \subsubsection{Univariate Coupling}
-\label{sec:orgf421778}
+\label{sec:org287edf9}
 \begin{equation}
     y_i^{t+1} = \beta_i \sum_{k=0}^p w^k y_i^{t-k} + \epsilon
 \end{equation}
 
 \subsubsection{Multivariate Coupling}
-\label{sec:orge92bbb3}
+\label{sec:orgf764c4f}
 \begin{equation}
     y_i^{t+1} = \beta_i \sum_{k=0}^p \sum_{j=1}^m w^k \alpha_{ij} y_j^{t-k} + \epsilon
 \end{equation}
@@ -155,7 +170,7 @@ is problematic: runtime is \(O(M^2T)\). Moreover, not all pairs can be aligned.
 
 
 \subsection{Maximum Likelihood Estimation}
-\label{sec:orgb473ba4}
+\label{sec:orgc6d14df}
 The popularity of the NB distribution is due largely to its ability to model
 count data with varying degrees of overdispersion. The distribution is commonly
 expressed in terms of the mean \(\mu\) and dispersion parameter \(\nu\) such that the
@@ -170,8 +185,30 @@ probability of observing a non-negative integer \(y\) is
     y^{t+1}_{i} \sim \text{NB}(\eta_i^{t}, \nu_i)
 \end{equation*}
 
+\begin{equation*}
+    \min_\theta -\sum_{y} \log \Pr_\theta(Y = y)
+\end{equation*}
+
+\begin{minipage}{.335\linewidth}
+\begin{center}
+\includegraphics[width=\columnwidth]{img/overdispersion_states.png}
+\end{center}
+\end{minipage}
+\begin{minipage}{.45\linewidth}
+\begin{center}
+\includegraphics[width=\columnwidth]{img/overdispersion_counties.png}
+\end{center}
+\end{minipage}
+
+\subsubsection{Training details}
+\label{sec:org0c53443}
+\begin{itemize}
+\item We initialize the dispersion parameters to \(\log(nu_i) = 7\). This allows for
+variance during the initial training and prevents the RNN from overfitting
+\end{itemize}
+
 \section{Related Work}
-\label{sec:orgaf7d266}
+\label{sec:org4d03be1}
 \cite{lloyd_smith2007negativebinomial}
 \begin{itemize}
 \item We are not regressing dependent variables onto counts. Instead we use latent
@@ -180,9 +217,9 @@ structure of the underlying process.
 \end{itemize}
 
 \section{Experiments}
-\label{sec:orgd2a2489}
+\label{sec:orgd50071c}
 \subsection{Main Experiment}
-\label{sec:org931ecc2}
+\label{sec:org7a8df4c}
 \begin{itemize}
 \item Forecast Deaths and Confirmed Cases
 \item Weekly backfill on US Nytimes data
@@ -202,8 +239,10 @@ structure of the underlying process.
 \item Naive
 \end{itemize}
 \end{itemize}
+
+**
 \subsection{Ablation}
-\label{sec:org898a4bb}
+\label{sec:org1aae541}
 \begin{itemize}
 \item Univariate
 \item Multivariate
@@ -213,7 +252,7 @@ structure of the underlying process.
 \end{itemize}
 
 \subsection{Analysis of Adjacency matrices}
-\label{sec:org93940cb}
+\label{sec:orgbce42b4}
 \begin{itemize}
 \item coupled
 \item uncoupled
@@ -221,7 +260,7 @@ structure of the underlying process.
 \end{itemize}
 
 \section{Conclusion}
-\label{sec:org62d2636}
+\label{sec:org184985c}
 
 \printbibliography
 \end{document}

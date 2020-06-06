@@ -73,9 +73,9 @@ def drop_k_days_csv(dset, outfile, days):
 
 
 def smooth_csv(indset: str, outdset: str, days: int):
-    df = pd.read_csv(indset, index_col="region")
+    df = pd.read_csv(indset, index_col="region").transpose()
     smooth = np.ceil(df.rolling(window=days, min_periods=1).mean())
-    smooth.to_csv(outdset)
+    smooth.transpose().to_csv(outdset)
 
 
 def smooth_h5(indset: str, outdset: str, smooth_days: int):

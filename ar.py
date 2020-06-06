@@ -78,7 +78,17 @@ class BetaWavenet(nn.Module):
 
 
 class AR(nn.Module):
-    def __init__(self, regions, beta_net, dist, window_size, graph, features):
+    def __init__(
+        self,
+        regions,
+        beta_net,
+        dist,
+        window_size,
+        graph,
+        features,
+        activation="sigmoid",
+        no_cross_correlation=False,
+    ):
         super(AR, self).__init__()
         self.regions = regions
         # self.population = population.float().unsqueeze(1) / 100000
@@ -92,6 +102,8 @@ class AR(nn.Module):
         self.window = window_size
         self.graph = graph
         self.features = features
+        self.activation = activation
+        self.no_cross_correlation = no_cross_correlation
         if graph is not None:
             assert graph.size(0) == self.M, graph.size()
             assert graph.size(1) == self.M, graph.size()
@@ -113,7 +125,10 @@ class AR(nn.Module):
         with th.no_grad():
             self.alphas.fill_diagonal_(-1e10)
         # W = F.softmax(self.alphas, dim=1)
-        W = th.sigmoid(self.alphas)
+        if self.activation == "sigmoid":
+            W = th.sigmoid(self.alphas)
+        else:
+            W = F.softplus(self.alphas)
         # W = F.softplus(self.alphas)
         # W = W / self.M
         # W = W / W.sum()
@@ -124,6 +139,7 @@ class AR(nn.Module):
     def score(self, t, ys):
         assert t.size(-1) == ys.size(-1), (t.size(), ys.size())
         offset = self.window - 1
+        length = ys.size(1) - self.window + 1
 
         # ws = F.softplus(self.repro)
         ws = F.softplus(self.repro)
@@ -133,24 +149,24 @@ class AR(nn.Module):
         Z = Z.squeeze(0)
         Z = Z.div(float(self.window))
 
-        # cross-correlation
-        length = ys.size(1) - self.window + 1
-        W = self.metapopulation_weights()
-        Ys = th.stack([ys.narrow(1, i, length) for i in range(self.window)])
-        Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(dim=0)
-        # Ys = th.mm(W, Z)
-        # Ys = th.bmm(W, Ys).mean(dim=0)
-        with th.no_grad():
-            self.train_stats = (Z.sum().item(), Ys.sum().item())
-
+        if not self.no_cross_correlation:
+            # cross-correlation
+            W = self.metapopulation_weights()
+            Ys = th.stack([ys.narrow(1, i, length) for i in range(self.window)])
+            Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(
+                dim=0
+            )
+            # Ys = th.bmm(W, Ys).mean(dim=0)
+            Z.add_(Ys)
+            with th.no_grad():
+                self.train_stats = (Z.sum().item(), Ys.sum().item())
         # beta evolution
         ys = ys.narrow(1, offset, ys.size(1) - offset)
         beta = self.beta(t).narrow(-1, -ys.size(1), ys.size(1))
         if self.features is not None:
             Z = Z + F.softplus(self.w_feat(self.features))
         # Ys = beta[0] * Z + beta[1] * Ys
-        Ys = beta * Z.add(Ys)
-        # Ys = beta * Z
+        Ys = beta * Z
 
         assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
         return Ys, beta
@@ -222,14 +238,17 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                 gt = new_cases[:, -3:]
                 maes = th.abs(gt - pred)
                 _a = model.metapopulation_weights()
+                # forecast = model.simulate(new_cases.size(1), new_cases, 14).sum(0)
                 print(
                     f"[{itr:04d}] Loss {loss.item():.2f} | "
                     f"Reg {reg.item():.2f} | "
                     f"MAE {maes.mean():.2f} | "
                     f"{model} | "
                     f"{args.loss} ({scores[:, -1].min().item():.2f}, {scores[:, -1].max().item():.2f}) | "
-                    f"alpha ({_a.min().item():.2f}, {_a.mean().item():.2f}, {_a.max().item():.2f})"
+                    f"alpha ({_a.min().item():.2f}, {_a.mean().item():.2f}, {_a.max().item():.2f}) | "
+                    # f"{len(forecast)}-day-forecast: {forecast[-1].item()}"
                 )
+
             th.save(model.state_dict(), checkpoint)
     print(f"Train MAE,{maes.mean():.2f}")
     return model
@@ -303,15 +322,21 @@ class ARCV(cv.CV):
         else:
             raise ValueError("Unknown beta function")
 
-        self.func = AR(regions, beta_net, args.loss, args.window, graph, features).to(
-            device
-        )
+        self.func = AR(
+            regions,
+            beta_net,
+            args.loss,
+            args.window,
+            graph,
+            features,
+            activation=args.activation,
+            no_cross_correlation=args.no_cross_correlation,
+        ).to(device)
         return new_cases, regions, basedate, device
 
     def run_train(self, dset, args, checkpoint):
         args.fdat = dset
         new_cases, regions, _, device = self.initialize(args)
-
         params = []
         exclude = {
             "nu",
@@ -356,6 +381,8 @@ if __name__ == "__main__":
     parser.add_argument("-test-on", default=5, type=int)
     parser.add_argument("-checkpoint", type=str, default="/tmp/ar_model.bin")
     parser.add_argument("-keep-counties", type=int, default=0)
+    parser.add_argument("-activation", choices=["softplus", "sigmoid"])
+    parser.add_argument("-no-cross-correlation", action="store_true")
     args = parser.parse_args()
 
     cv = ARCV()
