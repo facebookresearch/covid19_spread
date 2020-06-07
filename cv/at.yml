@@ -32,14 +32,17 @@ ar:
     cpus: 1
     memgb: 5
     timeout: 15
+  preprocess:
+    smooth: 7
   train:
     fpop: *fpop
-    decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    window: [1, 5, 10, 15]
-    momentum: [0.9, 0.99]
-    lr: 0.005
-    weight_decay: 0
-    niters: 40000
+    decay: [latent2_1]
+    window: [15, 20, 25]
+    momentum: [0.9]
+    lr: [0.001]
+    weight_decay: [0.1, 0.2]
+    temp_smoothing: [0]
+    niters: 20000
     loss: nb
-    t0: 1
+    t0: 5
     test_on: *vdays
