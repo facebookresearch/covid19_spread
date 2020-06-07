@@ -139,10 +139,12 @@ class CV:
         best_run, best_MAE = None, float("inf")
         for metrics_pth in glob(os.path.join(basedir, "*/metrics.csv")):
             metrics = pd.read_csv(metrics_pth, index_col="Measure")
-            if metrics.loc["MAE"].values[-1] < best_MAE:
-                best_MAE = metrics.loc["MAE"].values[-1]
+            # if metrics.loc["MAE"].values[-1] < best_MAE:
+            if metrics.loc["RMSE"].values.mean() < best_MAE:
+                # best_MAE = metrics.loc["MAE"].values[-1]
+                best_MAE = metrics.loc["RMSE"].values.mean()
                 best_run = os.path.dirname(metrics_pth)
-        return [BestRun(best_run, "best_mae")]
+        return [BestRun(best_run, "best_rmse")]
 
     def compute_metrics(
         self, gt: str, forecast: str, model: Any, metric_args: Dict[str, Any]
