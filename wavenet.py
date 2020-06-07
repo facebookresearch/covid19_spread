@@ -35,20 +35,24 @@ class CausalConv1d(nn.Conv1d):
 
 
 class WavenetBlock(nn.Module):
-    def __init__(self, layers, channels, kernel_size):
+    def __init__(self, layers, channels, kernel_size, groups=1):
         super(WavenetBlock, self).__init__()
         self.layers = layers
         self.filters = nn.ModuleList(
             [
-                # CausalConv1d(channels, channels, kernel_size, dilation=2 ** i)
-                CausalConv1d(channels, channels, kernel_size, dilation=1)
+                CausalConv1d(
+                    channels, channels, kernel_size, dilation=2 ** i, groups=groups
+                )
+                # CausalConv1d(channels, channels, kernel_size, dilation=1)
                 for i in range(layers)
             ]
         )
         self.gates = nn.ModuleList(
             [
-                # CausalConv1d(channels, channels, kernel_size, dilation=2 ** i)
-                CausalConv1d(channels, channels, kernel_size, dilation=1)
+                CausalConv1d(
+                    channels, channels, kernel_size, dilation=2 ** i, groups=groups
+                )
+                # CausalConv1d(channels, channels, kernel_size, dilation=1)
                 for i in range(layers)
             ]
         )
@@ -62,7 +66,8 @@ class WavenetBlock(nn.Module):
             # _G = th.sigmoid(self.gates[l](Zs[-1]))
             # _F = _F * _G
             assert _F.size(-1) == ys.size(-1), (_F.size(), ys.size())
-            Zs.append(_F + Zs[-1])
+            # Zs.append(_F + Zs[-1])
+            Zs.append(_F)
         # Z = sum(Zs).squeeze(1)
         # FIXME: make end to end multichannel work
         Z = Zs[-1]
@@ -70,17 +75,21 @@ class WavenetBlock(nn.Module):
 
 
 class Wavenet(nn.Module):
-    def __init__(self, blocks, layers, channels, kernel_size):
+    def __init__(self, blocks, layers, channels, kernel_size, groups=1):
         super(Wavenet, self).__init__()
         self.first = CausalConv1d(1, channels, 1)
         self.last = CausalConv1d(channels, 1, 1)
         self.blocks = nn.ModuleList(
-            [WavenetBlock(layers, channels, kernel_size) for i in range(blocks)]
+            [
+                WavenetBlock(layers, channels, kernel_size, groups=groups)
+                for i in range(blocks)
+            ]
         )
 
     def forward(self, ys):
-        Z = self.first(ys.unsqueeze(1))
+        # Z = self.first(ys.unsqueeze(1))
+        Z = ys
         for block in self.blocks:
             Z = block(Z)
-        Z = self.last(Z).squeeze(1)
+        # Z = self.last(Z).squeeze(1)
         return Z
