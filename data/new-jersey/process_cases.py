@@ -42,7 +42,7 @@ def main(infile=None):
     else:
         df = get_latest()[usecols]
 
-    window = 5
+    window = 7
     smooth = "SMOOTH" in os.environ and os.environ["SMOOTH"] == "1"
     print("Smoothing data =", smooth)
 
