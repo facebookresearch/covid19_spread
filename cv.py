@@ -365,7 +365,7 @@ def cv(
         if remote:
             basedir = f"/checkpoint/{user}/covid19/forecasts/{region}/{now}"
         else:
-            basedir = f"/tmp/covid19/forecasts/{region}/{now}"
+            basedir = f"/tmp/{user}/covid19/forecasts/{region}/{now}"
 
     os.makedirs(basedir, exist_ok=True)
 
