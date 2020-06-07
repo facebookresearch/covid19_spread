@@ -1,0 +1,97 @@
+region: es
+population: &fpop data/spain/population.csv
+basegraph: &fgraph data/spain/state_graph.pt
+validation:
+  days: &vdays 21
+  output: validation.csv
+forecast:
+  output: forecast.csv
+prediction_interval:
+  nsamples: 1000
+  intervals: [0.99, 0.95]
+  output: piv.csv
+backfill:
+  - 2020-04-22
+  - 2020-04-29
+  - 2020-05-05
+  # - 2020-05-10
+  # IHME
+  - 2020-04-19
+  - 2020-04-26
+  - 2020-05-01
+ar:
+  output: ar_model.bin
+  data: data/spain/data_deaths.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 30
+  #preprocess:
+  #  smooth: 5
+  train:
+    fpop: *fpop
+    # features: data/usa/county_features.pt
+    # time_features: data/usa/policy_features.pt
+    # graph: *fgraph
+    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
+    decay: [latent2_1]
+    window: [10, 15, 20, 25]
+    # window: [15]
+    lr: [0.001]
+    momentum: [0.99]
+    # weight_decay: [0.2]
+    weight_decay: [0, 0.2, 0.5]
+    niters: [30000]
+    loss: nb
+    t0: 5
+    test_on: *vdays
+gar:
+  output: var_model.bin
+  data: data/spain/data_deaths.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 30
+  train:
+    fpop: *fpop
+    # features: data/usa/county_features.pt
+    # time_features: data/usa/policy_features.pt
+    # graph: *fgraph
+    dim: 64
+    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
+    blocks: [4]
+    layers: [6]
+    window: [2]
+    lr: [0.001]
+    momentum: [0.9]
+    weight_decay: [0.1]
+    niters: [20000]
+    loss: nb
+    t0: 5
+    test_on: *vdays
+dar:
+  output: var_model.bin
+  data: data/usa/data_deaths.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 30
+  train:
+    fpop: *fpop
+    # features: data/usa/county_features.pt
+    # time_features: data/usa/policy_features.pt
+    # graph: *fgraph
+    dim: 64
+    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
+    decay: [latent16_1]
+    window: [10, 15, 20]
+    lr: [0.001]
+    momentum: [0.9]
+    weight_decay: [0.1]
+    niters: [20000]
+    loss: nb
+    t0: 5
+    test_on: *vdays
