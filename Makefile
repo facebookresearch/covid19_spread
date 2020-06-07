@@ -20,8 +20,8 @@ endef
 
 define _analyze_sweep
 	@echo "---- Naive forecast ---------"
-	python3 naive.py $(fdata).h5 $(DATE)
-	python3 naive.py $(fdata)_smooth.h5 $(DATE)
+	python3 naive_old.py $(fdata).h5 $(DATE)
+	python3 naive_old.py $(fdata)_smooth.h5 $(DATE)
 
 	@echo "\n---- Summary ---------"
 	python3 analyze_sweep.py summary $(sweepdir) --sort-by="$(if $(SORT),$(SORT),RMSE_AVG)"
@@ -64,7 +64,7 @@ forecast-nj:
 
 
 analyze-nj: sweepdir = $(shell tail -$(LAST) runs/new-jersey/$(DATE).log | head -n1)
-analyze-nj: sweepname = new-jersey-sweep
+analyze-nj: sweepname = new-jersey_sweep
 analyze-nj: fdata = data/new-jersey/timeseries
 analyze-nj:
 	$(call _analyze_sweep)
@@ -115,13 +115,13 @@ grid-nys:
 
 analyze-nyc: sweepdir = $(shell tail -$(LAST) runs/nyc/$(DATE).log | head -n1)
 analyze-nyc: fdata = data/nystate/timeseries-nyc
-analyze-nyc: sweepname = nyc-sweep
+analyze-nyc: sweepname = nyc_sweep
 analyze-nyc:
 	$(call _analyze_sweep)
 
 
 analyze-nys: sweepdir = $(shell tail -$(LAST) runs/nys/$(DATE).log | head -n1)
-analyze-nys: sweepname = nys-sweep
+analyze-nys: sweepname = nys_sweep
 analyze-nys: fdata = data/nystate/timeseries-nys
 analyze-nys: doubling-times = 10 11 12 13
 analyze-nys:
@@ -139,7 +139,7 @@ data-ny:
 
 # -- United States --
 data-usa:
-	cd data/usa && python3 convert.py
+	cd data/usa && python3 convert.py && python3 convert.py deaths
 
 select: fout = forecasts/$(REGION)/forecast-$(DATE)$(SUFFIX).csv
 select: fout_sir = forecasts/$(REGION)/SIR-forecast-$(DATE).csv
@@ -149,4 +149,8 @@ select:
 	echo $(license) >> $(fout)
 	cp $(JOB)/../sir/SIR-forecast-$(REGION).csv $(fout_sir)
 	echo $(license) >> $(fout_sir)
+
+cv-show: file=metrics.csv
+cv-show:
+	find $(sweep) -name "*_forecast.csv" -exec sh -c 'cat $$(dirname {})/$(file)' \;
 # end
