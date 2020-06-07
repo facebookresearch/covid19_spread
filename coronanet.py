@@ -59,8 +59,8 @@ class CoronaBlock(nn.Module):
         # self.biases = nn.Parameter(th.randn(self.layers))
 
     def forward(self, ys, ts):
-        ts = ts.unsqueeze(0)
-        _zs = th.stack([ys, ts], dim=2)
+        # print(ts.size(), ys.size())
+        _zs = th.stack([ys, ts], dim=1).unsqueeze(0)
         Zs = [_zs]
         for l in range(self.layers):
             # _F = F.relu(self.filters[l](Zs[-1]) + self.biases[l])
@@ -70,8 +70,7 @@ class CoronaBlock(nn.Module):
             # _F = _F * _G
             assert _F.size(-1) == ys.size(-1), (_F.size(), ys.size())
             # Zs.append(_F + Zs[-1])
-            # print(_F.size(), ts.size())
-            _zs = th.cat([_F, ts.unsqueeze(2)], dim=2)
+            _zs = th.cat([_F, ts.unsqueeze(0).unsqueeze(2)], dim=2)
             Zs.append(_zs)
         # Z = sum(Zs).squeeze(1)
         # FIXME: make end to end multichannel work
@@ -94,8 +93,9 @@ class CoronaNet(nn.Module):
 
     def forward(self, ys, ts):
         # Z = self.first(ys.unsqueeze(1))
-        Z = ys.unsqueeze(0)
+        Z = ys  # .unsqueeze(0)
         for block in self.blocks:
-            Z = block(Z, ts)[:, :, 0, :]
+            Z = block(Z, ts)[:, :, 0, :].squeeze(0)
+            # Z = block(Z, ts)  # .prod(dim=2)
         # Z = self.last(Z).squeeze(1)
         return Z
