@@ -21,6 +21,7 @@ import json
 import tlc
 from tqdm import tqdm
 import threading
+from datetime import timedelta
 from multiprocessing import cpu_count
 
 
@@ -122,10 +123,19 @@ class MHPCV(cv.CV):
                     "avg_mae": metrics.loc["MAE"].mean(),
                     "ks": metrics_json["avg_ks"],
                     "pval": metrics_json["avg_pval"],
+                    "naive_difference": abs(metrics_json["naive_difference"]),
+                    "mae_deltas": metrics.loc["MAE_DELTAS"].mean(),
                 }
             )
         df = pandas.DataFrame(results)
         return [
+            cv.BestRun(
+                df.sort_values(by="naive_difference").iloc[0].job_pth,
+                "closest_naive_diff",
+            ),
+            cv.BestRun(
+                df.sort_values(by="mae_deltas").iloc[0].job_pth, "best_mae_deltas"
+            ),
             cv.BestRun(df.sort_values(by="mae").iloc[0].job_pth, "best_mae"),
             cv.BestRun(df.sort_values(by="avg_mae").iloc[0].job_pth, "best_avg_mae"),
             cv.BestRun(df.sort_values(by="ks").iloc[0].job_pth, "best_ks"),
@@ -136,6 +146,16 @@ class MHPCV(cv.CV):
         self, gt: str, forecast: str, model: str, metric_args: Dict[str, Any]
     ) -> Tuple[pandas.DataFrame, Dict[str, Any]]:
         df_val, json_val = super().compute_metrics(gt, forecast, model, metric_args)
+
+        # Computes the "naive" forecast on the entire region and compares to the
+        # Sum of all forecasts for all regions on the last day.
+        forecast_df = pandas.read_csv(forecast, parse_dates=["date"], index_col="date")
+        gt_df = load_ground_truth(gt)
+        total_gt = gt_df.sum(axis=1)
+        last_date = forecast_df.index.min() - timedelta(days=1)
+        diff = total_gt.loc[last_date] - total_gt.loc[last_date - timedelta(days=1)]
+        last_day_forecast = diff * len(forecast_df) + total_gt.loc[last_date]
+        json_val["naive_difference"] = last_day_forecast - forecast_df.iloc[-1].sum()
 
         # Run KS Test
         mdl, mdl_opt = train.CovidModel.from_checkpoint(model, map_location="cpu")
