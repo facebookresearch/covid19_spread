@@ -67,10 +67,6 @@ class Recurring:
         """Fetch new data (should be idempotent)"""
         raise NotImplementedError
 
-    def marker(self) -> str:
-        """A unique marker to place in crontab to identify this job"""
-        raise NotImplementedError
-
     def command(self) -> str:
         """The command to run in cron"""
         raise NotImplementedError
@@ -90,7 +86,8 @@ class Recurring:
     def install(self) -> None:
         """Method to install cron job"""
         crontab = check_output(["crontab", "-l"]).decode("utf-8")
-        if self.marker() in crontab:
+        marker = f"__JOB_{self.get_id()}__"
+        if marker in crontab:
             raise ValueError(
                 "Cron job already installed, cleanup crontab"
                 " with `crontab -e` before installing again"
@@ -98,7 +95,7 @@ class Recurring:
         with tempfile.NamedTemporaryFile() as tfile:
             with open(tfile.name, "w") as fout:
                 print(crontab, file=fout)
-                print(f"# {self.marker()}", file=fout)
+                print(f"# {marker}", file=fout)
                 user = os.environ["USER"]
                 script = os.path.realpath(__file__)
                 schedule = self.schedule()

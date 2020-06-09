@@ -24,9 +24,6 @@ class NJRecurring(recurring.Recurring):
     def get_id(self):
         return "new-jersey"
 
-    def marker(self):
-        return "___NJ_SWEEP_JOB___"
-
     def command(self):
         return f"python {os.path.realpath(__file__)}"
 
@@ -48,9 +45,6 @@ class NJRecurring(recurring.Recurring):
 
 
 class NJARRecurring(NJRecurring):
-    def marker(self):
-        return "__NJ_AR_SWEEP_JOB__"
-
     def get_id(self):
         return "new-jersey-ar"
 
@@ -78,9 +72,6 @@ class NJARRecurring(NJRecurring):
 class NJSweepRecurring(NJRecurring):
     def get_id(self):
         return "new-jersey-sweep.py"
-
-    def marker(self):
-        return "___NJ_SWEEP_PY_JOB___"
 
     def launch_job(self, latest_date):
         # Launch the sweep
