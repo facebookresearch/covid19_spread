@@ -33,3 +33,29 @@ python nj_recurring.py --install --kind ar
 # MHP using sweep.py
 python nj_recurring.py --install --kind sweep
 ```
+
+## Creating a new recurring job
+
+You'll need to defined the following methods:
+
+```Python
+import recurring
+import os
+
+class NJRecurring(recurring.Recurring):
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+
+    def get_id(self):
+        return "<some unique id>"
+
+    def command(self):
+        return f"python {os.path.realpath(__file__)}"
+
+    def update_data(self):
+        # Fetch latest data
+        ...        
+
+    def latest_date(self):
+        df = pandas.read_csv(...)
+        return df.index.max()
+```
