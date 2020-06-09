@@ -41,7 +41,7 @@ class NJRecurring(recurring.Recurring):
             process_cases.main(tfile.name)
 
     def latest_date(self):
-        return get_latest()["Date"].max()
+        return get_latest()["Date"].max().date()
 
 
 class NJARRecurring(NJRecurring):
