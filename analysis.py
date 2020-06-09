@@ -31,7 +31,7 @@ from metrics import _compute_metrics
 
 def load_backfill(
     job,
-    basedir="/checkpoint/maxn/covid19/forecasts",
+    basedir=f"/checkpoint/{os.environ['USER']}/covid19/forecasts",
     model="ar",
     indicator="final_model_validation*.csv",
     forecast="../forecasts/forecast_best_mae.csv",
