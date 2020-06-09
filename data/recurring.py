@@ -118,6 +118,7 @@ class Recurring:
 
     def refresh(self) -> None:
         """Check for new data, schedule a job if new data is found"""
+        self.update_data()
         latest_date = self.latest_date()
         conn = sqlite3.connect(DB)
         res = conn.execute(
@@ -134,8 +135,7 @@ class Recurring:
             )
             conn.commit()
 
-        self.update_data()
-        sweep_path = self.launch_job(latest_date)
+        sweep_path = self.launch_job()
 
         vals = (
             sweep_path,
@@ -150,10 +150,10 @@ class Recurring:
         )
         conn.commit()
 
-    def launch_job(self, latest_date, **kwargs):
+    def launch_job(self, **kwargs):
         """Launch the sweep job"""
         # Launch the sweep
-        config = os.path.join(script_dir, "../cv/nj.yml")
+        config = os.path.join(script_dir, f"../cv/{kwargs.get('cv_config')}.yml")
         with chdir(f"{script_dir}/../"):
             sweep_path, jobs = click.Context(cv.cv).invoke(
                 cv.cv,
