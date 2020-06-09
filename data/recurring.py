@@ -74,6 +74,9 @@ class Recurring:
     def latest_date(self) -> datetime.date:
         raise NotImplementedError
 
+    def module(self):
+        return "mhp"
+
     def schedule(self) -> str:
         return "*/5 * * * *"  # run every 5 minutes
 
@@ -132,7 +135,7 @@ class Recurring:
             sweep_path,
             str(latest_date),
             datetime.datetime.now().timestamp(),
-            "mhp",
+            self.module(),
             self.get_id(),
         )
         conn.execute(
@@ -141,11 +144,14 @@ class Recurring:
         )
         conn.commit()
 
-    def launch_job(self, latest_date):
+    def launch_job(self, latest_date, **kwargs):
         # Launch the sweep
         config = os.path.join(script_dir, "../cv/nj.yml")
         with chdir(f"{script_dir}/../"):
             sweep_path, jobs = click.Context(cv.cv).invoke(
-                cv.cv, config_pth=config, module="mhp", remote=True
+                cv.cv,
+                config_pth=config,
+                module=kwargs.get("module", "mhp"),
+                remote=True,
             )
         return sweep_path

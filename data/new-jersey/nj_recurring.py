@@ -47,6 +47,34 @@ class NJRecurring(recurring.Recurring):
         return get_latest()["Date"].max()
 
 
+class NJARRecurring(NJRecurring):
+    def marker(self):
+        return "__NJ_AR_SWEEP_JOB__"
+
+    def get_id(self):
+        return "new-jersey-ar"
+
+    def command(self):
+        return super().command() + f" --kind ar"
+
+    def launch_job(self, latest_date, **kwargs):
+        return super().launch_job(latest_date, module="ar", **kwargs)
+
+    def module(self):
+        return "ar"
+
+    # Create the new timeseries.h5 dataset
+    def update_data(self):
+        df = get_latest()
+        date_fmt = df["Date"].max().date().strftime("%Y%m%d")
+        df.to_csv(f"{script_dir}/data-{date_fmt}.csv")
+        with tempfile.NamedTemporaryFile(suffix=".csv") as tfile:
+            df = df.reset_index().rename(columns={"index": "Date"})
+            df["Start day"] = np.arange(1, len(df) + 1)
+            df.to_csv(tfile.name)
+            process_cases.main(tfile.name)
+
+
 class NJSweepRecurring(NJRecurring):
     def get_id(self):
         return "new-jersey-sweep.py"
@@ -67,11 +95,18 @@ class NJSweepRecurring(NJRecurring):
 
 
 def main(args):
+    kinds = {
+        "cv": NJRecurring,
+        "sweep": NJSweepRecurring,
+        "ar": NJARRecurring,
+    }
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--install", action="store_true")
-    parser.add_argument("--kind", choices=["cv", "sweep"], default="cv")
+    parser.add_argument("--kind", choices=list(kinds.keys()), default="cv")
     opt = parser.parse_args()
-    job = NJRecurring() if opt.kind == "cv" else NJSweepRecurring()
+
+    job = kinds[opt.kind]()
 
     if opt.install:
         job.install()  # install cron job
