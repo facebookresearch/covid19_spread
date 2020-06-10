@@ -111,38 +111,20 @@ def to_sql(conn, df, table):
     conn.execute(f"INSERT OR REPLACE INTO {table}({cols}) SELECT {cols} FROM temp____")
 
 
-def sync_max_forecasts(conn, remote_dir, local_dir):
-    check_call(
-        ["scp", f"{remote_dir}/new-jersey/forecast-[0-9]*_fast.csv", "."],
-        cwd=f"{local_dir}/new-jersey",
-    )
-    check_call(
-        ["scp", f"{remote_dir}/new-jersey/forecast-[0-9]*_slow.csv", "."],
-        cwd=f"{local_dir}/new-jersey",
-    )
-    check_call(
-        ["scp", f"{remote_dir}/nystate/forecast-[0-9]*_fast.csv", "."],
-        cwd=f"{local_dir}/nystate",
-    )
-    check_call(
-        ["scp", f"{remote_dir}/nystate/forecast-[0-9]*_slow.csv", "."],
-        cwd=f"{local_dir}/nystate",
-    )
-    files = glob(f"local_dir/new-jersey/forecast-*_(fast|slow).csv")
+def sync_max_forecasts(conn):
+    base = "/checkpoint/mattle/covid19/final_forecasts"
     for state, ty in itertools.product(["new-jersey", "nystate"], ["slow", "fast"]):
-        files = glob(f"{local_dir}/{state}/forecast-*_{ty}.csv")
+        files = glob(f"{base}/{state}/maxn/forecast-*_{ty}.csv")
         for f in files:
-            forecast_date = re.search("forecast-(\d+)_", f).group(1)
-            forecast_date = datetime.datetime.strptime(forecast_date, "%Y%m%d").date()
-            forecast_date -= datetime.timedelta(days=1)
+            df = pandas.read_csv(f)
+            df = df[df["date"].str.match("\d{2}/\d{2}")]
+            df["date"] = pandas.to_datetime(df["date"] + "/2020")
+            forecast_date = (df["date"].min() - datetime.timedelta(days=1)).date()
             res = conn.execute(
                 f"SELECT COUNT(1) FROM infections WHERE forecast_date=? AND id=?",
                 (forecast_date, f"{state}_{ty}"),
             )
             if res.fetchone()[0] == 0:
-                df = pandas.read_csv(f)
-                df = df[df["date"].str.match("\d{2}/\d{2}")]
-                df["date"] = pandas.to_datetime(df["date"] + "/2020")
                 df = df.melt(id_vars=["date"], value_name="counts", var_name="location")
                 df = df.rename(columns={"location": "loc3"})
                 df["forecast_date"] = forecast_date
@@ -400,9 +382,7 @@ def sync_forecasts(distribute=False):
     if not os.path.exists(DB):
         mk_db()
     conn = sqlite3.connect(DB)
-    remote_dir = "devfairh1:/private/home/maxn/covid19_spread/forecasts"
-    local_dir = f'/checkpoint/{os.environ["USER"]}/covid19/forecasts'
-    # sync_max_forecasts(conn, remote_dir, local_dir)
+    sync_max_forecasts(conn)
     sync_nyt(conn)
     sync_ihme(conn)
     sync_los_alamos(conn)
