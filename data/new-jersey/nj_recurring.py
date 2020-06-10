@@ -51,8 +51,8 @@ class NJARRecurring(NJRecurring):
     def command(self):
         return super().command() + f" --kind ar"
 
-    def launch_job(self, latest_date, **kwargs):
-        return super().launch_job(latest_date, module="ar", **kwargs)
+    def launch_job(self, **kwargs):
+        return super().launch_job(cv_config="nj", module="ar", **kwargs)
 
     def module(self):
         return "ar"
@@ -73,7 +73,7 @@ class NJSweepRecurring(NJRecurring):
     def get_id(self):
         return "new-jersey-sweep.py"
 
-    def launch_job(self, latest_date):
+    def launch_job(self):
         # Launch the sweep
         date = latest_date.strftime("%Y%m%d")
         output = check_output(
