@@ -32,10 +32,12 @@ ar:
     cpus: 1
     memgb: 5
     timeout: 15
-  preprocess:
-    smooth: 7
+  #preprocess:
+  #  smooth: 7
   train:
     fpop: *fpop
+    activation: sigmoid
+    no_cross_correlation: false
     decay: [latent2_1]
     window: [15, 20, 25]
     momentum: [0.9]
