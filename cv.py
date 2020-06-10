@@ -20,7 +20,7 @@ from glob import glob
 from timelord import snapshot
 from collections import namedtuple
 import click
-from lib.click_lib import DefaultGroup
+from lib.click_lib import DefaultGroup, OptionNArgs
 import tempfile
 import shutil
 import json
@@ -136,15 +136,23 @@ class CV:
         """
         Evaluate a sweep returning a list of models to retrain on the full dataset.
         """
-        best_run, best_MAE = None, float("inf")
+        runs = []
         for metrics_pth in glob(os.path.join(basedir, "*/metrics.csv")):
             metrics = pd.read_csv(metrics_pth, index_col="Measure")
-            # if metrics.loc["MAE"].values[-1] < best_MAE:
-            if metrics.loc["RMSE"].values.mean() < best_MAE:
-                # best_MAE = metrics.loc["MAE"].values[-1]
-                best_MAE = metrics.loc["RMSE"].values.mean()
-                best_run = os.path.dirname(metrics_pth)
-        return [BestRun(best_run, "best_rmse")]
+            runs.append(
+                {
+                    "pth": os.path.dirname(metrics_pth),
+                    "mae": metrics.loc["MAE"].values[-1],
+                    "rmse": metrics.loc["RMSE"].mean(),
+                    "mae_deltas": metrics.loc["MAE_DELTAS"].mean(),
+                }
+            )
+        df = pd.DataFrame(runs)
+        return [
+            BestRun(df.sort_values(by="mae").iloc[0].pth, "best_mae"),
+            BestRun(df.sort_values(by="rmse").iloc[0].pth, "best_rmse"),
+            BestRun(df.sort_values(by="mae_deltas").iloc[0].pth, "best_mae_deltas"),
+        ]
 
     def compute_metrics(
         self, gt: str, forecast: str, model: Any, metric_args: Dict[str, Any]
@@ -190,7 +198,6 @@ def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=N
         assert gt.index.max() > basedate
         ndays += (gt.index.max() - basedate).days
     filter_validation_days(dset, val_in, ndays)
-
     # apply data pre-processing
     preprocessed = _path(prefix + "preprocessed_" + os.path.basename(dset))
     mod.preprocess(val_in, preprocessed, cfg[module].get("preprocess", {}))
@@ -333,6 +340,20 @@ def cli():
     pass
 
 
+def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
+    """
+    update a dict using a nested list of keys. 
+    Ex: 
+        x = {'a': {'b': {'c': 2}}}
+        set_dict(x, ['a', 'b'], 4) == {'a': {'b': 4}}
+    """
+    if len(keys) > 0:
+        d[keys[0]] = set_dict(d[keys[0]], keys[1:], v)
+        return d
+    else:
+        return v
+
+
 @cli.command()
 @click.argument("config_pth")
 @click.argument("module")
@@ -377,14 +398,26 @@ def cv(
         yaml.dump(cfg, fout)
 
     cfgs = []
-    sweep_params = [k for k, v in cfg[module]["train"].items() if isinstance(v, list)]
+    sweep_params = [
+        ([module, "train", k], v)
+        for k, v in cfg[module]["train"].items()
+        if isinstance(v, list)
+    ]
+    sweep_params.extend(
+        [
+            ([module, "preprocess", k], v)
+            for k, v in cfg[module].get("preprocess", {}).items()
+            if isinstance(v, list)
+        ]
+    )
     if len(sweep_params) == 0:
         cfgs.append(cfg)
     else:
         random.seed(0)
-        for vals in itertools.product(*[cfg[module]["train"][k] for k in sweep_params]):
+        keys, values = zip(*sweep_params)
+        for vals in itertools.product(*values):
             clone = copy.deepcopy(cfg)
-            clone[module]["train"].update({k: v for k, v in zip(sweep_params, vals)})
+            [set_dict(clone, ks, vs) for ks, vs in zip(keys, vals)]
             cfgs.append(clone)
         random.shuffle(cfgs)
         cfgs = cfgs[:max_jobs]
@@ -434,6 +467,7 @@ def cv(
 @click.option(
     "-start-date", type=click.DateTime(), default="2020-04-01", help="Start date"
 )
+@click.option("-dates", default=None, multiple=True, type=click.DateTime())
 @click.option("-validate-only", type=click.BOOL, default=False, is_flag=True)
 @click.option("-remote", is_flag=True)
 @click.option("-array-parallelism", type=click.INT, default=50)
@@ -456,13 +490,13 @@ def backfill(
     """
     config = load_config(config_pth)
     # allow to set backfill dates in config (function argument overrides)
-    if dates is None and "backfill" in config:
-        dates = pd.to_datetime(config["backfill"])
+    if not dates and "backfill" in config:
+        dates = list(pd.to_datetime(config["backfill"]))
     assert (
         dates is not None or period is not None
     ), "Must specify either dates or period"
     gt = metrics.load_ground_truth(config[module]["data"])
-    if dates is None:
+    if not dates:
         dates = pd.date_range(
             start=start_date, end=gt.index.max(), freq=f"{period}D", closed="left"
         )

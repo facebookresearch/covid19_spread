@@ -68,7 +68,7 @@ def drop_k_days(dset, outfile, days):
 def drop_k_days_csv(dset, outfile, days):
     df = pd.read_csv(dset, index_col="region")
     if days > 0:
-        df = df[df.columns[:-days]]
+        df = df[sorted(df.columns)[:-days]]
     df = drop_all_zero_csv(df)
     df.to_csv(outfile)
 

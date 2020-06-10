@@ -106,7 +106,6 @@ def _compute_metrics(df_true, df_pred, mincount=10):
     naive = naive.loc[ix]
     gt = df_true.loc[ix]
 
-    # gt = df_true.loc[df_pred.index]
     metrics = pd.DataFrame(
         [
             rmse(df_pred, gt),
@@ -123,6 +122,12 @@ def _compute_metrics(df_true, df_pred, mincount=10):
         metrics.loc["MAE_MASE"] = metrics.loc["MAE"] / metrics.loc["MAE_NAIVE"]
         metrics.loc["RMSE_MASE"] = metrics.loc["RMSE"] / metrics.loc["RMSE_NAIVE"]
 
+        # Stack predictions onto last ground truth date.
+        # We'll take the diff and compute MAE on the new daily counts
+        stack = pd.concat(
+            [df_true.loc[[df_pred.index.min() - timedelta(days=1)]], df_pred]
+        )
+        metrics.loc["MAE_DELTAS"] = mae(stack.diff().loc[ix], df_true.diff().loc[ix])
     return metrics
 
 
