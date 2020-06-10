@@ -69,7 +69,14 @@ def drop_k_days_csv(dset, outfile, days):
     df = pd.read_csv(dset, index_col="region")
     if days > 0:
         df = df[df.columns[:-days]]
+    df = drop_all_zero_csv(df)
     df.to_csv(outfile)
+
+
+def drop_all_zero_csv(df):
+    counts = df.sum(axis=1)
+    df = df[counts > 0]
+    return df
 
 
 def smooth_csv(indset: str, outdset: str, days: int):
