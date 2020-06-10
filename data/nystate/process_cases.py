@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import os
 import sys
-
+from datetime import timedelta
 from collections import defaultdict as ddict
 from itertools import count
 
@@ -35,6 +35,7 @@ def main(fout, fin=None):
     last_date = str(pd.to_datetime(df["date"]).max().date())
 
     pivot = df.pivot_table(index="date", values="cases", columns=["county"])
+    pivot.index += timedelta(days=1)  # should be date of report, add one day...
     pivot.cumsum(axis=0).transpose().to_csv("data_cases.csv", index_label="region")
 
     nevents = df["cases"].sum()
@@ -111,3 +112,7 @@ def main(fout, fin=None):
         gt = df.set_index("county").pivot(values="cases", columns="date")
         gt = gt[sorted(gt.columns)].cumsum(axis=1)
         fout["ground_truth"] = gt.values
+
+
+if __name__ == "__main__":
+    main(sys.argv[1], fin=None if len(sys.argv) == 2 else sys.argv[2])
