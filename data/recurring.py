@@ -60,26 +60,34 @@ class Recurring:
         mk_db()
 
     def get_id(self) -> str:
+        """Return a unique ID to be used in the database"""
         raise NotImplementedError
 
     def update_data(self) -> None:
-        raise NotImplementedError
-
-    def marker(self) -> str:
+        """Fetch new data (should be idempotent)"""
         raise NotImplementedError
 
     def command(self) -> str:
+        """The command to run in cron"""
         raise NotImplementedError
 
     def latest_date(self) -> datetime.date:
+        """"Return the latest date that we have data for"""
         raise NotImplementedError
 
+    def module(self):
+        """CV module to run"""
+        return "mhp"
+
     def schedule(self) -> str:
+        """Cron schedule"""
         return "*/5 * * * *"  # run every 5 minutes
 
     def install(self) -> None:
+        """Method to install cron job"""
         crontab = check_output(["crontab", "-l"]).decode("utf-8")
-        if self.marker() in crontab:
+        marker = f"__JOB_{self.get_id()}__"
+        if marker in crontab:
             raise ValueError(
                 "Cron job already installed, cleanup crontab"
                 " with `crontab -e` before installing again"
@@ -87,7 +95,7 @@ class Recurring:
         with tempfile.NamedTemporaryFile() as tfile:
             with open(tfile.name, "w") as fout:
                 print(crontab, file=fout)
-                print(f"# {self.marker()}", file=fout)
+                print(f"# {marker}", file=fout)
                 user = os.environ["USER"]
                 script = os.path.realpath(__file__)
                 schedule = self.schedule()
@@ -109,6 +117,7 @@ class Recurring:
             check_call(["crontab", tfile.name])
 
     def refresh(self) -> None:
+        """Check for new data, schedule a job if new data is found"""
         latest_date = self.latest_date()
         conn = sqlite3.connect(DB)
         res = conn.execute(
@@ -132,7 +141,7 @@ class Recurring:
             sweep_path,
             str(latest_date),
             datetime.datetime.now().timestamp(),
-            "mhp",
+            self.module(),
             self.get_id(),
         )
         conn.execute(
@@ -141,11 +150,15 @@ class Recurring:
         )
         conn.commit()
 
-    def launch_job(self, latest_date):
+    def launch_job(self, latest_date, **kwargs):
+        """Launch the sweep job"""
         # Launch the sweep
         config = os.path.join(script_dir, "../cv/nj.yml")
         with chdir(f"{script_dir}/../"):
             sweep_path, jobs = click.Context(cv.cv).invoke(
-                cv.cv, config_pth=config, module="mhp", remote=True
+                cv.cv,
+                config_pth=config,
+                module=kwargs.get("module", "mhp"),
+                remote=True,
             )
         return sweep_path

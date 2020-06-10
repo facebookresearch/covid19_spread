@@ -57,6 +57,11 @@ def main(infile=None):
     df = df.sort_values(by="Start day")
     # df = df.dropna()
 
+    # Dump the CSV for AR models, etc.
+    clone = df[[c for c in df.columns if c not in {"Start day", "Unknown"}]].copy()
+    clone.index = pd.date_range(end=last_date, periods=len(clone))
+    clone.cummax().transpose().to_csv("data_cases.csv", index_label="region")
+
     counties = df.columns[1:]
     df["Start day"] = np.arange(len(df)) + 1
     print(df[counties])
