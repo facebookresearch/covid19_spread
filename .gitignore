@@ -5,3 +5,5 @@ __pycache__
 *.log
 *.stdout
 *.stderr
+data/nystate/raw-ny-*.csv
+data/nystate/data-ny-*.csv
