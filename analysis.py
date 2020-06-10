@@ -34,7 +34,7 @@ def load_backfill(
     basedir="/checkpoint/maxn/covid19/forecasts",
     model="ar",
     indicator="final_model_validation*.csv",
-    forecast="../forecasts/forecast_best_mae.csv",
+    forecast="../forecasts/forecast_best_rmse.csv",
 ):
     """collect all forcasts from job dir"""
     jobdir = os.path.join(basedir, job)
@@ -202,8 +202,23 @@ def plot_accuracy(mets, plevel, title, exclude={}):
     return p
 
 
-def plot_cases(df, title, height=350, width=500, regions=None, backend="svg"):
+def plot_cases(
+    df,
+    title,
+    height=350,
+    width=500,
+    color="#009ed7",
+    line_width=2,
+    alpha=0.5,
+    regions=None,
+    count_type="Cases",
+    backend="svg",
+):
     source = ColumnDataSource(df)
+    hover = HoverTool(
+        tooltips=[("Region", "$name"), (count_type, "$y"), ("Day", "$x")],
+        formatters={"$x": "datetime"},
+    )
     p = figure(
         x_axis_type="datetime",
         plot_height=height,
@@ -211,12 +226,21 @@ def plot_cases(df, title, height=350, width=500, regions=None, backend="svg"):
         title=title,
         tools="save",
         x_axis_label="Day",
-        y_axis_label="Cases",
+        y_axis_label=count_type,
     )
+    p.add_tools(hover)
     if regions is None:
         regions = df.columns
     for region in regions:
-        p.line(x="date", y=region, source=source, line_width=2, color="#009ed7")
+        p.line(
+            x="date",
+            y=region,
+            source=source,
+            line_width=line_width,
+            color=color,
+            alpha=alpha,
+            name=region,
+        )
     p.output_backend = backend
     return p
 
