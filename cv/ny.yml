@@ -27,7 +27,7 @@ ar:
 sir:
   module: sir
   output: sir_model.npy
-  data: data/nystate/timeseries.h5
+  data: data/nystate/data-new.csv
   train:
     fpop: *fpop
     window: 1
