@@ -35,14 +35,15 @@ def mk_db():
 
 
 @contextlib.contextmanager
-def env_var(key, value):
-    old_val = os.environ.get(key, None)
-    os.environ[key] = value
+def env_var(key_vals):
+    old_dict = {k: os.environ.get(k, None) for k in key_vals.keys()}
+    os.environ.update(key_vals)
     yield
-    if old_val:
-        os.environ[key] = old_val
-    else:
-        del os.environ[key]
+    for k, v in old_dict.items():
+        if v:
+            os.environ[k] = v
+        else:
+            del os.environ[k]
 
 
 @contextlib.contextmanager
@@ -107,6 +108,7 @@ class Recurring:
                     f"source {home}/.bash_profile",
                     f"source {home}/.bashrc",
                     "source activate covid19_spread",
+                    f"cd {self.script_dir}",
                     self.command(),
                 ]
                 envs = ['PATH="/usr/local/bin:$PATH"', f"USER={user}"]
