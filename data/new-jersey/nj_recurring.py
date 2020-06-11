@@ -16,6 +16,7 @@ import tempfile
 import numpy as np
 from subprocess import check_call, check_output
 import sqlite3
+import pandas
 
 
 class NJRecurring(recurring.Recurring):
@@ -28,20 +29,19 @@ class NJRecurring(recurring.Recurring):
         return f"python {os.path.realpath(__file__)}"
 
     # Create the new timeseries.h5 dataset
-    def update_data(self):
+    def update_data(self, env_vars={"SMOOTH": "1"}):
         df = get_latest()
         date_fmt = df["Date"].max().date().strftime("%Y%m%d")
-        df.to_csv(f"{script_dir}/data-{date_fmt}.csv")
-        with tempfile.NamedTemporaryFile(suffix=".csv") as tfile, recurring.env_var(
-            "SMOOTH", "1"
-        ):
-            df = df.reset_index().rename(columns={"index": "Date"})
-            df["Start day"] = np.arange(1, len(df) + 1)
-            df.to_csv(tfile.name)
-            process_cases.main(tfile.name)
+        csv_file = f"{script_dir}/data-{date_fmt}.csv"
+        df.to_csv(csv_file)
+        process_cases.main(csv_file)
 
     def latest_date(self):
-        return get_latest()["Date"].max().date()
+        df = pandas.read_csv("data_cases.csv", index_col="region")
+        return pandas.to_datetime(df.columns).max().date()
+
+    def launch_job(self, cv_config="nj", module="mhp", **kwargs):
+        return super().launch_job(cv_config="nj", module="mhp", **kwargs)
 
 
 class NJARRecurring(NJRecurring):
@@ -59,14 +59,7 @@ class NJARRecurring(NJRecurring):
 
     # Create the new timeseries.h5 dataset
     def update_data(self):
-        df = get_latest()
-        date_fmt = df["Date"].max().date().strftime("%Y%m%d")
-        df.to_csv(f"{script_dir}/data-{date_fmt}.csv")
-        with tempfile.NamedTemporaryFile(suffix=".csv") as tfile:
-            df = df.reset_index().rename(columns={"index": "Date"})
-            df["Start day"] = np.arange(1, len(df) + 1)
-            df.to_csv(tfile.name)
-            process_cases.main(tfile.name)
+        super().update_data(env_vars={})
 
 
 class NJSweepRecurring(NJRecurring):
@@ -75,7 +68,7 @@ class NJSweepRecurring(NJRecurring):
 
     def launch_job(self):
         # Launch the sweep
-        date = latest_date.strftime("%Y%m%d")
+        date = self.latest_date().strftime("%Y%m%d")
         output = check_output(
             ["make", "grid-nj", f"DATE={date}"], cwd=os.path.join(script_dir, "../../")
         )
