@@ -119,7 +119,7 @@ def sync_max_forecasts(conn):
             df = pandas.read_csv(f)
             df = df[df["date"].str.match("\d{2}/\d{2}")]
             df["date"] = pandas.to_datetime(df["date"] + "/2020")
-            forecast_date = (df["date"].min() - datetime.timedelta(days=1)).date()
+            forecast_date = df["date"].min().date()
             res = conn.execute(
                 f"SELECT COUNT(1) FROM infections WHERE forecast_date=? AND id=?",
                 (forecast_date, f"{state}_{ty}"),
@@ -131,7 +131,9 @@ def sync_max_forecasts(conn):
                 df["id"] = f"{state}_{ty}"
                 df["loc2"] = LOC_MAP[state]
                 df["loc1"] = "United States"
-                df = df[df["loc3"] != "ALL REGIONS"]
+                df = df[
+                    (df["loc3"] != "ALL REGIONS") & (df["date"].dt.date > forecast_date)
+                ]
                 to_sql(conn, df, "infections")
 
 
