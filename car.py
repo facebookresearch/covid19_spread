@@ -32,12 +32,14 @@ class CAR(nn.Module):
         if time_features is not None:
             self.time_features = time_features.permute(1, 2, 0)
             n_features += self.time_features.size(1)
-        self.encoder = CoronaNet(
-            blocks, layers, self.M, n_features, kernel_size, groups=self.M
-        )
+        # self.encoder = CoronaNet(
+        #    blocks, layers, self.M, n_features, kernel_size, groups=self.M
+        # )
+        self.encoder = Wavenet(blocks, layers, self.M, kernel_size, groups=self.M)
         self.decoder = Wavenet(blocks, layers, self.M, kernel_size, groups=self.M)
+        # self.encoder = Wavenet(blocks, layers, 5, kernel_size, groups=1)
+        # self.decoder = Wavenet(blocks, layers, 5, kernel_size, groups=1)
         # self.encoder = CoronaNet(blocks, layers, self.M, 2, kernel_size, groups=self.M)
-        # self.decoder = Wavenet(blocks, layers, self.M, 2, kernel_size, groups=self.M)
         self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(8))
         self._dist = dist
         self.graph = graph
@@ -61,9 +63,10 @@ class CAR(nn.Module):
     def metapopulation_weights(self):
         with th.no_grad():
             self.alphas.fill_diagonal_(-1e10)
-        # self.alphas.fill_diagonal_(0)
+        #    self.alphas.fill_diagonal_(0)
         # W = F.softmax(self.alphas, dim=1)
         W = th.sigmoid(self.alphas)
+        # W = th.tanh(self.alphas)
         # W = F.softplus(self.alphas)
         # W = self.alphas
         # W = W / W.sum()
@@ -83,7 +86,8 @@ class CAR(nn.Module):
             t = th.cat([t.unsqueeze(1), f], dim=1)
 
         # encoder
-        Z = self.encoder(ys, t)
+        # Z = self.encoder(ys, t)
+        Z = self.encoder(ys.unsqueeze(0))
         Z = Z.squeeze(0)
 
         # coupling
@@ -94,29 +98,30 @@ class CAR(nn.Module):
         ws = self.decoder(Z.unsqueeze(0))
         ws = ws.squeeze(0)
         ws = th.mm(self.decoder_head, ws)
+        ws = F.softplus(ws)
 
-        # cross-correlation
-        # Ys = F.pad(Z, (self.window, 0))
-        # Ys = th.stack([Ys.narrow(1, i, length) for i in range(self.window)])
-        # Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(dim=0)
-        # Ys = th.bmm(W, Ys).mean(dim=0)
         with th.no_grad():
             self.train_stats = (ws.min().item(), ws.max().item())
 
         # link function
-        Ys = F.softplus(ws) * ys
+        # print(th.where(ys.sum(axis=1) == 0), ys, ws)
+        Ys = ws * ys
 
-        # assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
-        return Ys, W, None
+        assert Ys.dim() == 2
+        return Ys, W
 
     def simulate(self, tobs, ys, days, deterministic=True):
         preds = ys.clone()
         assert tobs == preds.size(1), (tobs, preds.size())
         for d in range(days):
             t = th.arange(tobs + d).to(ys.device) + 1
-            s, _, _ = self.score(t, preds)
-            s = s.narrow(1, -1, 1)
+            s, _ = self.score(t, preds)
+            assert s.size(0) == ys.size(0) and s.size(1) == ys.size(1) + d, (
+                s.size(),
+                ys.size(),
+            )
             assert (s >= 0).all(), s.squeeze()
+            s = s.narrow(1, -1, 1).clamp(min=1e-8)
             if deterministic:
                 y = self.dist(s).mean
             else:
@@ -130,18 +135,10 @@ class CAR(nn.Module):
         return f"CAR({self.blocks}, {self.layers}, {self.kernel_size}) | EX ({self.train_stats[0]:.1e}, {self.train_stats[1]:.1e})"
 
 
-def regularize(A, beta, ys):
-    ys = ys.narrow(1, -beta.size(1), beta.size(1))
-    q = beta * ys
-    Aq = th.mm(A, q)
-    return 0.1 * (
-        th.mm(q.t(), q).sum() - 2 * th.mm(q.t(), Aq).sum() + th.mm(Aq.t(), Aq).sum()
-    )
-
-
 def train(model, new_cases, regions, optimizer, checkpoint, args):
     print(args)
     print(f"max inc = {new_cases.max()}")
+    print(f"number of regions = {len(regions)}")
     M = len(regions)
     device = new_cases.device
     tmax = new_cases.size(1)
@@ -149,7 +146,7 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
 
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
-        scores, A, beta = model.score(t, new_cases)
+        scores, A = model.score(t, new_cases)
         scores = scores.clamp(min=1e-8)
         assert scores.size(1) == new_cases.size(1), (scores.size(), new_cases.size())
 
@@ -173,9 +170,7 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
         # control
         if itr % 100 == 0:
             with th.no_grad(), np.printoptions(precision=3, suppress=True):
-                pred = dist.mean[:, -3:]
-                gt = new_cases[:, -3:]
-                maes = th.abs(gt - pred)
+                maes = th.abs(dist.mean - new_cases.narrow(1, 1, length))
                 _a = model.metapopulation_weights()
                 print(
                     f"[{itr:04d}] Loss {loss.item():.2f} | "
@@ -246,7 +241,8 @@ class CARCV(cv.CV):
                 or name.startswith("decoder")
                 else args.weight_decay
             )
-            print(name, wd)
+            if wd != 0:
+                print(name, wd)
             params.append({"params": p, "weight_decay": wd})
         optimizer = optim.AdamW(
             params,
