@@ -1,4 +1,4 @@
-region: ny
+region: nystate
 population: &fpop data/population-data/US-states/new-york-population.csv
 validation:
   days: &vdays 7
@@ -6,8 +6,10 @@ validation:
 forecast:
   output: forecast-ny.csv
 ar:
-  data: data/nystate/data-new.csv
+  data: data/nystate/data_cases.csv
   output: ar_model.bin
+  preprocess: 
+    smooth: [1, 3, 5]
   resources:
     gpus: 1
     cpus: 1
@@ -15,12 +17,15 @@ ar:
     timeout: 30
   train:
     fpop: *fpop
-    decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    window: [1, 5, 10, 15, 20]
-    lr: [0.001, 0.005, 0.01]
-    momentum: [0.9, 0.99]
-    weight_decay: 0
-    niters: 40000
+    activation: sigmoid
+    no_cross_correlation: false
+    decay: [latent2_1]
+    window: [10, 15, 20, 25]
+    lr: [0.001, 0.005]
+    momentum: [0.9]
+    weight_decay: [0.1, 0.2]
+    niters: [20000]
+    temp_smoothing: 0
     loss: nb
     t0: 10
     test_on: *vdays
