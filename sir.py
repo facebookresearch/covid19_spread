@@ -43,8 +43,8 @@ def simulate(
     if doubling_time == 0 or cases[-1] == 0:
         return constant_forecast(cases[-1], keep)
     I0 = cases[0]
-    S0 = population - I0
     R0 = 0.0
+    S0 = population - I0 - R0
 
     intrinsic_growth_rate = 2.0 ** (1.0 / doubling_time) - 1.0
 
@@ -52,10 +52,18 @@ def simulate(
     gamma = 1.0 / recovery_days
     beta = (intrinsic_growth_rate + gamma) / S0 * (1.0 - distancing_reduction)
 
+    # Estimate RN, leads to worse performance
+    _S, _I, _R = S0, I0, R0
+    for case_count in cases:
+        _I = case_count
+        _S = population - _I - _R
+        _S, _I, _R = sir(_S, _I, _R, beta, gamma, _S + _I + _R)
+    RN = _R
+
     # simulate forward
     IN = cases[-1]
-    SN = population - IN
-    RN = 0
+    # RN = 0
+    SN = population - IN - RN
     res = {d: (_I, _R) for d, _S, _I, _R in gen_sir(SN, IN, RN, beta, gamma, days)}
 
     # remove day 0, since prediction parameters start at day 1
