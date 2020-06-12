@@ -5,6 +5,7 @@ import pytest
 
 DATA_PATH_US_CSV = "data/usa/data_cases.csv"
 DATA_PATH_NY_CSV = "data/nystate/data-new.csv"
+DATA_PATH_NY_H5 = "data/nystate/timeseries.h5"
 POP_PATH = "data/population-data/US-states/new-york-population.csv"
 
 
@@ -15,7 +16,9 @@ class TestLoad:
         assert isinstance(df, pd.DataFrame)
         assert df["region"].shape[0] == df["population"].shape[0]
 
-    @pytest.mark.parametrize("path", [DATA_PATH_US_CSV, DATA_PATH_NY_CSV])
+    @pytest.mark.parametrize(
+        "path", [DATA_PATH_US_CSV, DATA_PATH_NY_CSV, DATA_PATH_NY_H5]
+    )
     def test_load_cases_by_region(self, path):
         """Confirms cases loaded are per region"""
         cases_df = load.load_confirmed_by_region(path)
@@ -35,7 +38,9 @@ class TestLoad:
         population_regions = sorted(populations_df["region"].tolist())
         assert case_regions == population_regions
 
-    @pytest.mark.parametrize("path", [DATA_PATH_US_CSV, DATA_PATH_NY_CSV])
+    @pytest.mark.parametrize(
+        "path", [DATA_PATH_US_CSV, DATA_PATH_NY_CSV, DATA_PATH_NY_H5]
+    )
     def test_load_confirmed(self, path):
         df = load.load_confirmed(path, None)
         assert df.index.name == "date"
