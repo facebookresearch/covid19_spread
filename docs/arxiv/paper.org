@@ -1,0 +1,151 @@
+#+MACRO: NEWLINE @@latex:\\@@ @@html:<br>@@
+#+Title: Maximizing Granger Causality for High-Resolution COVID-19 Forecasting
+#+Author: Maximilian Nickel
+#+Publisher: Facebook AI Research
+
+#+OPTIONS: toc:nil date:nil
+
+#+LATEX_CLASS: tufte
+#+LATEX_CLASS_OPTIONS: [nobib]
+#+LATEX_HEADER: \usepackage[svgnames]{xcolor}
+#+LATEX_HEADER: \usepackage{times}
+#+LATEX_HEADER: \usepackage{hyperref}
+#+LATEX_HEADER: \usepackage{url}
+
+
+#+LATEX_HEADER: \makeatletter
+#+LATEX_HEADER: \renewcommand{\maketitle}{%
+#+LATEX_HEADER:   \newpage
+#+LATEX_HEADER:   \global\@topnum\z@% prevent floats from being placed at the top of the page
+#+LATEX_HEADER:   \begingroup
+#+LATEX_HEADER:     \setlength{\parindent}{0pt}%
+#+LATEX_HEADER:     \setlength{\parskip}{4pt}%
+#+LATEX_HEADER:     {\Large\bf\@title}\par
+#+LATEX_HEADER:     {\normalfont\normalsize\@author}\par
+#+LATEX_HEADER:   \endgroup
+#+LATEX_HEADER:   \thispagestyle{plain}% suppress the running head
+#+LATEX_HEADER:   \tuftebreak% add some space before the text begins
+#+LATEX_HEADER:   \@afterindentfalse\@afterheading% suppress indentation of the next paragraph
+#+LATEX_HEADER: }
+
+#+LATEX_HEADER: % Paragraph indentation and separation for normal text
+#+LATEX_HEADER: \renewcommand{\@tufte@reset@par}{%
+#+LATEX_HEADER:   \setlength{\RaggedRightParindent}{0pt}%
+#+LATEX_HEADER:   \setlength{\JustifyingParindent}{0pt}%
+#+LATEX_HEADER:   \setlength{\parindent}{0pt}%
+#+LATEX_HEADER:   \setlength{\parskip}{0.5pc}%
+#+LATEX_HEADER: }
+#+LATEX_HEADER: \@tufte@reset@par
+#+LATEX_HEADER: \makeatother
+#+LATEX_HEADER: \fancyhead[RE,RO]{\newlinetospace{\color{gray}\plaintitle}\quad\thepage}
+
+#+LATEX_HEADER: \usepackage{amsmath}
+#+LATEX_HEADER: \usepackage{amssymb}
+#+LATEX_HEADER: \usepackage{mathtools}
+#+LATEX_HEADER: \usepackage{cleveref}
+#+LATEX_HEADER: \usepackage{svg}
+#+LATEX_HEADER: \usepackage{bm}
+#+LATEX_HEADER: \usepackage{booktabs}
+#+LATEX_HEADER: \usepackage{multirow}
+#+LATEX_HEADER: \usepackage{grffile}
+#+LATEX_HEADER: \usepackage{pgfplots}
+#+LATEX_HEADER: \usepackage[caption=false]{subfig}
+#+LATEX_HEADER: \usepackage{wrapfig}
+#+LATEX_HEADER: \usepackage{microtype}
+
+#+LATEX_HEADER: \pgfplotsset{compat=newest}
+#+LATEX_HEADER: \usepackage{tikz}
+#+LATEX_HEADER: \usetikzlibrary{positioning,quotes}
+
+#+LATEX_HEADER: \usepackage[style=authoryear,backend=bibtex,natbib,maxcitenames=2,doi=false]{biblatex}
+#+LATEX_HEADER: \addbibresource{./references.bib}
+
+#+LATEX_HEADER: \hypersetup{
+#+LATEX_HEADER:     colorlinks = true,
+#+LATEX_HEADER:     allcolors = {DarkBlue}
+#+LATEX_HEADER: }
+
+#+LATEX_HEADER: \newcommand{\neigh}{\mathcal{A}}
+#+LATEX_HEADER: \newcommand{\ricci}{\kappa}
+#+LATEX_HEADER: \newcommand{\edge}{\sim}
+#+LATEX_HEADER: \newcommand{\todo}[1]{{\color{red} #1}}
+
+#+LATEX_HEADER: %\author{Maximilian Nickel\\Facebook AI Research\\New York, NY\\\texttt{maxn@fb.com}}
+
+#+BEGIN_abstract
+Modeling the spread of COVID-19 at a high spatial and temporal resolution has
+become a key task in the public health response to the disease. This poses
+unique challenges due to the novelty of the disease, its unknown
+characteristics, and substantial but varying interventions to reduce its spread.
+To alleviate this issue, we propose a new method to disentangle the properties
+of the underlying contagion process from its concrete realizations across
+spatial entities. Our aim is to separate region-specific aspects -- such as
+demographics, enacted policies, and testing methods -- from disease-inherent
+aspects that influence its spread. This allows us to train high-resolution
+models which jointly model the spread and are able to borrow strength across
+regions. In our experiments, we demonstrate that our approach achieves
+state-of-the-art performance in predicting the spread of the COVID-19 and
+improves the robustness of forecasts.
+#+END_abstract
+
+* Introduction
+- Forecasting the spread the of COVID-19 is an important task in the public
+health response to the disease. Not only important to understand the progress
+of the disease, but also central to efficiently allocate scarce resources such
+as ventilators, personal protective equipment, and ICU beds.
+- For resource allocation, it is especially important to do forecasts with a
+high spatial and temporal resolution
+- Early detection of outbreaks
+- At the same time, forecasting COVID-19 poses unique challenges
+  - Novel disease with unknown characteristics
+  - Very few data, especially at the beginning of the spread. However even
+    several months after the initial outbreak substantially less data than for
+    other infectious diseases like influence, measles etc.
+  - Simultaneous spread in regions with very different properties
+    - demographics and population density
+    - enacted policies
+    - adherence to enacted policies
+    - general mobility
+    - geographic features such as temperature
+    - testing and reporting
+* Method
+** Force of Infection
+- Observed hazard is not identical to hazard of disease
+- Observed hazard depends on location, policies, etc.
+- We assume a time- and location-dependent hazard
+  \[
+    \lamba_i^t
+  \]
+- Not enough data to estimate this reliably. We need to couple time series
+** AR
+*** Time Varying
+*** Overdispersion
+#+LATEX: \begin{minipage}{.335\linewidth}
+#+ATTR_LATEX :width \columnwidth
+file:img/overdispersion_states.png
+#+LATEX: \end{minipage}
+#+LATEX: \begin{minipage}{.45\linewidth}
+#+ATTR_LATEX :width \columnwidth
+file:img/overdispersion_counties.png
+#+LATEX: \end{minipage}
+
+\begin{equation*}
+\Pr(Y = y) = \frac{\Gamma(y + \nu)}{y!\Gamma(\nu)}\left(\frac{\mu}{\mu +\nu}\right)^{y}\left(1 + \frac{\mu}{\nu}\right)^{-\nu}
+\quad \mu > 0, \nu > 0
+\end{equation*}
+
+\begin{equation*}
+    y^{t+1}_{i} \sim \text{NB}(\eta_i^{t}, \nu_i)
+\end{equation*}
+
+\begin{equation*}
+    \min_\theta -\sum_{y} \log \Pr_\theta(Y = y)
+\end{equation*}
+
+
+** Granger Causality
+\[
+\]
+** Regularzation
+
+* Experiments
