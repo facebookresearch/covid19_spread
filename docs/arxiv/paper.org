@@ -1,6 +1,6 @@
 #+MACRO: NEWLINE @@latex:\\@@ @@html:<br>@@
-#+Title: Maximizing Granger Causality for High-Resolution COVID-19 Forecasting
-#+Author: Maximilian Nickel
+#+Title: Transfer Entropy {{{NEWLINE}}} for High-Resolution COVID-19 Forecasting
+#+Author: Maximilian Nickel, Matt Le, Mark Ibrahim, Levent Sagun, Timothee Lacroix {{{NEWLINE}}} Facebook AI Research
 #+Publisher: Facebook AI Research
 
 #+OPTIONS: toc:nil date:nil
@@ -65,8 +65,8 @@
 #+LATEX_HEADER:     allcolors = {DarkBlue}
 #+LATEX_HEADER: }
 
-#+LATEX_HEADER: \newcommand{\neigh}{\mathcal{A}}
-#+LATEX_HEADER: \newcommand{\ricci}{\kappa}
+#+LATEX_HEADER: \newcommand{\AR}{\text{AR}}
+#+LATEX_HEADER: \newcommand{\Set}[1]{\mathcal{#1}}
 #+LATEX_HEADER: \newcommand{\edge}{\sim}
 #+LATEX_HEADER: \newcommand{\todo}[1]{{\color{red} #1}}
 
@@ -99,8 +99,10 @@ high spatial and temporal resolution
 - At the same time, forecasting COVID-19 poses unique challenges
   - Novel disease with unknown characteristics
   - Very few data, especially at the beginning of the spread. However even
-    several months after the initial outbreak substantially less data than for
-    other infectious diseases like influence, measles etc.
+    several months after the initial outbreak substantially less data and
+    insights than for
+    other infectious diseases like influence, measles which have been monitored
+    for decades.
   - Simultaneous spread in regions with very different properties
     - demographics and population density
     - enacted policies
@@ -114,18 +116,34 @@ high spatial and temporal resolution
 - Observed hazard depends on location, policies, etc.
 - We assume a time- and location-dependent hazard
   \[
-    \lamba_i^t
+  \lambda_i^t = \text{force of infection at time } t \text{ in location i}
+  \]
+- \[
+  \lambda_i^t = \beta_i^t \lambda \quad\text{where}\quad \beta_i^t \in [0, 1],\,
+  \alpha > 0
   \]
 - Not enough data to estimate this reliably. We need to couple time series
 ** AR
+\[
+\AR(p): \quad y_i^{t+1} = \beta_i^t \sum_{\ell=0}^{p-1} \sum_{j=1}^m \lambda_{ij}^\ell y_j^{t - \ell}
+\]
+
+To simplify the discussion, we will assume in the following $p=1$. However, all
+results generalize to $p > 1$.
+
+\[
+\frac{y_i^{t+1}}{\beta_t^i} - \sum_{j\neq k} \lambda_{ij}
+y_i^{t} = \lambda_{ik} y_k^{t}
+\]
 *** Time Varying
 *** Overdispersion
+
 #+LATEX: \begin{minipage}{.335\linewidth}
-#+ATTR_LATEX :width \columnwidth
+#+ATTR_LATEX: :width \columnwidth
 file:img/overdispersion_states.png
 #+LATEX: \end{minipage}
 #+LATEX: \begin{minipage}{.45\linewidth}
-#+ATTR_LATEX :width \columnwidth
+#+ATTR_LATEX: :width \columnwidth
 file:img/overdispersion_counties.png
 #+LATEX: \end{minipage}
 
@@ -143,9 +161,13 @@ file:img/overdispersion_counties.png
 \end{equation*}
 
 
-** Granger Causality
-\[
-\]
+** Transfer Entropy and Granger Causality
+Transfer entropy measures the directed, time-asymmetric transfer of information
+between two random processes $Y_i$ and $Y_j$. Intuitively, it captures the amount of
+uncertainty reduced in future values of $Y_i$ by knowing the past values of $Y_j$ given
+past values of Y. Formally, \[ T_{j \to i} = p_\theta(y^{t+1}_i, \Set{Y}^t) \log
+\frac{p_\theta(y^{t+1} | \Set{Y}^t)}{p_\theta(y^{t+1} | \Set{Y}^t \textbackslash
+y^t_j)} \]
 ** Regularzation
 
 * Experiments
