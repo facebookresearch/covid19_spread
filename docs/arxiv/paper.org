@@ -65,6 +65,7 @@
 #+LATEX_HEADER:     allcolors = {DarkBlue}
 #+LATEX_HEADER: }
 
+#+LATEX_HEADER: \renewcommand{\vec}[1]{\bm{#1}}
 #+LATEX_HEADER: \newcommand{\AR}{\text{AR}}
 #+LATEX_HEADER: \newcommand{\Set}[1]{\mathcal{#1}}
 #+LATEX_HEADER: \newcommand{\edge}{\sim}
@@ -89,44 +90,60 @@ improves the robustness of forecasts.
 #+END_abstract
 
 * Introduction
-- Forecasting the spread the of COVID-19 is an important task in the public
-health response to the disease. Not only important to understand the progress
-of the disease, but also central to efficiently allocate scarce resources such
+Forecasting the spread the of COVID-19 is an important task in the public
+health response to the disease. It is not only important to understand the progress
+of the disease, but is also central to efficiently allocate scarce resources such
 as ventilators, personal protective equipment, and ICU beds.
-- For resource allocation, it is especially important to do forecasts with a
-high spatial and temporal resolution
-- Early detection of outbreaks
-- At the same time, forecasting COVID-19 poses unique challenges
-  - Novel disease with unknown characteristics
-  - Very few data, especially at the beginning of the spread. However even
-    several months after the initial outbreak substantially less data and
-    insights than for
-    other infectious diseases like influence, measles which have been monitored
-    for decades.
-  - Simultaneous spread in regions with very different properties
-    - demographics and population density
-    - enacted policies
-    - adherence to enacted policies
-    - general mobility
-    - geographic features such as temperature
-    - testing and reporting
+For this purpose, it is especially important to forecast with a
+high spatial and temporal resolution.
+
+Simultaneously, forecasting COVID-19 poses unique challenges: Due to it's
+novelty, many characteristics of the disease are still unknown. Moreover, there
+exists little data about its spread, especially at the beginning of the
+pandemic. Even several months after the initial outbreak there exists
+substantially fewer data than for other infectious diseases like influenza and
+measles which have been monitored for decades.
+
+Due to its global nature, COVID0-19 occurs at the same time in regions with very
+different properties that all affect its spread.qq This does not only include
+different demographics and population densities, but also enacted policies,
+adherence to those policies, mobility patterns, and geographic features such
+as temperature. Moreover, testing and reporting can vary considerably across
+regions what adds another source of variability and uncertainty.
+
 * Method
-** Force of Infection
-- Observed hazard is not identical to hazard of disease
-- Observed hazard depends on location, policies, etc.
-- We assume a time- and location-dependent hazard
-  \[
-  \lambda_i^t = \text{force of infection at time } t \text{ in location i}
-  \]
-- \[
-  \lambda_i^t = \beta_i^t \lambda \quad\text{where}\quad \beta_i^t \in [0, 1],\,
-  \alpha > 0
-  \]
-- Not enough data to estimate this reliably. We need to couple time series
+We assume we have a set of time series which are different realizations of the
+the same underlying contagion process. Let \(\Set{Y} = \{(y_i^1, \ldots,
+y_i^T)\}_{i=1}^m\) denote the observed realizations where $i$ indexes locations and
+where $T$ denotes the maximum observation time. Furthermore, let \(\lambda_i^t\)
+denote the /force of infection/ at time \(t\) in location \(i\). We assume that
+$\lambda_i^$ can be decomposed into a time-dependent component $\beta_i^t$ and a
+time-independent component $\lambda$ such that \[ \lambda_i^t = \beta_i^t \lambda
+\quad\text{where}\quad \beta_i^t \in [0, 1],\, \alpha > 0 \]
+
+Hence, $\beta_i^t$ can be understood as a dampening factor of the underlying force
+of infection that depends on time and location specific properties such as
+policies, population density etc. We can then model the spread of COVID-19 using
+a multivariate autoregressive model of the form \[ \AR(p): \quad y_i^{t+1} = \beta_i^t
+\sum_{\ell=0}^{p-1} \sum_{j=1}^m \lambda_{ij}^\ell y_j^{t - \ell} \]
+
+While some influencing factors for the evolution of $\beta_i^t$ are know (e.g.,
+mobility), the full dynamics are still unknown. We will therefore regard $\beta_i^t$
+as a latent variable which can depend on observed variables $\vec{x}_i^t$.
+
+There exist many possible ways to model the evolution of $\beta_i^t$. In the
+following, we will use a classic /Elman RNN/ where
+\begin{align}
+    \beta_i^t & = \sigma(\vec{w}^\top \vec{z}_t)
+    & \vec{z}_t & = \psi(W_z\vec{h}_t + \vec{b}_z) \label{eq:rnn} \\
+    && \vec{h}_t & = \psi(W_h\vec{x} + U\vec{h}_{t-1} + \vec{b}_h)\notag
+\end{align}
+
+Although an RNN as in ref:eq:rnn will provide enough capacity to model the
+evolution of $\beta_i^t$ there is not enough data to estimate its parameters without
+serious overfitting. For this
+
 ** AR
-\[
-\AR(p): \quad y_i^{t+1} = \beta_i^t \sum_{\ell=0}^{p-1} \sum_{j=1}^m \lambda_{ij}^\ell y_j^{t - \ell}
-\]
 
 To simplify the discussion, we will assume in the following $p=1$. However, all
 results generalize to $p > 1$.
@@ -135,17 +152,13 @@ results generalize to $p > 1$.
 \frac{y_i^{t+1}}{\beta_t^i} - \sum_{j\neq k} \lambda_{ij}
 y_i^{t} = \lambda_{ik} y_k^{t}
 \]
-*** Time Varying
 *** Overdispersion
 
-#+LATEX: \begin{minipage}{.335\linewidth}
-#+ATTR_LATEX: :width \columnwidth
+#+ATTR_LATEX: :float margin :width .8\columnwidth
 file:img/overdispersion_states.png
-#+LATEX: \end{minipage}
-#+LATEX: \begin{minipage}{.45\linewidth}
-#+ATTR_LATEX: :width \columnwidth
+
+#+ATTR_LATEX: :float margin :width \columnwidth
 file:img/overdispersion_counties.png
-#+LATEX: \end{minipage}
 
 \begin{equation*}
 \Pr(Y = y) = \frac{\Gamma(y + \nu)}{y!\Gamma(\nu)}\left(\frac{\mu}{\mu +\nu}\right)^{y}\left(1 + \frac{\mu}{\nu}\right)^{-\nu}
