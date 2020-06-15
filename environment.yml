@@ -27,3 +27,4 @@ dependencies:
     - pre-commit
     - black==19.10b0
     - pytest
+    - nb2mail
