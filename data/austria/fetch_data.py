@@ -117,7 +117,7 @@ def main(args):
     df.to_csv("data.csv", index_label="region")
     if pandas.to_datetime(df.columns).max() > last_date:
         newest = str(pandas.to_datetime(df.columns).max().date())
-        check_call(["git", "add", "data.csv full_history.csv"])
+        check_call(["git", "add", "data.csv", "full_history.csv"])
         check_call(["git", "commit", "-m", f"Updating Austria data: {newest}"])
         check_call(["git", "push"])
     else:
