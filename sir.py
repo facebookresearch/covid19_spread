@@ -107,35 +107,49 @@ def simulate_recovered(S0, I0, R0, cases, population, gamma, betas):
     return R
 
 
-def estimate_doubling_times(cases, cap=50.0):
+def estimate_doubling_times(cases, window=3, cap=50.0):
     """Estimates doubling times, begining on the day of first case.
 
     Args:
         cases (np.array): contains array of cumulative cases.
+        window (int): window to consider for estimating doubling time
         cap (int): maximum doubling time to use if no cases are present or 
             first occurrence occurs on last day.
     
     Returns: np.array of doubling times.
     """
     non_zero_indices = np.nonzero(cases)[0]
-    # if there are no cases or first case occurs on last day, return cap
-    if non_zero_indices.size in {0, 1}:
+    # if there are no cases or first case occurs before window, return cap
+    if non_zero_indices.size < window:
         return np.array([cap])
 
     first_non_zero_i = non_zero_indices[0]
     cases_from_first = cases[first_non_zero_i:]
     growth_rates = np.exp(np.diff(np.log(cases_from_first))) - 1
 
-    # impute median for zero
-    median = np.median(growth_rates)
-    growth_rates[growth_rates == 0.0] = median
+    # add epsilon to growth rate 0.0
+    growth_rates[growth_rates == 0.0] = 1 / cap
     doubling_times = np.log(2) / growth_rates
 
     # impute max or cap when doubling time is infinite
     # occurs when the number of cases is repeated
     doubling_times = impute_max_or_cap(doubling_times, cap)
+    # compute 2-day rolling mean for doubling times
+    doubling_times_rolling = compute_rolling_mean(doubling_times, 2)
 
-    return doubling_times
+    return doubling_times_rolling
+
+
+def compute_rolling_mean(a, window):
+    """Computes rolling mean over window. 
+    First elements in window are unchanged.
+    Example: with window 2, [1, 3, 3] -> [1, 3, 3.5]
+
+    Returns: np.array of same length as a.
+    """
+    rolling_mean = pd.Series(a).rolling(window=window).mean().dropna().values
+    result = np.concatenate([a[: window - 1], rolling_mean])
+    return result
 
 
 def impute_max_or_cap(a, cap):
@@ -169,7 +183,7 @@ class SIRCV(cv.CV):
 
         for region in regions:
             cases = cases_df[region].values
-            doubling_times = estimate_doubling_times(cases)
+            doubling_times = estimate_doubling_times(cases, window=train_params.window)
             doubling_times_per_region.append(doubling_times)
 
         model = [np.array(doubling_times_per_region), regions]
@@ -203,8 +217,6 @@ class SIRCV(cv.CV):
                 "population"
             ].values[0]
             cases = cases_df[region].values
-            print("Region ", region)
-            print("doubling times", doubling_time)
             _, infs = simulate(
                 cases,
                 population,
