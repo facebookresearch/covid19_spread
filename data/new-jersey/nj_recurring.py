@@ -41,7 +41,7 @@ class NJRecurring(recurring.Recurring):
         return pandas.to_datetime(df.columns).max().date()
 
     def launch_job(self, cv_config="nj", module="mhp", **kwargs):
-        return super().launch_job(cv_config="nj", module="mhp", **kwargs)
+        return super().launch_job(cv_config=cv_config, module=module, **kwargs)
 
 
 class NJARRecurring(NJRecurring):
