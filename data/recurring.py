@@ -29,7 +29,16 @@ def mk_db():
             module text NOT NULL,
             slurm_job text,
             id text
+        );
+        """
         )
+        conn.execute(
+            """
+        CREATE TABLE submitted(
+            sweep_path text UNIQUE,
+            submitted_at real NOT NULL,
+            FOREIGN KEY(sweep_path) REFERENCES sweeps(path)
+        );
         """
         )
 
