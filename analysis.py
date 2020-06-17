@@ -213,6 +213,7 @@ def plot_cases(
     regions=None,
     count_type="Cases",
     backend="svg",
+    show_hover=False,
 ):
     source = ColumnDataSource(df)
     hover = HoverTool(
@@ -224,11 +225,12 @@ def plot_cases(
         plot_height=height,
         plot_width=width,
         title=title,
-        tools="save",
+        tools=["save"],
         x_axis_label="Day",
         y_axis_label=count_type,
     )
-    p.add_tools(hover)
+    if show_hover:
+        p.add_tools(hover)
     if regions is None:
         regions = df.columns
     for region in regions:
