@@ -200,6 +200,12 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
             # + M * M * args.granger * (th.mean((W - w_mean) ** 2) / w_mean)
             # + th.clamp(W, min=0.02).sum()
 
+        if args.timger > 0:
+            reg = args.timger_eta * th.clamp(
+                -W * (W - args.timger) / (args.timger ** 2 / 4),
+                min=0
+            ).sum()
+
         assert loss == loss, (loss, scores, _loss)
 
         # back prop

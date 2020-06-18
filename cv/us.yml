@@ -196,7 +196,12 @@ car:
     niters: [30000, 40000]
     #granger: [1, 10, 100]
     # granger: [0.1, 1, 10]
-    granger: [0.1, 0.15, 0.2]
+#    granger: [0.1, 0.15, 0.2]
+#    timger: [0]
+## FOR TIMGER
+    granger: [0]
+    timger: [0.1, 0.5]
+    timger_eta: [10, 100, 1000, 10000]
     #niters: [30000, 40000]
     #granger: [0.01, 0.005]
     loss: nb
