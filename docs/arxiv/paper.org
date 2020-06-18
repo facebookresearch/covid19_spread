@@ -271,5 +271,23 @@ brain connectivity. citet:haufe2010sparse proposed an improved estimator which
 can be applied for VAR models of order $p > 1$.
 
 * Experiments
+We compare predictions of the proposed \beta-\AR model to cite:forecasts/lanl
+and cite:forecasts/yyg (YYG).
 
+#+LATEX: \begin{figure*}
+#+LATEX: \begin{minipage}{.33\linewidth}
+#+ATTR_LATEX: :float nil :width \columnwidth
+[[file:img/us_mae/png/us_mae.png]]
+#+LATEX: \end{minipage}%
+#+LATEX: \begin{minipage}{.33\linewidth}
+#+ATTR_LATEX: :float nil :width \columnwidth
+[[file:img/us_mae/png/us_mae_1.png]]
+#+LATEX: \end{minipage}%
+#+LATEX: \begin{minipage}{.33\linewidth}
+#+ATTR_LATEX: :float nil :width \columnwidth
+[[file:img/us_mae/png/us_mae_1_2.png]]
+#+LATEX: \end{minipage}%
+#+LATEX: \end{figure*}
+
+#+LATEX: \newpage
 #+LATEX: \printbibliography
