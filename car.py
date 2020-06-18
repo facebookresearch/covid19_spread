@@ -201,10 +201,10 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
             # + th.clamp(W, min=0.02).sum()
 
         if args.timger > 0:
-            reg = args.timger_eta * th.clamp(
-                -W * (W - args.timger) / (args.timger ** 2 / 4),
-                min=0
-            ).sum()
+            reg = (
+                args.timger_eta
+                * th.clamp(-W * (W - args.timger) / (args.timger ** 2 / 4), min=0).sum()
+            )
 
         assert loss == loss, (loss, scores, _loss)
 
