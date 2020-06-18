@@ -158,7 +158,7 @@ log: file=metrics.csv
 log: metric=MAE
 log: days=22
 log:
-	find /checkpoint/maxn/covid19/forecasts/$(job) -name "$(file)" -exec grep -H "^$(metric)," {} \; | cut -d, -f1,$(days) | sort -k2,2 -t, -n -r
+	find /checkpoint/$(USER)/covid19/forecasts/$(job) -name "$(file)" -exec grep -H "^$(metric)," {} \; | cut -d, -f1,$(days) | sort -k2,2 -t, -n -r
 
 notebook:
 	cd notebooks && jupyter notebook --no-browser --port 8899 --log-level 0 &
