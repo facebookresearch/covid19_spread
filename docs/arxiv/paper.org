@@ -52,6 +52,7 @@
 #+LATEX_HEADER: \usepackage[caption=false]{subfig}
 #+LATEX_HEADER: \usepackage{wrapfig}
 #+LATEX_HEADER: \usepackage{microtype}
+#+LATEX_HEADER: \usepackage{xspace}
 
 #+LATEX_HEADER: \pgfplotsset{compat=newest}
 #+LATEX_HEADER: \usepackage{tikz}
@@ -67,6 +68,7 @@
 
 #+LATEX_HEADER: \renewcommand{\vec}[1]{\bm{#1}}
 #+LATEX_HEADER: \newcommand{\AR}{\text{AR}}
+#+LATEX_HEADER: \newcommand{\bAR}{\ensuremath{\beta}\text{-AR}\xspace}
 #+LATEX_HEADER: \newcommand{\Set}[1]{\mathcal{#1}}
 #+LATEX_HEADER: \newcommand{\risk}{\mathcal{R}}
 #+LATEX_HEADER: \newcommand{\foi}{\underline{\lambda}}
@@ -84,7 +86,7 @@ disentangle region-specific aspects -- such as demographics, enacted policies,
 and testing methods -- from disease-inherent aspects that influence its spread.
 This allows us to train high-resolution models by borrowing statistical strength
 across regions. In our experiments, we demonstrate that this approach achieves
-strong performance in predicting the spread of the COVID-19.
+strong performance in predicting the spread of COVID-19.
 #+END_abstract
 
 * Introduction
@@ -129,7 +131,7 @@ discovery where coupling between regions is penalized, e.g., via $\ell_1$
 regularization.
 
 * Method
-We consider the forecasting of time series which are different realizations of
+We consider forecasting of time series that are different realizations of
 the same underlying disease process. Let \(\foi_i^{t}\) denote the /force of
 infection/ at time \(t\) in location \(i\).[fn::Given $y^t_i$ infected
 individuals, the force of infection (or hazard) models the probability that a
@@ -186,60 +188,78 @@ directly linked to its coefficients. In particular, let
 be a multivariate autoregressive model of order $p$. /A time series $y_j$ is
 then Granger causing $y_i$ if and only if $\lambda_{ij} \neq 0$/
 citep:Seth2007granger. For causal discovery, coefficients $\lambda_{ij}$ are
-therefore often \(\ell_1\)-regularized. Here, we
-take the opposite approach and penalize solutions for which $\lambda_{ij}
-\approx 0$.
+therefore often \(\ell_1\)-regularized. Here, we take the opposite approach and
+seek solutions in which as many time-series as possible are Granger-causal
+related. However, we do not force /all/ time series to be related since this is
+likely an unrealistic constraint. Instead, we assume $\lambda_{ij}$ are drawn
+from a logit-normal distribution citep:atchison1980logistic, what allows us to
+specify a prior on the ratio of related-to-unrelated time series.
 
-In particular, let \(\Set{Y} = \{(y_i^1, \ldots, y_i^T)\}_{i=1}^m\)
-denote the observed realizations where $i$ indexes locations and
-where $T$ denotes the maximum observation time. Furthermore, let
-\begin{align}
-\beta\AR(p): \quad y_i^{t+1} = & \beta_i^t
-\sum_{\ell=0}^{p-1} \sum_{j=1}^m \lambda_{ij}^\ell y_j^{t - \ell} \label{eq:beta-ar}\\
-& \text{s.t. } \lambda_{ij} > \gamma > 0 \notag
-\end{align}
-denote the time-varying and location-dependent AR model and let $\theta$ denote
-it's parameters (i.e., $\lambda_{ij}$ as well as parameters of the RNN).
-Furthermore, let $p_\theta(y)$ denote the likelihood function of the $\beta\AR$
-model. We then minimize the regularized objective
+#+LATEX: \begin{marginfigure}[5em]
+#+ATTR_LATEX: :width \columnwidth :float nil
+[[file:img/logit_normal_0.png]]
+#+ATTR_LATEX: :width \columnwidth :float nil
+[[file:img/logit_normal_-1.png]]
+#+ATTR_LATEX: :width \columnwidth :float nil
+[[file:img/logit_normal_1.png]]
+#+LATEX: \caption{Logit-Normal distribution for different location ($\mu$) and scale parameters $(\sigma)$.}
+#+LATEX: \end{marginfigure}
+
+In particular, let \(\Set{Y} = \{(y_i^1, \ldots, y_i^T)\}_{i=1}^m\) denote the
+observed realizations where $i$ indexes locations and where $T$ denotes the
+maximum observation time. Furthermore, let $\sigma(\cdot)$ denote the
+logistic function and let $\lambda_{ij} = \sigma(\alpha_{ij})$. We then
+model the spread of the disease via the time-varying and location-dependent model
 \begin{equation}
-\min_{\theta} -\sum_y\log p_\theta(y) + \eta \sum_{i \neq j} \max(0, \gamma - \lambda_{ij}) \label{eq:objective}
+\bAR(p): \quad y_i^{t+1} = &
+\sum_{\ell=0}^{p-1} \sum_{j=1}^m \beta_i^t\lambda_{ij}^\ell y_j^{t - \ell} \label{eq:beta-ar}
 \end{equation}
-where the $\eta, \gamma > 0$ are hyperparameters. The regularization term
-${\max(0, \gamma - \lambda_{ij})}$ penalizes coefficients where $\lambda_{ij} <
-\gamma$ and therefore encourages models in which the different time series are
-related in terms of Granger causality.
-
-#+NAME: fig:dispersion-states
-#+ATTR_LATEX: :float margin :width .8\columnwidth :offset -30em
-#+CAPTION: Overdispersion of daily case counts in US states.
-file:img/overdispersion_states.png
-
-#+NAME: fig:dispersion-counties
-#+ATTR_LATEX: :float margin :width \columnwidth
-#+CAPTION: Overdispersion of daily case counts in US counties with most number of cases.
-file:img/overdispersion_counties.png
-
+To incorporate Granger causality as an inductive bias, we regularize the
+model log-likelihood such that $\alpha_{ij}$ is drawn from a logit-normal
+distribution with location $\mu$ and scale $\gamma$. Let $\theta$ denote
+the model parameters (i.e., $\alpha_{ij}$ as well as parameters of the RNN).
+and let $p_\theta(y)$ denote the likelihood function of the $\bAR$
+model. Furthermore, let $q$ denote the PDF of the logit-normal
+distribution. We then maximize the regularized objective
+\begin{equation}
+\max_{\theta}\sum_y\log p_\theta(y) + \eta \sum_{ij} \log q(\alpha_{ij}\,|\,\mu,\gamma). \label{eq:objective}
+\end{equation}
+We regard $\eta, \mu, \gamma > 0$ as hyperparameters which allow us to control
+the ratio of related and unrelated time series in terms of Granger causality.
 
 ** Accounting for Overdispersion
 Count data such as confirmed cases is naturally modeled using Poisson
 distributions. However, COVID-19 case counts exhibit substantial overdispersion,
 i.e., the variance of the observed counts can significantly exceed their mean
-(e.g., see cref:fig:dispersion-states, cref:fig:dispersion-counties). For this
+(e.g., see cref:fig:dispersion). For this
 reason, we will model case counts with Negative Binomial distributions what
 allows us to account for varying degrees of overdispersion. Specifically, we set
 \begin{align*}
     y^{t+1}_{i} & \sim \text{NB}(\mu_i^{t}, \nu_i) \\
-    \mu^t_i & = \beta_i^t \sum_{\ell=0}^{p-1} \sum_{j=1}^m \lambda_{ij}^\ell y_j^{t - \ell}
+    \mu^t_i & = \sum_{\ell=0}^{p-1} \sum_{j=1}^m \beta_i^t \lambda_{ij}^\ell y_j^{t - \ell}
 \end{align*}
 where \(\mu_i\) and \(\nu_i\) are mean and dispersion parameter of the
-distribution and $\mu_i$ is modeled  using the $\beta\AR$ model of
+distribution and $\mu_i$ is modeled  using the \bAR model of
 cref:eq:beta-ar.
 The likelihood function in cref:eq:objective is then of the form
 \begin{equation*}
 p_\theta(y) = \frac{\Gamma(y + \nu)}{y!\Gamma(\nu)}\left(\frac{\mu}{\mu +\nu}\right)^{y}\left(1 + \frac{\mu}{\nu}\right)^{-\nu}
 \quad \mu > 0, \nu > 0
 \end{equation*}
+
+#+LATEX: \begin{marginfigure}[1em]
+#+LATEX: \hspace{2.1em}%
+#+ATTR_LATEX: :float nil :width .8\columnwidth
+file:img/overdispersion_states.png
+
+#+LATEX:\vspace{1em}
+
+#+ATTR_LATEX: :float nil :width \columnwidth
+file:img/overdispersion_counties.png
+#+LATEX: \caption{Overdispersion of daily case counts in US states and counties with most number of cases.}
+#+LATEX: \label{fig:dispersion}
+#+LATEX: \end{marginfigure}
+
 
 
 ** COMMENT Transfer Entropy and Granger Causality
@@ -251,11 +271,11 @@ past values of Y. Formally, \[ T_{j \to i} = p_\theta(y^{t+1}_i, \Set{Y}^t) \log
 y^t_j)} \]
 
 * Related Work
-We build on prior work using autoregressive models designed for spatially and
-temporally aggregated surveillance data of endemic-epidemic processes
-citep:held2005statistical,meyer2014powerlaw,meyer2016socialcontact. Such
-autoregressive models are, for instance, used to monitor infectious diseases
-by public health agencies like the Robert Koch Institute
+We build on prior work that has proposed to use autoregressive models
+for spatially and temporally aggregated surveillance data of endemic-epidemic
+processes citep:held2005statistical,meyer2014powerlaw,meyer2016socialcontact.
+Such autoregressive models are, for instance, used to monitor infectious
+diseases by public health agencies like the Robert Koch Institute
 citep:salmon2016surveillance.
 
 Moreover, the negative binomial distribution has become a popular way to model
@@ -271,8 +291,15 @@ brain connectivity. citet:haufe2010sparse proposed an improved estimator which
 can be applied for VAR models of order $p > 1$.
 
 * Experiments
-We compare predictions of the proposed \beta-\AR model to cite:forecasts/lanl
-and cite:forecasts/yyg (YYG).
+We compare predictions of the proposed \bAR model to cite:forecasts/lanl (LANL)
+and cite:forecasts/yyg (YYG). Both LANL and YYG forecast on state-level while we
+performed our forecasts on county-level. For comparison, we therefore aggregate
+our forecasts to state-level. The YYG model is based on an extended SEIR model
+which models the dynamics of the disease through explicit parameters for disease
+and other mitigation effects.[fn::This includes, for instance, social
+distancing, lockdown fatigue etc.] YYG is trained on confirmed deaths and
+population data. For the \beta-\AR model, we only use confirmed deaths as
+training and the only hyper parameters are model order $p$,
 
 #+LATEX: \begin{figure*}
 #+LATEX: \begin{minipage}{.33\linewidth}
