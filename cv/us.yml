@@ -182,14 +182,28 @@ car:
     fpop: *fpop
     # features: data/usa/county_features.pt
     # time_features: data/usa/mobility_features.pt
-    # graph: *fgrap
-    blocks: [2, 3]
-    kernel_size: 2
-    layers: [6, 7, 8, 9, 10]
+    #time_features: [[data/usa/mobility_features.pt,
+    #data/usa/symptom_features.pt, data/usa/policy_features.pt]]
+    # graph: *fgraph
+    #decay: [latent2_1]
+    activation: sigmoid
+    no_cross_correlation: false
+    decay: [latent2_1]
+    window: [15, 20, 25]
     lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.1, 0.2, 0.3]
-    niters: [20000, 30000]
+    momentum: [0.99]
+    weight_decay: [0.1, 0.2]
+    niters: [30000, 40000]
+    #granger: [1, 10, 100]
+    # granger: [0.1, 1, 10]
+#    granger: [0.1, 0.15, 0.2]
+#    timger: [0]
+## FOR TIMGER
+    granger: [0]
+    timger: [0.1, 0.5]
+    timger_eta: [10, 100, 1000, 10000]
+    #niters: [30000, 40000]
+    #granger: [0.01, 0.005]
     loss: nb
     t0: 10
     test_on: *vdays
