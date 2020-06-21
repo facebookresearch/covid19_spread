@@ -8,7 +8,7 @@ import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.distributions import NegativeBinomial, Normal, Poisson
+from torch.distributions import NegativeBinomial, Normal, Poisson, LogNormal
 import load
 import cv
 from wavenet import Wavenet
@@ -68,11 +68,11 @@ class CAR(nn.Module):
         # self.beta_restricted = copy.deepcopy(beta)
         self.features = features
         self.window = window
-        # ``self.z = nn.Parameter(th.ones((1, window)).fill_(1))
-        self.z = nn.Parameter(th.ones((self.M, window)).fill_(1))
+        self.z = nn.Parameter(th.ones((1, window)).fill_(1))
+        # self.z = nn.Parameter(th.ones((self.M, window)).fill_(1))
         self.alphas = nn.Parameter(th.ones((self.M, self.M)).fill_(0))
         # self.alphas = nn.Parameter(th.ones((self.M, self.M)).fill_(1.0 / self.M))
-        self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(10))
+        self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(8))
         self._dist = dist
         self.graph = graph
         if graph is not None:
@@ -97,9 +97,9 @@ class CAR(nn.Module):
             self.alphas.fill_diagonal_(-1e10)
         #    self.alphas.fill_diagonal_(0)
         # W = F.softmax(self.alphas, dim=1)
-        # W = th.sigmoid(self.alphas)
+        W = th.sigmoid(self.alphas)
         # W = th.tanh(self.alphas)
-        W = F.softplus(self.alphas)
+        # W = F.softplus(self.alphas)
         # W = self.alphas
         # W = W / W.sum()
         if self.graph is not None:
@@ -184,6 +184,10 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
         # dist_restricted = model.dist(scores_restricted.narrow(1, 0, size_pred))
         _loss = -dist.log_prob(target)
         loss = _loss.sum()
+
+        # back prop
+        (loss + reg).backward()
+
         if args.granger > 0:
             # granger = args.granger * -dist_restricted.log_prob(target).sum()
             # w_mean = W.mean()
@@ -195,10 +199,29 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
             #    args.granger - th.clamp(W, max=args.granger)
             # ).sum() + args.weight_decay * W.sum()
             # reg = args.weight_decay * th.clamp(args.granger - W, max=0).sum()
-            reg = th.clamp(args.granger - W, min=0).sum()
+            # reg = th.clamp(args.granger - W, min=0).sum()
             # + args.weight_decay * W.sum()
             # + M * M * args.granger * (th.mean((W - w_mean) ** 2) / w_mean)
             # + th.clamp(W, min=0.02).sum()
+            # reg = (
+            #    M
+            #    * M
+            #    * (th.clamp(args.granger - w_mean, min=0) + args.timger_eta * w_mean)
+            # )
+            mu = np.log(args.granger / (1 - args.granger))
+            # reg = args.timger_eta * (
+            #    th.log(W.clamp(min=1e-8)).sum()
+            #    + th.log((1 - W).clamp(min=1e-8)).sum()
+            #    + th.pow(mu - model.alphas, 2).sum() / (2 * args.sigma2)
+            # )
+            # err = mu - model.alphas
+            # with th.no_grad():
+            #    err.fill_diagonal_(0)
+            # reg = args.timger_eta * th.pow(err, 2).sum()
+            # Perform stepweight decay
+            with th.no_grad():
+                r = args.lr * args.eta
+                model.alphas.copy_(model.alphas - r * (model.alphas - mu))
 
         if args.timger > 0:
             reg = (
@@ -208,8 +231,6 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
 
         assert loss == loss, (loss, scores, _loss)
 
-        # back prop
-        (loss + reg).backward()
         optimizer.step()
 
         # control
