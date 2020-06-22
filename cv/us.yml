@@ -11,11 +11,17 @@ prediction_interval_:
   output_mean: mean.csv
   output_std: std.csv
 backfill:
+  # NeurIPS
+  - 2020-04-22
+  - 2020-04-29
+  - 2020-05-06
+  - 2020-05-13
+  - 2020-05-20
   # LANL
-  - 2020-03-15
-  - 2020-04-15
-  - 2020-05-15
-  - 2020-05-30
+  # - 2020-03-15
+  # - 2020-04-15
+  # - 2020-05-15
+  # - 2020-05-30
   # - 2020-03-25
   #- 2020-04-05
   #- 2020-04-08
@@ -96,9 +102,16 @@ sir:
   data: data/usa/data_cases.csv
   train:
     fpop: *fpop
-    window: 10
+    # min_window: [2, 5, 10, 15, 20]
+    # recovery_days: [10, 12, 14]
+    # distancing_reduction: [0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 0.9]
+    # rolling_window: [2, 5, 10, 15, 20]
+    # cap: [5.0, 10.0, 30.0, 50.0, 100.0]
+    min_window: 10
     recovery_days: 10
     distancing_reduction: 0.9
+    rolling_window: 2
+    cap: 50.0
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays

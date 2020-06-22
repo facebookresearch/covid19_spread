@@ -107,7 +107,7 @@ def simulate_recovered(S0, I0, R0, cases, population, gamma, betas):
     return R
 
 
-def estimate_doubling_times(cases, window=3, cap=50.0):
+def estimate_doubling_times(cases, min_window=3, cap=50.0, rolling_window=2):
     """Estimates doubling times, begining on the day of first case.
 
     Args:
@@ -120,7 +120,7 @@ def estimate_doubling_times(cases, window=3, cap=50.0):
     """
     non_zero_indices = np.nonzero(cases)[0]
     # if there are no cases or first case occurs before window, return cap
-    if non_zero_indices.size < window:
+    if non_zero_indices.size < min_window:
         return np.array([cap])
 
     first_non_zero_i = non_zero_indices[0]
@@ -135,7 +135,7 @@ def estimate_doubling_times(cases, window=3, cap=50.0):
     # occurs when the number of cases is repeated
     doubling_times = impute_max_or_cap(doubling_times, cap)
     # compute 2-day rolling mean for doubling times
-    doubling_times_rolling = compute_rolling_mean(doubling_times, 2)
+    doubling_times_rolling = compute_rolling_mean(doubling_times, rolling_window)
 
     return doubling_times_rolling
 
@@ -183,7 +183,12 @@ class SIRCV(cv.CV):
 
         for region in regions:
             cases = cases_df[region].values
-            doubling_times = estimate_doubling_times(cases, window=train_params.window)
+            doubling_times = estimate_doubling_times(
+                cases,
+                min_window=train_params.min_window,
+                cap=train_params.cap,
+                rolling_window=train_params.rolling_window,
+            )
             doubling_times_per_region.append(doubling_times)
 
         model = [np.array(doubling_times_per_region), regions]
