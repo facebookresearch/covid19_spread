@@ -106,6 +106,11 @@ def _compute_metrics(df_true, df_pred, mincount=10):
     naive = naive.loc[ix]
     gt = df_true.loc[ix]
 
+    # compute state level MAE
+    state_gt = gt.transpose().groupby(lambda x: x.split(", ")[-1]).sum()
+    state_pred = df_pred.transpose().groupby(lambda x: x.split(", ")[-1]).sum()
+    state_mae = (state_gt.sort_index() - state_pred.sort_index()).abs().mean(axis=0)
+
     metrics = pd.DataFrame(
         [
             rmse(df_pred, gt),
@@ -113,10 +118,11 @@ def _compute_metrics(df_true, df_pred, mincount=10):
             mape(df_pred, gt),
             rmse(naive, gt),
             mae(naive, gt),
+            state_mae,
         ],
         columns=df_pred.index.to_numpy(),
     )
-    metrics["Measure"] = ["RMSE", "MAE", "MAPE", "RMSE_NAIVE", "MAE_NAIVE"]
+    metrics["Measure"] = ["RMSE", "MAE", "MAPE", "RMSE_NAIVE", "MAE_NAIVE", "STATE_MAE"]
     metrics.set_index("Measure", inplace=True)
     if metrics.shape[1] > 0:
         metrics.loc["MAE_MASE"] = metrics.loc["MAE"] / metrics.loc["MAE_NAIVE"]

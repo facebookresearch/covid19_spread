@@ -145,6 +145,7 @@ class CV:
                     "mae": metrics.loc["MAE"].values[-1],
                     "rmse": metrics.loc["RMSE"].mean(),
                     "mae_deltas": metrics.loc["MAE_DELTAS"].mean(),
+                    "state_mae": metrics.loc["STATE_MAE"].values[-1],
                 }
             )
         df = pd.DataFrame(runs)
@@ -152,6 +153,7 @@ class CV:
             BestRun(df.sort_values(by="mae").iloc[0].pth, "best_mae"),
             BestRun(df.sort_values(by="rmse").iloc[0].pth, "best_rmse"),
             BestRun(df.sort_values(by="mae_deltas").iloc[0].pth, "best_mae_deltas"),
+            BestRun(df.sort_values(by="state_mae").iloc[0].pth, "best_state_mae"),
         ]
 
     def compute_metrics(
@@ -340,6 +342,16 @@ def cli():
     pass
 
 
+@cli.command()
+@click.argument("sweep_dir")
+@click.argument("module")
+@click.option("-remote", is_flag=True)
+@click.option("-basedate", type=click.DateTime(), default=None)
+def model_selection(sweep_dir, module, remote, basedate):
+    cfg = load_config(os.path.join(sweep_dir, "cfg.yml"))
+    run_best(cfg, module, remote, sweep_dir, basedate)
+
+
 def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
     """
     update a dict using a nested list of keys. 
@@ -497,10 +509,12 @@ def backfill(
     ), "Must specify either dates or period"
     gt = metrics.load_ground_truth(config[module]["data"])
     if not dates:
+        assert period is not None
         dates = pd.date_range(
             start=start_date, end=gt.index.max(), freq=f"{period}D", closed="left"
         )
 
+    print(dates)
     now = datetime.now().strftime("%Y_%m_%d_%H_%M")
     basedir = (
         f'/checkpoint/{os.environ["USER"]}/covid19/forecasts/{config["region"]}/{now}'
