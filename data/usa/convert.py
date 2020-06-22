@@ -85,6 +85,10 @@ county_id = {c: i for i, c in enumerate(df.index)}
 df = df.cummax(axis=1)
 df.to_csv(f"data_{metric}.csv", index_label="region")
 
+df.groupby(lambda x: x.split(", ")[-1]).sum().to_csv(
+    f"data_states_{metric}.csv", index_label="region"
+)
+
 # Build state graph...
 adj = np.zeros((len(df), len(df)))
 for _, g in df.groupby(lambda x: x.split(", ")[-1]):
