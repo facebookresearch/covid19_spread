@@ -10,7 +10,7 @@ from collections import defaultdict as ddict
 from itertools import count
 
 
-def main(infile=None):
+def main(infile=None, counts_only=False):
     usecols = [
         "Date",
         "Start day",
@@ -61,6 +61,9 @@ def main(infile=None):
     clone = df[[c for c in df.columns if c not in {"Start day", "Unknown"}]].copy()
     clone.index = pd.date_range(end=last_date, periods=len(clone))
     clone.cummax().transpose().to_csv("data_cases.csv", index_label="region")
+
+    if counts_only:
+        return
 
     counties = df.columns[1:]
     df["Start day"] = np.arange(len(df)) + 1
