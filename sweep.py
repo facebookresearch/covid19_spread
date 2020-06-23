@@ -125,7 +125,7 @@ def run_sir(data, population, region, base, **kwargs):
     sir(list(map(str, args)))
 
 
-if __name__ == "__main__":
+def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("config", help="config file (json or yml)")
     parser.add_argument("-basedate", help="Base date for forecasting")
@@ -138,7 +138,8 @@ if __name__ == "__main__":
     parser.add_argument("-ncpus", type=int, default=20)
     parser.add_argument("-partition", type=str, default="learnfair,scavenge")
     parser.add_argument("-comment", type=str, default=None)
-    opt = parser.parse_args()
+    parser.add_argument("-mail-to", type=str, default=None)
+    opt = parser.parse_args(args)
 
     config = load_config(opt.config)
     now = datetime.now().strftime("%Y_%m_%d_%H_%M")
@@ -173,9 +174,14 @@ if __name__ == "__main__":
         forecast_train(d, cwd=cwd, dataset_true=dataset_true, job_dir=job_dir, **kwargs)
 
     if opt.remote:
+        mail_to = {}
+        if opt.mail_to is not None:
+            mail_to["mail_type"] = "END"
+            mail_to["mail_user"] = opt.mail_to
+
         executor = submitit.AutoExecutor(folder=base + "/%j")
         executor.update_parameters(
-            name=f"{region}-sweep",
+            name=f"{region}-sweep-mhp",
             gpus_per_node=1,
             cpus_per_task=opt.ncpus,
             mem_gb=opt.mem_gb,
@@ -183,12 +189,18 @@ if __name__ == "__main__":
             timeout_min=opt.timeout_min,
             partition=opt.partition,
             comment=opt.comment,
+            additional_parameters=mail_to,
         )
         with snapshot.SnapshotManager(
             snapshot_dir=base + "/snapshot", with_submodules=True
         ):
             jobs = executor.map_array(run_job, grid)
         print(base)
+        return base, jobs
     else:
         for d in grid:
             run_job(d)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
