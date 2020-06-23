@@ -109,7 +109,8 @@ class Recurring:
                 user = os.environ["USER"]
                 script = os.path.realpath(__file__)
                 schedule = self.schedule()
-                logfile = os.path.join(self.script_dir, f".{self.get_id()}.log")
+                stdoutfile = os.path.join(self.script_dir, f".{self.get_id()}.log")
+                stderrfile = os.path.join(self.script_dir, f".{self.get_id()}.err")
                 home = os.path.expanduser("~")
                 cmd = [
                     "source /etc/profile.d/modules.sh",
@@ -120,9 +121,16 @@ class Recurring:
                     f"cd {self.script_dir}",
                     self.command(),
                 ]
-                envs = ['PATH="/usr/local/bin:$PATH"', f"USER={user}"]
+                subject = f"ERROR in recurring sweep: {self.get_id()}"
+                envs = [
+                    f'PATH="/usr/local/bin:/private/home/{user}/bin:/usr/sbin:$PATH"',
+                    "__PROD__=1",
+                    f"USER={user}",
+                    f"MAIL_TO={user}@fb.com",
+                    f'SUBJECT="{subject}"',
+                ]
                 print(
-                    f'{schedule} {" ".join(envs)} bash -c "{" && ".join(cmd)}" >> {logfile} 2>&1',
+                    f'{schedule} {" ".join(envs)} email-on-fail bash -c "{" && ".join(cmd)}" >> {stdoutfile} 2>> {stderrfile}',
                     file=fout,
                 )
             check_call(["crontab", tfile.name])
@@ -137,7 +145,9 @@ class Recurring:
             (str(latest_date), self.get_id()),
         )
         for pth, launch_time in res:
+            launch_time = datetime.datetime.fromtimestamp(launch_time)
             if os.path.exists(pth):
+
                 print(f"Already launched {pth} at {launch_time}, exiting...")
                 return
             # This directory got deleted, remove it from the database...

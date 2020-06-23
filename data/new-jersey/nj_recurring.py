@@ -17,6 +17,13 @@ import numpy as np
 from subprocess import check_call, check_output
 import sqlite3
 import pandas
+import sweep
+
+MAIL_TO = ["mattle@fb.com", "lematt1991@gmail.com"]
+if os.environ.get("__PROD__") == "1":
+    MAIL_TO.append("maxn@fb.com")
+
+print(f"MAIL_TO == {MAIL_TO}")
 
 
 class NJRecurring(recurring.Recurring):
@@ -29,12 +36,12 @@ class NJRecurring(recurring.Recurring):
         return f"python {os.path.realpath(__file__)}"
 
     # Create the new timeseries.h5 dataset
-    def update_data(self, env_vars={"SMOOTH": "1"}):
+    def update_data(self, env_vars={"SMOOTH": "1"}, counts_only=False):
         df = get_latest()
         date_fmt = df["Date"].max().date().strftime("%Y%m%d")
         csv_file = f"{script_dir}/data-{date_fmt}.csv"
         df.to_csv(csv_file)
-        process_cases.main(csv_file)
+        process_cases.main(csv_file, counts_only=counts_only)
 
     def latest_date(self):
         df = pandas.read_csv("data_cases.csv", index_col="region")
@@ -59,7 +66,7 @@ class NJARRecurring(NJRecurring):
 
     # Create the new timeseries.h5 dataset
     def update_data(self):
-        super().update_data(env_vars={})
+        super().update_data(env_vars={}, counts_only=True)
 
 
 class NJSweepRecurring(NJRecurring):
@@ -68,11 +75,34 @@ class NJSweepRecurring(NJRecurring):
 
     def launch_job(self):
         # Launch the sweep
-        date = self.latest_date().strftime("%Y%m%d")
-        output = check_output(
-            ["make", "grid-nj", f"DATE={date}"], cwd=os.path.join(script_dir, "../../")
-        )
-        return output.decode("utf-8").strip().split("\n")[-1]
+        with recurring.chdir(os.path.join(script_dir, "../../")):
+            base_dir, jobs = sweep.main(
+                [
+                    os.path.join("grids/new-jersey.yml"),
+                    "-remote",
+                    "-ncpus",
+                    "40",
+                    "-timeout-min",
+                    "60",
+                    "-partition",
+                    "learnfair,scavenge",
+                    "-comment",
+                    "COVID-19 NJ Forecast",
+                    "-mail-to",
+                    ",".join(MAIL_TO),
+                ]
+            )
+
+        with tempfile.NamedTemporaryFile() as tfile:
+            with open(tfile.name, "w") as fout:
+                print(f"Started NJ MHP sweep for {self.latest_date()}", file=fout)
+                print(f"Sweep directory: {base_dir}", file=fout)
+                print(f"SLURM job ID: {jobs[0].job_id.split('_')[0]}", file=fout)
+            check_call(
+                f'mail -s "Started NJ MHP sweep!" {" ".join(MAIL_TO)} < {tfile.name}',
+                shell=True,
+            )
+        return base_dir
 
     def command(self):
         return super().command() + f" --kind sweep"
