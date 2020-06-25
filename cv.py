@@ -400,6 +400,7 @@ def cv(
 
     cfg = load_config(config_pth)
     region = cfg["region"]
+    cfg["this_module"] = module
 
     if basedir is None:
         if remote:
