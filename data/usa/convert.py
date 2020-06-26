@@ -89,7 +89,7 @@ def process_symptom_survey(df):
     symptoms = pd.read_csv(
         "symptom-survey/data-smoothed_cli-fips.csv", index_col="region"
     )
-    sym = th.zeros(df.shape[0], df.shape[1], 1)
+    sym = {}
     skipped = 0
     dates = pd.to_datetime(symptoms.columns[1:])
     print(dates.max(), df.columns)
@@ -98,9 +98,11 @@ def process_symptom_survey(df):
         if region not in symptoms.index:
             skipped += 1
             continue
-        _m = symptoms.loc[region]  # .rolling(7).mean()
-        _m = _m.values[: sym.size(1) - start_ix]
-        sym[i, start_ix:] = th.from_numpy(_m).unsqueeze(1)
+        _m = th.zeros(df.shape[1])
+        _v = symptoms.loc[region]  # .rolling(7).mean()
+        _v = _v.values[: len(_m) - start_ix]
+        _m[start_ix:] = th.from_numpy(_v)
+        sym[region] = _m.unsqueeze(1)
     th.save(sym, "symptom-survey/features.pt")
     print(skipped, df.shape[0])
 
