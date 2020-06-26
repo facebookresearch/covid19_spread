@@ -20,6 +20,7 @@ class BetaLatent(nn.Module):
         super(BetaLatent, self).__init__()
         self.M = len(regions)
         self.tmax = tmax
+        # self.fpos = F.softplus
         self.fpos = th.sigmoid
         self.time_features = time_features
         self.dim = dim
@@ -42,11 +43,13 @@ class BetaLatent(nn.Module):
                 nn.init.xavier_normal_(p)
 
     def forward(self, t):
-        t = t.unsqueeze(-1).unsqueeze(-1).float()  # .div_(self.tmax)
+        t = t.unsqueeze(-1).unsqueeze(-1).float().div_(self.tmax)
         t = t.expand(t.size(0), self.M, 1)
         if self.time_features is not None:
             # f = self.w_time(self.time_features).narrow(0, 0, t.size(0))
-            f = self.time_features.narrow(0, 0, t.size(0))
+            f = th.zeros(t.size(0), self.M, self.time_features.size(2)).to(t.device)
+            f.narrow(0, 0, self.time_features.size(0)).copy_(self.time_features)
+            # f = self.time_features.narrow(0, 0, t.size(0))
             # f = f.unsqueeze(0).expand(t.size(0), self.M, self.dim)
             t = th.cat([t, f], dim=2)
         ht, hn = self.rnn(t, self.h0)
@@ -65,10 +68,9 @@ class CAR(nn.Module):
         self.regions = regions
         self.M = len(regions)
         self.beta = beta
-        # self.beta_restricted = copy.deepcopy(beta)
         self.features = features
         self.window = window
-        self.z = nn.Parameter(th.ones((1, window)).fill_(1))
+        self.z = nn.Parameter(th.ones((1, window)).fill_(0))
         # self.z = nn.Parameter(th.ones((self.M, window)).fill_(1))
         self.alphas = nn.Parameter(th.ones((self.M, self.M)).fill_(0))
         # self.alphas = nn.Parameter(th.ones((self.M, self.M)).fill_(1.0 / self.M))
@@ -112,6 +114,7 @@ class CAR(nn.Module):
         length = ys.size(1) - self.window + 1
 
         ws = F.softplus(self.z)
+        # ws = th.sigmoid(self.z)
         ws = ws.expand(self.M, self.window)
         # self-correlation
         Z = F.conv1d(ys.unsqueeze(0), ws.unsqueeze(1), groups=self.M)
@@ -157,7 +160,7 @@ class CAR(nn.Module):
         return f"CAR({self.window}) | {self.beta} | EX ({self.train_stats[0]:.1e}, {self.train_stats[1]:.1e})"
 
 
-def train(model, new_cases, regions, optimizer, checkpoint, args):
+def train(model, new_cases, regions, optimizer, scheduler, checkpoint, args):
     print(args)
     print(f"max inc = {new_cases.max()}")
     print(f"number of regions = {len(regions)}")
@@ -181,57 +184,30 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
         # compute loss
         length = scores.size(1) - 1
         dist = model.dist(scores.narrow(1, 0, size_pred))
-        # dist_restricted = model.dist(scores_restricted.narrow(1, 0, size_pred))
         _loss = -dist.log_prob(target)
         loss = _loss.sum()
+
+        # if args.timger > 0:
+        #     reg = (
+        #         args.timger_eta
+        #         * th.clamp(-W * (W - args.timger) / (args.timger ** 2 / 4), min=0).sum()
+        #     )
+
+        reg = args.timger * th.pow(beta[:, 1:] - beta[:, :-1], 2).sum()
 
         # back prop
         (loss + reg).backward()
 
         if args.granger > 0:
-            # granger = args.granger * -dist_restricted.log_prob(target).sum()
-            # w_mean = W.mean()
-            # reg = M * M * args.granger * (th.mean((W - w_mean) ** 2) / w_mean)
-            # reg = M * M * args.granger * (th.mean((W - w_mean) ** 2))
-            # reg -= M * args.granger * w_mean
-            # reg = M * M * args.granger * (th.std(W) / th.mean(W))
-            # reg = (
-            #    args.granger - th.clamp(W, max=args.granger)
-            # ).sum() + args.weight_decay * W.sum()
-            # reg = args.weight_decay * th.clamp(args.granger - W, max=0).sum()
-            # reg = th.clamp(args.granger - W, min=0).sum()
-            # + args.weight_decay * W.sum()
-            # + M * M * args.granger * (th.mean((W - w_mean) ** 2) / w_mean)
-            # + th.clamp(W, min=0.02).sum()
-            # reg = (
-            #    M
-            #    * M
-            #    * (th.clamp(args.granger - w_mean, min=0) + args.timger_eta * w_mean)
-            # )
-            mu = np.log(args.granger / (1 - args.granger))
-            # reg = args.timger_eta * (
-            #    th.log(W.clamp(min=1e-8)).sum()
-            #    + th.log((1 - W).clamp(min=1e-8)).sum()
-            #    + th.pow(mu - model.alphas, 2).sum() / (2 * args.sigma2)
-            # )
-            # err = mu - model.alphas
-            # with th.no_grad():
-            #    err.fill_diagonal_(0)
-            # reg = args.timger_eta * th.pow(err, 2).sum()
-            # Perform stepweight decay
             with th.no_grad():
+                mu = np.log(args.granger / (1 - args.granger))
                 r = args.lr * args.eta
                 model.alphas.copy_(model.alphas - r * (model.alphas - mu))
-
-        if args.timger > 0:
-            reg = (
-                args.timger_eta
-                * th.clamp(-W * (W - args.timger) / (args.timger ** 2 / 4), min=0).sum()
-            )
 
         assert loss == loss, (loss, scores, _loss)
 
         optimizer.step()
+        # scheduler.step()
 
         # control
         if itr % 100 == 0:
@@ -240,7 +216,7 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                 z = F.softplus(model.z)
                 print(
                     f"[{itr:04d}] Loss {loss.item():.2f} | "
-                    f"Granger {reg.item() / M:.2f} | "
+                    f"Granger {reg.item():.5f} | "
                     f"MAE {maes.mean():.2f} | "
                     f"{model} | "
                     f"{args.loss} ({scores[:, -1].min().item():.2f}, {scores[:, -1].max().item():.2f}) | "
@@ -254,7 +230,31 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
 
 def _get_arg(args, v, device):
     if hasattr(args, v):
-        return th.load(getattr(args, v)).to(device).float()
+        arg = getattr(args, v)
+        if isinstance(arg, list):
+            ts = [th.load(a).to(device).float() for a in arg]
+            return th.cat(ts, dim=2)
+        return th.load(arg).to(device).float()
+    else:
+        return None
+
+
+def _get_dict(args, v, device, regions):
+    if hasattr(args, v):
+        _feats = []
+        for _file in getattr(args, v):
+            d = th.load(_file)
+            feats = None
+            for i, r in enumerate(regions):
+                if r not in d:
+                    continue
+                _f = d[r]
+                if feats is None:
+                    feats = th.zeros(len(regions), d[r].size(0), _f.size(1))
+                feats[i, :, : _f.size(1)] = _f
+                feats.div_(feats.abs().max())
+            _feats.append(feats.to(device).float())
+        return th.cat(_feats, dim=2)
     else:
         return None
 
@@ -274,7 +274,7 @@ class CARCV(cv.CV):
         # setup optional features
         graph = _get_arg(args, "graph", device)
         features = _get_arg(args, "features", device)
-        time_features = _get_arg(args, "time_features", device)
+        time_features = _get_dict(args, "time_features", device, regions)
         if time_features is not None:
             time_features = time_features.transpose(0, 1)
             time_features = time_features.narrow(0, args.t0, new_cases.size(1))
@@ -319,7 +319,7 @@ class CARCV(cv.CV):
 
         params = []
         # exclude = {"nu", "beta.w_feat.weight", "beta.w_feat.bias"}
-        exclude = {"nu", "alphas"}
+        exclude = {"nu", "alphas", "beta.h0"}
         # exclude = {"nu"}
         for name, p in dict(self.func.named_parameters()).items():
             wd = 0 if name in exclude else args.weight_decay
@@ -332,8 +332,11 @@ class CARCV(cv.CV):
             betas=[args.momentum, 0.999],
             weight_decay=args.weight_decay,
         )
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 10)
 
-        model = train(self.func, new_cases, regions, optimizer, checkpoint, args)
+        model = train(
+            self.func, new_cases, regions, optimizer, scheduler, checkpoint, args
+        )
 
         return model
 
