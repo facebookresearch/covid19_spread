@@ -19,8 +19,8 @@ backfill:
   - 2020-04-19
   - 2020-04-22
   - 2020-04-26
-  - 2020-04-29
-  - 2020-05-03
+  #- 2020-04-29
+  #- 2020-05-03
   - 2020-05-06
   - 2020-05-10
   # - 2020-05-17
@@ -96,55 +96,6 @@ sir:
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
-gar:
-  output: var_model.bin
-  data: data/usa/data_deaths.csv
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 15
-    timeout: 30
-  train:
-    fpop: *fpop
-    # features: data/usa/county_features.pt
-    # time_features: data/usa/policy_features.pt
-    # graph: *fgraph
-    dim: 64
-    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    decay: [latent2_1]
-    layers: [5, 10]
-    window: [2, 5, 10]
-    lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.1]
-    niters: [20000]
-    loss: nb
-    t0: 10
-    test_on: *vdays
-dar:
-  output: var_model.bin
-  data: data/usa/data_deaths.csv
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 15
-    timeout: 30
-  train:
-    fpop: *fpop
-    # features: data/usa/county_features.pt
-    # time_features: data/usa/policy_features.pt
-    # graph: *fgraph
-    dim: 64
-    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    decay: [latent16_1]
-    window: [10, 15, 20]
-    lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.1]
-    niters: [20000]
-    loss: nb
-    t0: 10
-    test_on: *vdays
 matrix:
   output: mc_model.bin
   fpop: *fpop
@@ -182,8 +133,7 @@ car:
     fpop: *fpop
     # features: data/usa/county_features.pt
     # time_features: data/usa/mobility_features.pt
-    #time_features: [[data/usa/mobility_features.pt,
-    #data/usa/symptom_features.pt, data/usa/policy_features.pt]]
+    time_features: [[data/usa/google/mobility_features.pt, data/usa/symptom-survey/features.pt]]
     # graph: *fgraph
     #decay: [latent2_1]
     activation: sigmoid
@@ -192,16 +142,15 @@ car:
     window: [15, 20, 25]
     lr: [0.001]
     momentum: [0.99]
-    weight_decay: [0.1, 0.2]
-    niters: [30000, 40000]
-    #granger: [1, 10, 100]
+    weight_decay: [0.1]
+    niters: [40000]
+    granger: [0.25, 0.5]
     # granger: [0.1, 1, 10]
-#    granger: [0.1, 0.15, 0.2]
-#    timger: [0]
-## FOR TIMGER
-    granger: [0]
-    timger: [0.1, 0.5]
-    timger_eta: [10, 100, 1000, 10000]
+    # granger: [0.1, 0.15, 0.2]
+    # granger: [0.3, 0.4, 0.5]
+    #timger: [1, 10, 100, 1000]
+    timger: [10, 20, 50]
+    eta: [0.1, 0.2, 0.3]
     #niters: [30000, 40000]
     #granger: [0.01, 0.005]
     loss: nb
