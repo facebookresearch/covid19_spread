@@ -1,5 +1,5 @@
 region: us
-population: &fpop data/usa/population.csv
+population: &fpop data/usa/state_population.csv
 basegraph: &fgraph data/usa/state_graph.pt
 validation:
   days: &vdays 21
@@ -99,19 +99,14 @@ ar:
 sir:
   module: sir
   output: sir_model.npy
-  data: data/usa/data_cases.csv
+  data: data/usa/data_state_cases.csv
   train:
     fpop: *fpop
-    # min_window: [2, 5, 10, 15, 20]
-    # recovery_days: [10, 12, 14]
-    # distancing_reduction: [0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 0.9]
-    # rolling_window: [2, 5, 10, 15, 20]
-    # cap: [5.0, 10.0, 30.0, 50.0, 100.0]
-    min_window: 10
-    recovery_days: 10
-    distancing_reduction: 0.9
-    rolling_window: 2
-    cap: 50.0
+    min_window: [5, 10, 20, 30]
+    recovery_days: [10, 12, 14]
+    distancing_reduction: [0.2, 0.4, 0.6, 0.8, 0.9]
+    rolling_window: 5
+    cap: 100.0
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
@@ -215,6 +210,6 @@ car:
 naive:
   module: naive
   output: naive_model.npy
-  data: data/usa/data_cases.csv
+  data: data/usa/data_state_cases.csv
   train:
     days: *vdays
