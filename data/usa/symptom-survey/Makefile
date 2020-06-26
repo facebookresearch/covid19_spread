@@ -14,7 +14,7 @@ state/$(signal).csv:
 
 county/$(signal).csv:
 	mkdir -p county
-	python3 fetch.py county $(signal)
+	-python3 fetch.py county $(signal)
 	head -1 county/$(signal)-20200406.csv > $@
 	tail -n +2 county/$(signal)-*.csv >> $@
 

@@ -9,17 +9,37 @@ from os import listdir
 from os.path import isfile, join
 from process_cases import get_nyt
 
+sys.path.append("../../")
+from common import standardize_county_name
+
+nyc_boroughs = [
+    "Bronx, New York",
+    "Kings, New York",
+    "Queens, New York",
+    "New York, New York",
+    "Richmond, New York",
+]
+
 
 def county_id(county, state):
     return f"{county}, {state}"
 
 
-def standardize_county(county):
-    return (
-        county.replace(" County", "")
-        .replace(" Parish", "")
-        .replace(" Municipality", "")
-    )
+def rename_nyc_boroughs(county_name):
+    if county_name in nyc_boroughs:
+        return "New York City, New York"
+    else:
+        return county_name
+
+
+def merge_nyc_boroughs(df):
+    df["region"] = df["region"].transform(rename_nyc_boroughs)
+    prev_len = len(df)
+    df = df.groupby(["region", "type"]).mean()
+    assert len(df) == prev_len - 4 * 6, (prev_len, len(df))
+    df = df.reset_index()
+    print(df[df["region"] == "New York City, New York"])
+    return df
 
 
 def read_population():
@@ -33,10 +53,56 @@ def read_population():
         state = state.replace(" Of ", " of ")
         df = pd.read_csv(join(poppath, fpop), header=None)
         counties = df.iloc[:, 0].values
-        counties = map(lambda c: county_id(standardize_county(c), state), counties)
+        counties = map(lambda c: county_id(standardize_county_name(c), state), counties)
         pop = df.iloc[:, 1].values
         population.update(zip(counties, pop))
     return population
+
+
+def process_mobility(df, prefix):
+    mobility = pd.read_csv(f"{prefix}/mobility_features.csv")
+    mobility = merge_nyc_boroughs(mobility)
+    print(mobility.head(), len(mobility))
+
+    n_mobility_types = len(np.unique(mobility["type"]))
+    mobility_types = {r: v for (r, v) in mobility.groupby("region")}
+    mob = {}
+    skipped = 0
+    dates = pd.to_datetime(mobility.columns[2:])
+    start_ix = np.where(dates.min() == df.columns)[0][0]
+    end_ix = np.where(dates.max() == df.columns)[0][0] + 1
+    print(start_ix)
+    for region in df.index:
+        if region not in mobility_types:
+            # print(region)
+            skipped += 1
+            continue
+        _m = th.zeros(df.shape[1], n_mobility_types)
+        _v = mobility_types[region].iloc[:, 2:].transpose()
+        _m[start_ix:end_ix] = th.from_numpy(_v.values)
+        mob[region] = _m
+    th.save(mob, f"{prefix}/mobility_features.pt")
+    print(skipped, df.shape[0])
+
+
+def process_symptom_survey(df):
+    symptoms = pd.read_csv(
+        "symptom-survey/data-smoothed_cli-fips.csv", index_col="region"
+    )
+    sym = th.zeros(df.shape[0], df.shape[1], 1)
+    skipped = 0
+    dates = pd.to_datetime(symptoms.columns[1:])
+    print(dates.max(), df.columns)
+    start_ix = np.where(dates.min() == df.columns)[0][0]
+    for i, region in enumerate(df.index):
+        if region not in symptoms.index:
+            skipped += 1
+            continue
+        _m = symptoms.loc[region]  # .rolling(7).mean()
+        _m = _m.values[: sym.size(1) - start_ix]
+        sym[i, start_ix:] = th.from_numpy(_m).unsqueeze(1)
+    th.save(sym, "symptom-survey/features.pt")
+    print(skipped, df.shape[0])
 
 
 metric = sys.argv[1] if len(sys.argv) == 2 else "cases"
@@ -50,16 +116,9 @@ print(df.head())
 
 # HACK: for deaths we do not have borough-level information
 if metric == "deaths":
-    boroughs = [
-        "Bronx, New York",
-        "Kings, New York",
-        "Queens, New York",
-        "New York, New York",
-        "Richmond, New York",
-    ]
-    population["New York City, New York"] = sum([population[b] for b in boroughs])
-    boroughs[1] = "Kings, New York"
-    boroughs[3] = "New York, New York"
+    population["New York City, New York"] = sum([population[b] for b in nyc_boroughs])
+    nyc_boroughs[1] = "Kings, New York"
+    nyc_boroughs[3] = "New York, New York"
     # df_feat.loc["New York City, New York"] = np.mean([df_feat.loc[b] for b in boroughs])
 
 dates = df.index
@@ -97,6 +156,9 @@ for _, g in df.groupby(lambda x: x.split(", ")[-1]):
 
 print(adj)
 th.save(th.from_numpy(adj), "state_graph.pt")
+
+process_symptom_survey(df)
+process_mobility(df, "google")
 
 # for region in df.index:
 #     df_feat.loc[region]
