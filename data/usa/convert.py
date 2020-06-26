@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import numpy as np
 import pandas as pd
 import sys
@@ -107,60 +108,67 @@ def process_symptom_survey(df):
     print(skipped, df.shape[0])
 
 
-metric = sys.argv[1] if len(sys.argv) == 2 else "cases"
-population = read_population()
-df = get_nyt(metric)
-df.index = pd.to_datetime(df.index)
-print(df.head())
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser("US data")
+    parser.add_argument("-metric", default="cases", choices=["cases", "deaths"])
+    parser.add_argument("-with-features", default=False, action="store_true")
+    opt = parser.parse_args()
 
-# df_feat = pd.read_csv("features.csv", index_col="region")
-# state_policies = pd.read_csv("policy_features.csv")
+    population = read_population()
+    df = get_nyt(opt.metric)
+    df.index = pd.to_datetime(df.index)
+    print(df.head())
 
-# HACK: for deaths we do not have borough-level information
-if metric == "deaths":
-    population["New York City, New York"] = sum([population[b] for b in nyc_boroughs])
-    nyc_boroughs[1] = "Kings, New York"
-    nyc_boroughs[3] = "New York, New York"
-    # df_feat.loc["New York City, New York"] = np.mean([df_feat.loc[b] for b in boroughs])
+    # df_feat = pd.read_csv("features.csv", index_col="region")
+    # state_policies = pd.read_csv("policy_features.csv")
 
-dates = df.index
-df.columns = [c.split("_")[1] + ", " + c.split("_")[0] for c in df.columns]
-print(df.columns)
-df = df[[c for c in df.columns if c in population]]
+    # HACK: for deaths we do not have borough-level information
+    if opt.metric == "deaths":
+        population["New York City, New York"] = sum(
+            [population[b] for b in nyc_boroughs]
+        )
+        nyc_boroughs[1] = "Kings, New York"
+        nyc_boroughs[3] = "New York, New York"
+        # df_feat.loc["New York City, New York"] = np.mean([df_feat.loc[b] for b in boroughs])
 
-# drop all zero columns
-df = df[df.columns[(df.sum(axis=0) != 0).values]]
-print(df.head())
+    dates = df.index
+    df.columns = [c.split("_")[1] + ", " + c.split("_")[0] for c in df.columns]
+    print(df.columns)
+    df = df[[c for c in df.columns if c in population]]
 
+    # drop all zero columns
+    df = df[df.columns[(df.sum(axis=0) != 0).values]]
+    print(df.head())
 
-population_counties = list(population.keys())
-df_pop = pd.DataFrame.from_dict(
-    {
-        "county": population_counties,
-        "population": [population[county] for county in population_counties],
-    }
-)
-df_pop.to_csv("population.csv", index=False, header=False)
-df = df.transpose()  # row for each county, columns correspond to dates...
-county_id = {c: i for i, c in enumerate(df.index)}
-df = df.cummax(axis=1)
-df.to_csv(f"data_{metric}.csv", index_label="region")
+    population_counties = list(population.keys())
+    df_pop = pd.DataFrame.from_dict(
+        {
+            "county": population_counties,
+            "population": [population[county] for county in population_counties],
+        }
+    )
+    df_pop.to_csv("population.csv", index=False, header=False)
+    df = df.transpose()  # row for each county, columns correspond to dates...
+    county_id = {c: i for i, c in enumerate(df.index)}
+    df = df.cummax(axis=1)
+    df.to_csv(f"data_{opt.metric}.csv", index_label="region")
 
-df.groupby(lambda x: x.split(", ")[-1]).sum().to_csv(
-    f"data_states_{metric}.csv", index_label="region"
-)
+    df.groupby(lambda x: x.split(", ")[-1]).sum().to_csv(
+        f"data_states_{opt.metric}.csv", index_label="region"
+    )
 
-# Build state graph...
-adj = np.zeros((len(df), len(df)))
-for _, g in df.groupby(lambda x: x.split(", ")[-1]):
-    idxs = np.array([county_id[c] for c in g.index])
-    adj[np.ix_(idxs, idxs)] = 1
+    # Build state graph...
+    adj = np.zeros((len(df), len(df)))
+    for _, g in df.groupby(lambda x: x.split(", ")[-1]):
+        idxs = np.array([county_id[c] for c in g.index])
+        adj[np.ix_(idxs, idxs)] = 1
 
-print(adj)
-th.save(th.from_numpy(adj), "state_graph.pt")
+    print(adj)
+    th.save(th.from_numpy(adj), "state_graph.pt")
 
-process_symptom_survey(df)
-process_mobility(df, "google")
+    if opt.with_features:
+        process_symptom_survey(df)
+        process_mobility(df, "google")
 
 # for region in df.index:
 #     df_feat.loc[region]
