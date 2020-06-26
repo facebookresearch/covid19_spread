@@ -25,7 +25,7 @@ import tempfile
 import shutil
 import json
 from tensorboardX import SummaryWriter
-
+from lib import cluster
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
 
@@ -36,9 +36,10 @@ def mk_executor(name: str, folder: str, extra_params: Dict[str, Any]):
     executor = submitit.AutoExecutor(folder=folder)
     executor.update_parameters(
         name=name,
+        partition=cluster.PARTITION,
         gpus_per_node=extra_params.get("gpus", 0),
         cpus_per_task=extra_params.get("cpus", 3),
-        mem_gb=extra_params.get("memgb", 20),
+        mem_gb=cluster.MEM_GB(extra_params.get("memgb", 20)),
         array_parallelism=extra_params.get("array_parallelism", 50),
         timeout_min=extra_params.get("timeout", 12 * 60),
     )
@@ -61,7 +62,7 @@ class CV:
         cases, regions, basedate, device = self.initialize(args)
         tmax = cases.size(1)
 
-        test_preds = model.simulate(tmax, cases, args.test_on)
+        test_preds = model.simulate(tmax, cases, args.test_on, **sim_params)
         test_preds = test_preds.cpu().numpy()
 
         df = pd.DataFrame(test_preds.T, columns=regions)
@@ -298,7 +299,7 @@ def rebase_forecast_deltas(val_in, df_forecast_deltas):
     return df_forecast
 
 
-def run_best(config, module, remote, basedir, basedate=None):
+def run_best(config, module, remote, basedir, basedate=None, mail_to=None):
     mod = importlib.import_module(module).CV_CLS()
     best_runs = mod.model_selection(basedir)
 
@@ -333,6 +334,10 @@ def run_best(config, module, remote, basedir, basedate=None):
         launcher = run_cv_and_copy_results
         if remote:
             executor = mk_executor(name, pth, cfg[module].get("resources", {}))
+            if mail_to is not None:
+                executor.update_parameters(
+                    additional_parameters={"mail_type": "END", "mail_user": mail_to}
+                )
             launcher = partial(executor.submit, run_cv_and_copy_results)
         launcher(tags, module, pth, cfg, "final_model_")
 
@@ -375,15 +380,17 @@ def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
 @click.option("-max-jobs", type=click.INT, default=200)
 @click.option("-basedir", default=None, help="Path to sweep base directory")
 @click.option("-basedate", type=click.DateTime(), help="Date to treat as last date")
+@click.option("-mail-to", help="Send email when jobs finish")
 def cv(
-    config_pth,
-    module,
-    validate_only,
-    remote,
-    array_parallelism,
-    max_jobs,
-    basedir,
-    basedate,
+    config_pth: str,
+    module: str,
+    validate_only: bool,
+    remote: bool,
+    array_parallelism: int,
+    max_jobs: int,
+    basedir: str,
+    basedate: Optional[datetime] = None,
+    mail_to: Optional[str] = None,
 ):
     """
     Run cross validation pipeline for a given module.
@@ -393,10 +400,11 @@ def cv(
 
     cfg = load_config(config_pth)
     region = cfg["region"]
+    cfg["this_module"] = module
 
     if basedir is None:
         if remote:
-            basedir = f"/checkpoint/{user}/covid19/forecasts/{region}/{now}"
+            basedir = f"{cluster.FS}/{user}/covid19/forecasts/{region}/{now}"
         else:
             basedir = f"/tmp/{user}/covid19/forecasts/{region}/{now}"
 
@@ -455,9 +463,10 @@ def cv(
         # Find the best model and retrain on the full dataset
         launcher = run_best
         if remote:
-            executor = submitit.AutoExecutor(folder=basedir)
-            executor.update_parameters(
-                name="model_selection", cpus_per_task=1, mem_gb=2, timeout_min=20
+            executor = mk_executor(
+                "model_selection",
+                basedir,
+                {"mem_gb": 2, "timeout_min": 20, "cpus_per_task": 1},
             )
             # Launch the model selection job *after* the sweep finishs
             sweep_job = jobs[0].job_id.split("_")[0]
@@ -466,7 +475,7 @@ def cv(
             )
             launcher = partial(executor.submit, run_best) if remote else run_best
         if not validate_only:
-            launcher(cfg, module, remote, basedir, basedate=basedate)
+            launcher(cfg, module, remote, basedir, basedate=basedate, mail_to=mail_to)
 
     print(basedir)
     return basedir, jobs
@@ -517,7 +526,7 @@ def backfill(
     print(dates)
     now = datetime.now().strftime("%Y_%m_%d_%H_%M")
     basedir = (
-        f'/checkpoint/{os.environ["USER"]}/covid19/forecasts/{config["region"]}/{now}'
+        f'{cluster.FS}/{os.environ["USER"]}/covid19/forecasts/{config["region"]}/{now}'
     )
     print(f"Backfilling in {basedir}")
     for date in dates:

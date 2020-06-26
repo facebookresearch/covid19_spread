@@ -57,7 +57,7 @@ class AustriaRecurring(recurring.Recurring):
 class AustriaDaily(AustriaRecurring):
     def schedule(self) -> str:
         """Cron schedule"""
-        return "0 9 * * * Mon,Tue,Wed,Fri,Sat"  # run on alternate days
+        return "0 9 * * Mon,Tue,Wed,Fri,Sat"  # run on alternate days
 
     def get_id(self):
         return "austria-ar-daily"

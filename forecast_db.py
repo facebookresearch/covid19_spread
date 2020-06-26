@@ -17,6 +17,7 @@ from data.usa.process_cases import get_nyt
 import requests
 from xml.etree import ElementTree
 from bs4 import BeautifulSoup
+import yaml
 
 
 DB = f'/private/home/{os.environ["USER"]}/covid19_spread/forecasts/forecast.db'
@@ -69,7 +70,7 @@ def mk_db():
     """
     )
     conn.execute(
-        "CREATE UNIQUE INDEX unique_infections ON infections(id, forecast_date, date, ifnull(loc1, 0), ifnull(loc2, 0), ifnull(loc3, 0))"
+        "CREATE UNIQUE INDEX unique_infections ON infections(id, ifnull(forecast_date, 0), date, ifnull(loc1, 0), ifnull(loc2, 0), ifnull(loc3, 0))"
     )
     conn.execute("CREATE INDEX date_idx ON infections(date);")
     conn.execute("CREATE INDEX loc_idx ON infections(loc1, loc2, loc3);")
@@ -89,7 +90,7 @@ def mk_db():
     """
     )
     conn.execute(
-        "CREATE UNIQUE INDEX unique_deaths ON deaths(id, forecast_date, date, ifnull(loc1, 0), ifnull(loc2, 0), ifnull(loc3, 0))"
+        "CREATE UNIQUE INDEX unique_deaths ON deaths(id, ifnull(forecast_date, 0), date, ifnull(loc1, 0), ifnull(loc2, 0), ifnull(loc3, 0))"
     )
     conn.execute("CREATE INDEX date_deaths_idx ON deaths(date);")
     conn.execute("CREATE INDEX loc_deaths_idx ON deaths(loc1, loc2, loc3);")
@@ -131,9 +132,7 @@ def sync_max_forecasts(conn):
                 df["id"] = f"{state}_{ty}"
                 df["loc2"] = LOC_MAP[state]
                 df["loc1"] = "United States"
-                df = df[
-                    (df["loc3"] != "ALL REGIONS") & (df["date"].dt.date > forecast_date)
-                ]
+                df = df[df["loc3"] != "ALL REGIONS"]
                 to_sql(conn, df, "infections")
 
 
@@ -337,16 +336,17 @@ def sync_los_alamos(conn):
 def dump_to_csv(conn, distribute):
     basedir = f'/checkpoint/{os.environ["USER"]}/covid19/csvs'
 
-    def f(metric):
+    def f(metric, deltas=False):
         q = f"SELECT counts, loc2, loc3, date, forecast_date, id FROM {metric}"
-        df = pandas.read_sql(q, conn)
+        if deltas:
+            metric = f"{metric}_deltas"
+        df = pandas.read_sql(q, conn, parse_dates=["date", "forecast_date"])
         for (model, forecast_date), group in df.fillna("").groupby(
             ["id", "forecast_date"]
         ):
+            dt = pandas.to_datetime(forecast_date if forecast_date else 0)
             if forecast_date != "":
-                forecast_date = "_" + forecast_date
-
-            group = group[group["date"] > group["forecast_date"]].copy()
+                forecast_date = "_" + str(forecast_date.date())
 
             group["location"] = group.apply(
                 lambda x: x.loc2 + (", " + x.loc3 if x.loc3 else ""), axis=1
@@ -355,12 +355,24 @@ def dump_to_csv(conn, distribute):
                 columns=["location"], values=["counts"], index="date"
             )
             group.columns = group.columns.get_level_values(-1)
+
+            if deltas:
+                group = group.diff()
+                if dt not in group.index:
+                    print(
+                        f"Warning: forecast_date not in forecast for {model}, {forecast_date}"
+                    )
+            group = group[group.index > dt]
+
             outfile = os.path.join(basedir, metric, model, f"counts{forecast_date}.csv")
             os.makedirs(os.path.dirname(outfile), exist_ok=True)
             group.to_csv(outfile)
 
-    f("deaths")
-    f("infections")
+    f("deaths", True)
+    f("infections", True)
+    f("deaths", False)
+    f("infections", False)
+
     if distribute:
         check_call(
             [
@@ -371,6 +383,54 @@ def dump_to_csv(conn, distribute):
                 f"devfairh1:{os.path.dirname(basedir)}",
             ]
         )
+
+
+def sync_matts_forecasts(conn):
+    if not os.path.exists("/private/home/mattle/covid19_spread/data/.sweep.db"):
+        return
+    loc_map = {
+        "new-jersey": {"loc1": "United States", "loc2": "New Jersey"},
+        "nystate": {"loc1": "United States", "loc2": "New York"},
+        "at": {"loc1": "Austria"},
+    }
+    module_map = {"ar": "ar", "ar_daily": "ar"}
+    _conn = sqlite3.connect("/private/home/mattle/covid19_spread/data/.sweep.db")
+    q = """
+    SELECT path, basedate, module
+    FROM sweeps
+    WHERE module IN ('ar', 'ar_daily')
+    """
+    for sweep_pth, basedate, module in _conn.execute(q):
+        if not os.path.exists(
+            os.path.join(sweep_pth, "forecasts/forecast_best_mae.csv")
+        ):
+            continue
+        cfg = yaml.safe_load(open(os.path.join(sweep_pth, "cfg.yml")))
+        print(f"{basedate}, {module}")
+        df = pandas.read_csv(
+            os.path.join(sweep_pth, "forecasts/forecast_best_mae.csv"),
+            parse_dates=["date"],
+        )
+        df = df.melt(id_vars=["date"], value_name="counts", var_name="location")
+        loc = loc_map[cfg["region"]]
+        for k, v in loc.items():
+            df[k] = v
+        df = df.rename(columns={"location": f"loc{len(loc) + 1}"})
+        df["id"] = f"cv_{module_map[module]}"
+        df["forecast_date"] = basedate
+        to_sql(conn, df, "infections")
+
+
+def sync_austria_gt(conn):
+    url = "https://raw.githubusercontent.com/fairinternal/covid19_spread/master/data/austria/data.csv?token=ADEIXC74R7VYK7KD6JOUJH267M7H4"
+    df = pandas.read_csv(url, index_col="region").transpose()
+    df.index = pandas.to_datetime(df.index)
+    df.index.name = "date"
+    df = df.reset_index()
+    df = df.melt(id_vars=["date"], value_name="counts", var_name="loc2")
+    df["loc1"] = "Austria"
+    df["id"] = "austria_ground_truth"
+    to_sql(conn, df, "infections")
 
 
 @click.command()
@@ -384,6 +444,8 @@ def sync_forecasts(distribute=False):
     if not os.path.exists(DB):
         mk_db()
     conn = sqlite3.connect(DB)
+    sync_austria_gt(conn)
+    sync_matts_forecasts(conn)
     sync_max_forecasts(conn)
     sync_nyt(conn)
     sync_ihme(conn)
