@@ -6,7 +6,7 @@ import sys
 
 signal = sys.argv[1]
 fips_map = pd.read_csv(
-    "county_fips_master.csv", index_col=["fips"], encoding="ISO-8859-1"
+    "../county_fips_master.csv", index_col=["fips"], encoding="ISO-8859-1"
 )
 
 df = pd.read_csv(
