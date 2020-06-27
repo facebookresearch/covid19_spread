@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import os
 import yaml
+import json
 
 from pathlib import Path
 
@@ -33,19 +34,21 @@ def load_backfill(
     job,
     basedir=f"/checkpoint/{os.environ['USER']}/covid19/forecasts",
     model="ar",
-    indicator="final_model_validation*.csv",
-    forecast="../forecasts/forecast_best_rmse.csv",
+    indicator="model_selection.json",
+    forecast="best_rmse",
 ):
     """collect all forcasts from job dir"""
     jobdir = os.path.join(basedir, job)
     forecasts = {}
     configs = []
     for path in Path(jobdir).rglob(indicator):
-        date = str(path).split("/")[7]
-        job = "/".join(str(path).split("/")[:-1])
+        date = str(path).split("/")[-2]
         assert date.startswith("sweep_"), date
+        jobs = [m["pth"] for m in json.load(open(path)) if m["name"] == forecast]
+        assert len(jobs) == 1, jobs
+        job = jobs[0]
         date = date[6:]
-        forecasts[date] = os.path.join(job, forecast)
+        forecasts[date] = os.path.join(job, f"../forecasts/forecast_{forecast}.csv")
         cfg = job + f"/{model}.yml"
         cfg = yaml.load(open(cfg), Loader=yaml.FullLoader)["train"]
         cfg["date"] = date
