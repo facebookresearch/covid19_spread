@@ -8,7 +8,7 @@ signal=smoothed_cli
 
 state/$(signal).csv:
 	mkdir -p state
-	python3 fetch.py state $(signal)
+	-python3 fetch.py state $(signal)
 	head -1 state/$(signal)-20200406.csv > $@
 	tail -n +2 state/$(signal)-*.csv >> $@
 
