@@ -33,11 +33,11 @@ def rename_nyc_boroughs(county_name):
         return county_name
 
 
-def merge_nyc_boroughs(df):
+def merge_nyc_boroughs(df, ntypes):
     df["region"] = df["region"].transform(rename_nyc_boroughs)
     prev_len = len(df)
     df = df.groupby(["region", "type"]).mean()
-    assert len(df) == prev_len - 4 * 6, (prev_len, len(df))
+    assert len(df) == prev_len - ntypes * 4, (prev_len, len(df))
     df = df.reset_index()
     print(df[df["region"] == "New York City, New York"])
     return df
@@ -62,17 +62,18 @@ def read_population():
 
 def process_mobility(df, prefix):
     mobility = pd.read_csv(f"{prefix}/mobility_features.csv")
-    mobility = merge_nyc_boroughs(mobility)
-    print(mobility.head(), len(mobility))
-
     n_mobility_types = len(np.unique(mobility["type"]))
     mobility_types = {r: v for (r, v) in mobility.groupby("region")}
+    mobility = merge_nyc_boroughs(mobility, n_mobility_types)
+    print(mobility.head(), len(mobility))
+
     mob = {}
     skipped = 0
     dates = pd.to_datetime(mobility.columns[2:])
-    start_ix = np.where(dates.min() == df.columns)[0][0]
-    end_ix = np.where(dates.max() == df.columns)[0][0] + 1
-    print(start_ix)
+    start_ix = np.where(dates.min() == df.columns)[0][0] - 1
+    # FIXME: check via dates between google and fb are not aligned
+    # end_ix = np.where(dates.max() == df.columns)[0][0]
+    end_ix = start_ix + len(dates)
     for region in df.index:
         if region not in mobility_types:
             # print(region)
@@ -88,19 +89,21 @@ def process_mobility(df, prefix):
 
 def process_symptom_survey(df):
     symptoms = pd.read_csv(
-        "symptom-survey/data-smoothed_cli-fips.csv", index_col="region"
+        "symptom-survey/data-smoothed_cli-state.csv", index_col="region"
     )
     sym = {}
     skipped = 0
     dates = pd.to_datetime(symptoms.columns[1:])
     print(dates.max(), df.columns)
     start_ix = np.where(dates.min() == df.columns)[0][0]
-    for i, region in enumerate(df.index):
-        if region not in symptoms.index:
+    for region in df.index:
+        _, state = region.split(", ")
+        if state not in symptoms.index:
+            print("Skipping {region}")
             skipped += 1
             continue
         _m = th.zeros(df.shape[1])
-        _v = symptoms.loc[region]  # .rolling(7).mean()
+        _v = symptoms.loc[state]  # .rolling(7).mean()
         _v = _v.values[: len(_m) - start_ix]
         _m[start_ix:] = th.from_numpy(_v)
         sym[region] = _m.unsqueeze(1)
@@ -117,7 +120,7 @@ if __name__ == "__main__":
     population = read_population()
     df = get_nyt(opt.metric)
     df.index = pd.to_datetime(df.index)
-    print(df.head())
+    print(df.tail())
 
     # df_feat = pd.read_csv("features.csv", index_col="region")
     # state_policies = pd.read_csv("policy_features.csv")
@@ -169,6 +172,7 @@ if __name__ == "__main__":
     if opt.with_features:
         process_symptom_survey(df)
         process_mobility(df, "google")
+        process_mobility(df, "fb")
 
 # for region in df.index:
 #     df_feat.loc[region]
