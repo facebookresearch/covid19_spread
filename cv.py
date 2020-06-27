@@ -26,6 +26,7 @@ import shutil
 import json
 from tensorboardX import SummaryWriter
 from lib import cluster
+import sys
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
 
@@ -169,12 +170,22 @@ class CV:
         self.tb_writer = SummaryWriter(logdir=basedir)
 
 
+def run_cvs(module: str, cfgs, prefix="", basedate=None):
+    for cfg, basedir in cfgs:
+        try:
+            run_cv(module, basedir, cfg, prefix, basedate)
+        except KeyboardInterrupt:
+            sys.exit(1)
+        except:
+            print(f"Job {basedir} failed")
+
+
 def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=None):
     """Runs cross validaiton for one set of hyperaparmeters"""
-    try:
-        basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
-    except Exception:
-        pass  # running locally, basedir is fine...
+    # try:
+    #    basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
+    # except Exception:
+    #    pass  # running locally, basedir is fine...
 
     os.makedirs(basedir, exist_ok=True)
 
@@ -359,8 +370,8 @@ def model_selection(sweep_dir, module, remote, basedate):
 
 def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
     """
-    update a dict using a nested list of keys. 
-    Ex: 
+    update a dict using a nested list of keys.
+    Ex:
         x = {'a': {'b': {'c': 2}}}
         set_dict(x, ['a', 'b'], 4) == {'a': {'b': 4}}
     """
@@ -446,19 +457,21 @@ def cv(
         extra = cfg[module].get("resources", {})
         executor = mk_executor(f"cv_{region}", basedir + "/%j", extra)
         launcher = executor.map_array
-        basedirs = [f"{basedir}/%j" for _ in cfgs]
     else:
-        basedirs = [os.path.join(basedir, f"job_{i}") for i in range(len(cfgs))]
         launcher = map
+    basedirs = [os.path.join(basedir, f"job_{i}") for i in range(len(cfgs))]
 
     with snapshot.SnapshotManager(
         snapshot_dir=basedir + "/snapshot",
         with_submodules=True,
         exclude=["data/*", "notebooks/*", "tests/*"],
     ):
-        jobs = list(
-            launcher(partial(run_cv, module, basedate=basedate), basedirs, cfgs)
-        )
+        size = array_parallelism if remote else 1
+        # zip config with job_id
+        cfgs = list(zip(cfgs, basedirs))
+        cfgs = [cfgs[i::size] for i in range(size)]
+        print("Chunks", [len(c) for c in cfgs])
+        jobs = list(launcher(partial(run_cvs, module, basedate=basedate), cfgs))
 
         # Find the best model and retrain on the full dataset
         launcher = run_best
