@@ -114,6 +114,8 @@ def main(args):
         df, full_history = merge(df, full_history, newdata)
 
     full_history.to_csv("full_history.csv", index_label="region")
+
+    df = df.cummax(axis=1)
     df.to_csv("data.csv", index_label="region")
     newest = str(pandas.to_datetime(df.columns).max().date())
     if pandas.to_datetime(df.columns).max().date() > last_date.date():
