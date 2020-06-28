@@ -62,6 +62,13 @@ def read_population():
 
 def process_mobility(df, prefix):
     mobility = pd.read_csv(f"{prefix}/mobility_features.csv")
+    dates = pd.to_datetime(mobility.columns[2:])
+    dates = dates[np.where(dates >= df.columns.min())[0]]
+    mobility = mobility[
+        mobility.columns[:2].to_list()
+        + list(map(lambda d: d.strftime("%Y-%m-%d"), dates))
+    ]
+
     n_mobility_types = len(np.unique(mobility["type"]))
     mobility_types = {r: v for (r, v) in mobility.groupby("region")}
     mobility = merge_nyc_boroughs(mobility, n_mobility_types)
@@ -69,8 +76,7 @@ def process_mobility(df, prefix):
 
     mob = {}
     skipped = 0
-    dates = pd.to_datetime(mobility.columns[2:])
-    start_ix = np.where(dates.min() == df.columns)[0][0] - 1
+    start_ix = np.where(dates.min() == df.columns)[0][0]
     # FIXME: check via dates between google and fb are not aligned
     # end_ix = np.where(dates.max() == df.columns)[0][0]
     end_ix = start_ix + len(dates)
@@ -94,7 +100,6 @@ def process_symptom_survey(df):
     sym = {}
     skipped = 0
     dates = pd.to_datetime(symptoms.columns[1:])
-    # print(dates.max(), df.columns)
     start_ix = np.where(dates.min() == df.columns)[0][0] - 1
     end_ix = start_ix + len(dates)
     for region in df.index:
@@ -153,7 +158,13 @@ if __name__ == "__main__":
     df_pop.to_csv("population.csv", index=False, header=False)
     df = df.transpose()  # row for each county, columns correspond to dates...
     county_id = {c: i for i, c in enumerate(df.index)}
+    # make sure counts are strictly increasing
     df = df.cummax(axis=1)
+
+    # throw away all-zero columns, i.e., days with no cases
+    counts = df.sum(axis=0)
+    df = df.iloc[:, np.where(counts > 0)[0]]
+
     df.to_csv(f"data_{opt.metric}.csv", index_label="region")
 
     df.groupby(lambda x: x.split(", ")[-1]).sum().to_csv(
