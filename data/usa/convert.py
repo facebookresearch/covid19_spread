@@ -94,8 +94,9 @@ def process_symptom_survey(df):
     sym = {}
     skipped = 0
     dates = pd.to_datetime(symptoms.columns[1:])
-    print(dates.max(), df.columns)
-    start_ix = np.where(dates.min() == df.columns)[0][0]
+    # print(dates.max(), df.columns)
+    start_ix = np.where(dates.min() == df.columns)[0][0] - 1
+    end_ix = start_ix + len(dates)
     for region in df.index:
         _, state = region.split(", ")
         if state not in symptoms.index:
@@ -104,8 +105,7 @@ def process_symptom_survey(df):
             continue
         _m = th.zeros(df.shape[1])
         _v = symptoms.loc[state]  # .rolling(7).mean()
-        _v = _v.values[: len(_m) - start_ix]
-        _m[start_ix:] = th.from_numpy(_v)
+        _m[start_ix:end_ix] = th.from_numpy(_v.values[1:])
         sym[region] = _m.unsqueeze(1)
     th.save(sym, "symptom-survey/features.pt")
     print(skipped, df.shape[0])
