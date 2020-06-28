@@ -27,6 +27,7 @@ import json
 from tensorboardX import SummaryWriter
 from lib import cluster
 import sys
+import traceback
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
 
@@ -176,17 +177,14 @@ def run_cvs(module: str, cfgs, prefix="", basedate=None):
             run_cv(module, basedir, cfg, prefix, basedate)
         except KeyboardInterrupt:
             sys.exit(1)
-        except:
+        except Exception as e:
             print(f"Job {basedir} failed")
+            print(e)
+            traceback.print_exc()
 
 
 def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=None):
     """Runs cross validaiton for one set of hyperaparmeters"""
-    # try:
-    #    basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
-    # except Exception:
-    #    pass  # running locally, basedir is fine...
-
     os.makedirs(basedir, exist_ok=True)
 
     def _path(path):
