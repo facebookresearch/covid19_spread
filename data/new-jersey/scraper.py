@@ -8,7 +8,8 @@ import numpy as np
 
 
 URL = "https://services7.arcgis.com/Z0rixLlManVefxqY/arcgis/rest/services/DailyCaseCounts/FeatureServer/0/query?f=json&where=1%3D1&returnGeometry=false&spatialRel=esriSpatialRelIntersects&outFields=*&orderByFields=TOTAL_CASES%20desc"
-UNK_URL = "https://services7.arcgis.com/Z0rixLlManVefxqY/arcgis/rest/services/survey123_cb9a6e9a53ae45f6b9509a23ecdf7bcf/FeatureServer/0/query?f=json&where=1=1&returnGeometry=false&outFields=*&resultOffset=0&resultRecordCount=1&resultType=standard&orderByFields=_date%20desc"
+# UNK_URL = "https://services7.arcgis.com/Z0rixLlManVefxqY/arcgis/rest/services/survey123_cb9a6e9a53ae45f6b9509a23ecdf7bcf/FeatureServer/0/query?f=json&where=1=1&returnGeometry=false&outFields=*&resultOffset=0&resultRecordCount=1&resultType=standard&orderByFields=_date%20desc"
+UNK_URL = "https://services7.arcgis.com/Z0rixLlManVefxqY/arcgis/rest/services/survey123_cb9a6e9a53ae45f6b9509a23ecdf7bcf/FeatureServer/0/query?f=json&where=unknown_positives%20IS%20NOT%20NULL&returnGeometry=false&spatialRel=esriSpatialRelIntersects&outFields=*&orderByFields=EditDate%20desc&r"
 
 
 def get_latest(metric="cases"):
@@ -21,7 +22,8 @@ def get_latest(metric="cases"):
     unk = unk["features"][0]["attributes"]
     data = requests.get(URL).json()
     df = pandas.DataFrame([x["attributes"] for x in data["features"]])
-    unk_time = datetime.fromtimestamp(unk["_date"] / 1000)
+    # unk_time = datetime.fromtimestamp(unk["_date"] / 1000)
+    unk_time = pandas.to_datetime(unk["CreationDate"], unit="ms")
 
     # Use NYT for historical data.  They lag behind by 1 day.
     nyt = pandas.read_csv(
