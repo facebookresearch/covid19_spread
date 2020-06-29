@@ -28,3 +28,4 @@ dependencies:
     - black==19.10b0
     - pytest
     - nb2mail
+    - bs4

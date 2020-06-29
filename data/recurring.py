@@ -102,11 +102,13 @@ class Recurring:
                 "Cron job already installed, cleanup crontab"
                 " with `crontab -e` before installing again"
             )
-        envs = check_output(['conda', 'env', 'list']).decode('utf-8').strip().split('\n')
-        active = [e for e in envs if '*' in e]
+        envs = (
+            check_output(["conda", "env", "list"]).decode("utf-8").strip().split("\n")
+        )
+        active = [e for e in envs if "*" in e]
         conda_env = None
         if len(active) == 1:
-            conda_env = f'source activate {active[0].split()[0]}'
+            conda_env = f"source activate {active[0].split()[0]}"
 
         with tempfile.NamedTemporaryFile() as tfile:
             with open(tfile.name, "w") as fout:
