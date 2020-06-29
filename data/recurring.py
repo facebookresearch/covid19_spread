@@ -102,6 +102,12 @@ class Recurring:
                 "Cron job already installed, cleanup crontab"
                 " with `crontab -e` before installing again"
             )
+        envs = check_output(['conda', 'env', 'list']).decode('utf-8').strip().split('\n')
+        active = [e for e in envs if '*' in e]
+        conda_env = None
+        if len(active) == 1:
+            conda_env = f'source activate {active[0].split()[0]}'
+
         with tempfile.NamedTemporaryFile() as tfile:
             with open(tfile.name, "w") as fout:
                 print(crontab, file=fout)
@@ -117,10 +123,11 @@ class Recurring:
                     f"source {home}/.profile",
                     f"source {home}/.bash_profile",
                     f"source {home}/.bashrc",
-                    "source activate covid19_spread",
+                    conda_env,
                     f"cd {self.script_dir}",
                     self.command(),
                 ]
+                cmd = [c for c in cmd if c is not None]
                 subject = f"ERROR in recurring sweep: {self.get_id()}"
                 envs = [
                     f'PATH="/usr/local/bin:/private/home/{user}/bin:/usr/sbin:$PATH"',
