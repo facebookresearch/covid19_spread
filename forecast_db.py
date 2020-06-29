@@ -20,7 +20,8 @@ from bs4 import BeautifulSoup
 import yaml
 
 
-DB = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'forecasts/forecast.db')
+DB = os.path.join(os.path.dirname(os.path.realpath(__file__)), "forecasts/forecast.db")
+
 
 class MaxBy:
     def __init__(self):
