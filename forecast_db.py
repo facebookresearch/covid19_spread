@@ -20,8 +20,7 @@ from bs4 import BeautifulSoup
 import yaml
 
 
-DB = f'/private/home/{os.environ["USER"]}/covid19_spread/forecasts/forecast.db'
-
+DB = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'forecasts/forecast.db')
 
 class MaxBy:
     def __init__(self):
@@ -53,6 +52,7 @@ sqlite3.register_converter("date", convert_date)
 
 
 def mk_db():
+    os.makedirs(os.path.dirname(DB), exist_ok=True)
     conn = sqlite3.connect(DB)
     # forecast_date is the last date that we have ground truth data for.
     # i.e. the last date the model sees during training
