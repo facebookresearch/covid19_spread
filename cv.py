@@ -28,22 +28,25 @@ from tensorboardX import SummaryWriter
 from lib import cluster
 import sys
 import traceback
+from lib.slurm_pool_executor import SlurmPoolExecutor
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
 
 pi_multipliers = {0.99: 2.58, 0.95: 1.96, 0.80: 1.28}
 
 
-def mk_executor(name: str, folder: str, extra_params: Dict[str, Any]):
-    executor = submitit.AutoExecutor(folder=folder)
+def mk_executor(
+    name: str, folder: str, extra_params: Dict[str, Any], ex=SlurmPoolExecutor
+):
+    executor = (ex or submitit.AutoExecutor)(folder=folder)
     executor.update_parameters(
-        name=name,
+        job_name=name,
         partition=cluster.PARTITION,
         gpus_per_node=extra_params.get("gpus", 0),
         cpus_per_task=extra_params.get("cpus", 3),
-        mem_gb=cluster.MEM_GB(extra_params.get("memgb", 20)),
+        mem=f'{cluster.MEM_GB(extra_params.get("memgb", 20))}GB',
         array_parallelism=extra_params.get("array_parallelism", 50),
-        timeout_min=extra_params.get("timeout", 12 * 60),
+        time=extra_params.get("timeout", 12 * 60),
     )
     return executor
 
@@ -185,6 +188,10 @@ def run_cvs(module: str, cfgs, prefix="", basedate=None):
 
 def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=None):
     """Runs cross validaiton for one set of hyperaparmeters"""
+    try:
+        basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
+    except Exception:
+        pass  # running locally, basedir is fine...
     os.makedirs(basedir, exist_ok=True)
 
     def _path(path):
@@ -342,7 +349,9 @@ def run_best(config, module, remote, basedir, basedate=None, mail_to=None):
         cfg[module] = job_config
         launcher = run_cv_and_copy_results
         if remote:
-            executor = mk_executor(name, pth, cfg[module].get("resources", {}))
+            executor = mk_executor(
+                name, pth, cfg[module].get("resources", {}), ex=submitit.AutoExecutor
+            )
             if mail_to is not None:
                 executor.update_parameters(
                     additional_parameters={"mail_type": "END", "mail_user": mail_to}
@@ -385,7 +394,7 @@ def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
 @click.argument("module")
 @click.option("-validate-only", type=click.BOOL, default=False)
 @click.option("-remote", is_flag=True)
-@click.option("-array-parallelism", type=click.INT, default=50)
+@click.option("-array-parallelism", type=click.INT, default=20)
 @click.option("-max-jobs", type=click.INT, default=200)
 @click.option("-basedir", default=None, help="Path to sweep base directory")
 @click.option("-basedate", type=click.DateTime(), help="Date to treat as last date")
@@ -400,11 +409,12 @@ def cv(
     basedir: str,
     basedate: Optional[datetime] = None,
     mail_to: Optional[str] = None,
+    executor=None,
 ):
     """
     Run cross validation pipeline for a given module.
     """
-    now = datetime.now().strftime("%Y_%m_%d_%H_%M")
+    now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     user = os.environ["USER"]
 
     cfg = load_config(config_pth)
@@ -453,41 +463,33 @@ def cv(
 
     if remote:
         extra = cfg[module].get("resources", {})
-        executor = mk_executor(f"cv_{region}", basedir + "/%j", extra)
+        if executor is None:
+            executor = mk_executor(f"cv_{region}", basedir + "/%j", extra)
         launcher = executor.map_array
+        basedirs = [f"{basedir}/%j" for _ in cfgs]
     else:
         launcher = map
-    basedirs = [os.path.join(basedir, f"job_{i}") for i in range(len(cfgs))]
+        basedirs = [os.path.join(basedir, f"job_{i}") for i in range(len(cfgs))]
 
     with snapshot.SnapshotManager(
         snapshot_dir=basedir + "/snapshot",
         with_submodules=True,
         exclude=["data/*", "notebooks/*", "tests/*"],
     ):
-        size = array_parallelism if remote else 1
-        # zip config with job_id
-        cfgs = list(zip(cfgs, basedirs))
-        cfgs = [cfgs[i::size] for i in range(size)]
-        print("Chunks", [len(c) for c in cfgs])
-        jobs = list(launcher(partial(run_cvs, module, basedate=basedate), cfgs))
+        jobs = list(
+            launcher(partial(run_cv, module, basedate=basedate), basedirs, cfgs)
+        )
 
         # Find the best model and retrain on the full dataset
-        launcher = run_best
-        if remote:
-            executor = mk_executor(
-                "model_selection",
-                basedir,
-                {"mem_gb": 2, "timeout_min": 20, "cpus_per_task": 1},
-            )
-            # Launch the model selection job *after* the sweep finishs
-            sweep_job = jobs[0].job_id.split("_")[0]
-            executor.update_parameters(
-                additional_parameters={"dependency": f"afterany:{sweep_job}"}
-            )
-            launcher = partial(executor.submit, run_best) if remote else run_best
+        launcher = (
+            partial(executor.submit_dependent, jobs, run_best) if remote else run_best
+        )
+
         if not validate_only:
             launcher(cfg, module, remote, basedir, basedate=basedate, mail_to=mail_to)
 
+    if remote:
+        executor.launch(basedir + "/workers", array_parallelism)
     print(basedir)
     return basedir, jobs
 
@@ -502,7 +504,7 @@ def cv(
 @click.option("-dates", default=None, multiple=True, type=click.DateTime())
 @click.option("-validate-only", type=click.BOOL, default=False, is_flag=True)
 @click.option("-remote", is_flag=True)
-@click.option("-array-parallelism", type=click.INT, default=50)
+@click.option("-array-parallelism", type=click.INT, default=20)
 @click.option("-max-jobs", type=click.INT, default=200)
 @click.pass_context
 def backfill(
@@ -514,7 +516,7 @@ def backfill(
     dates: Optional[List[datetime.date]] = None,
     validate_only: bool = False,
     remote: bool = False,
-    array_parallelism: int = 50,
+    array_parallelism: int = 20,
     max_jobs: int = 200,
 ):
     """
@@ -535,22 +537,31 @@ def backfill(
         )
 
     print(dates)
-    now = datetime.now().strftime("%Y_%m_%d_%H_%M")
+    now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     basedir = (
         f'{cluster.FS}/{os.environ["USER"]}/covid19/forecasts/{config["region"]}/{now}'
     )
+    extra_params = config[module].get("resources", {})
+    executor = mk_executor(f'backfill_{config["region"]}', basedir, extra_params)
     print(f"Backfilling in {basedir}")
     for date in dates:
         print(f"Running CV for {date.date()}")
         cv_params = {
             k: v for k, v in ctx.params.items() if k in {p.name for p in cv.params}
         }
-        ctx.invoke(
-            cv,
-            basedir=os.path.join(basedir, f"sweep_{date.date()}"),
-            basedate=date,
-            **cv_params,
-        )
+
+        with executor.nest(), executor.set_folder(
+            os.path.join(basedir, f"sweep_{date.date()}/%j")
+        ):
+            ctx.invoke(
+                cv,
+                basedir=os.path.join(basedir, f"sweep_{date.date()}"),
+                basedate=date,
+                executor=executor,
+                **cv_params,
+            )
+    if remote:
+        executor.launch(basedir + "/workers", array_parallelism)
 
 
 if __name__ == "__main__":
