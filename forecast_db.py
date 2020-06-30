@@ -18,9 +18,10 @@ import requests
 from xml.etree import ElementTree
 from bs4 import BeautifulSoup
 import yaml
+from lib import cluster
 
 
-DB = f'/private/home/{os.environ["USER"]}/covid19_spread/forecasts/forecast.db'
+DB = os.path.join(os.path.dirname(os.path.realpath(__file__)), "forecasts/forecast.db")
 
 
 class MaxBy:
@@ -53,6 +54,7 @@ sqlite3.register_converter("date", convert_date)
 
 
 def mk_db():
+    os.makedirs(os.path.dirname(DB), exist_ok=True)
     conn = sqlite3.connect(DB)
     # forecast_date is the last date that we have ground truth data for.
     # i.e. the last date the model sees during training
@@ -107,6 +109,8 @@ LOC_MAP = {"new-jersey": "New Jersey", "nystate": "New York"}
 
 
 def to_sql(conn, df, table):
+    cols = ["date", "loc1", "loc2", "loc3", "forecast_date", "counts", "id"]
+    df = df[[c for c in cols if c in df.columns]]
     df.to_sql("temp____", conn, if_exists="replace", index=False)
     cols = ", ".join(df.columns)
     conn.execute(f"INSERT OR REPLACE INTO {table}({cols}) SELECT {cols} FROM temp____")
@@ -433,6 +437,49 @@ def sync_austria_gt(conn):
     to_sql(conn, df, "infections")
 
 
+def sync_jhu(conn):
+    user = os.environ["USER"]
+    data_pth = f"{cluster.FS}/{user}/covid19/data/jhu_covid_data"
+    if not os.path.exists(data_pth):
+        check_call(
+            ["git", "clone", "https://github.com/CSSEGISandData/COVID-19.git", data_pth]
+        )
+    check_call(["git", "pull"], cwd=data_pth)
+    col_map = {
+        "Country/Region": "loc1",
+        "Province/State": "loc2",
+        "Last Update": "date",
+        "Last_Update": "date",
+        "Admin2": "loc3",
+        "Province_State": "loc2",
+        "Country_Region": "loc1",
+    }
+    for file in glob(
+        f"{data_pth}/csse_covid_19_data/csse_covid_19_daily_reports/*.csv"
+    ):
+        print(file)
+        try:
+            df = pandas.read_csv(file)
+            df = df.rename(columns=col_map)
+            df["date"] = pandas.to_datetime(df["date"])
+            df["id"] = "jhu_ground_truth"
+            df["date"] = df["date"].dt.date
+            to_sql(
+                conn,
+                df[~df["Confirmed"].isnull()].rename(columns={"Confirmed": "counts"}),
+                "infections",
+            )
+            to_sql(
+                conn,
+                df[~df["Deaths"].isnull()].rename(columns={"Deaths": "counts"}),
+                "deaths",
+            )
+        except Exception as e:
+            import pdb
+
+            pdb.set_trace()
+
+
 @click.command()
 @click.option(
     "--distribute",
@@ -444,6 +491,7 @@ def sync_forecasts(distribute=False):
     if not os.path.exists(DB):
         mk_db()
     conn = sqlite3.connect(DB)
+    sync_jhu(conn)
     sync_austria_gt(conn)
     sync_matts_forecasts(conn)
     sync_max_forecasts(conn)

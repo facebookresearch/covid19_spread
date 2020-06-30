@@ -35,7 +35,7 @@ class AustriaRecurring(recurring.Recurring):
         return f"python {os.path.realpath(__file__)} --kind ar"
 
     def module(self):
-        return "ar_temp"
+        return "ar"
 
     def update_data(self):
         # Avoid `git pull` since it could fail if the repo isn't in a clean state
