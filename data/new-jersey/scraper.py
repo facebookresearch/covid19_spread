@@ -5,6 +5,8 @@ import pandas
 from datetime import date, timedelta, datetime
 import os
 import numpy as np
+from subprocess import check_call, check_output
+from glob import glob
 
 
 URL = "https://services7.arcgis.com/Z0rixLlManVefxqY/arcgis/rest/services/DailyCaseCounts/FeatureServer/0/query?f=json&where=1%3D1&returnGeometry=false&spatialRel=esriSpatialRelIntersects&outFields=*&orderByFields=TOTAL_CASES%20desc"
@@ -12,11 +14,10 @@ URL = "https://services7.arcgis.com/Z0rixLlManVefxqY/arcgis/rest/services/DailyC
 UNK_URL = "https://services7.arcgis.com/Z0rixLlManVefxqY/arcgis/rest/services/survey123_cb9a6e9a53ae45f6b9509a23ecdf7bcf/FeatureServer/0/query?f=json&where=unknown_positives%20IS%20NOT%20NULL&returnGeometry=false&spatialRel=esriSpatialRelIntersects&outFields=*&orderByFields=EditDate%20desc&r"
 
 
-def get_latest(metric="cases"):
+def get_latest_with_nyt(metric="cases"):
     """
     metric: str - 'cases' or 'deaths
     """
-
     # Fetch newest data from NJ DOH ESRI API
     unk = requests.get(UNK_URL).json()
     unk = unk["features"][0]["attributes"]
@@ -24,7 +25,6 @@ def get_latest(metric="cases"):
     df = pandas.DataFrame([x["attributes"] for x in data["features"]])
     # unk_time = datetime.fromtimestamp(unk["_date"] / 1000)
     unk_time = pandas.to_datetime(unk["CreationDate"], unit="ms")
-
     # Use NYT for historical data.  They lag behind by 1 day.
     nyt = pandas.read_csv(
         "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv",
@@ -55,10 +55,65 @@ def get_latest(metric="cases"):
     return res
 
 
+def get_latest():
+    latest_pth = sorted(glob("data-202*.csv"))[-1]
+    df = pandas.read_csv(latest_pth, parse_dates=["Date"], index_col=0).set_index(
+        "Date"
+    )
+    # Fetch newest data from NJ DOH ESRI API
+    unk = requests.get(UNK_URL).json()
+    unk = unk["features"][0]["attributes"]
+    data = requests.get(URL).json()
+    new_df = pandas.DataFrame([x["attributes"] for x in data["features"]])
+    unk_time = pandas.to_datetime(unk["CreationDate"], unit="ms")
+
+    new_df = new_df.rename(
+        columns={
+            "COUNTY_LAB": "county",
+            "TOTAL_CASES": "cases",
+            "TOTAL_DEATHS": "deaths",
+        }
+    )
+    new_df["date"] = unk_time
+    new_df = new_df.pivot_table(index="date", values="cases", columns="county")
+    new_df.columns = [c.split(" County")[0] for c in new_df.columns]
+    new_df["Unknown"] = unk["unknown_positives"]
+    new_df.index = new_df.index.floor("1d")
+
+    diff_days = (new_df.index.item() - df.index.max()).components.days
+    assert (
+        diff_days <= 1
+    ), f"Gap in data of {diff_days} days!!! prev day is {df.index.max().date()}, current date is {new_df.index.item().date()}"
+
+    if new_df.index.item() > df.index.max():
+        new_df["Start day"] = df["Start day"].max() + 1
+        # Make sure we have all the same columns
+        assert len(new_df.columns.intersection(df.columns)) == len(
+            df.columns
+        ), f"Inconsistent columns!!!!"
+        df = pandas.concat([df, new_df])
+    # Make sure there aren't any missing values
+    assert not df.isnull().any().any(), "Found NaNs in data!!!!"
+    # Check there are no gaps or redundant days in the dataset
+    assert (pandas.Series(df.index).diff().dt.components.days[1:] == 1).all()
+    return df.rename_axis("Date").reset_index()
+
+
 def main():
+    check_call(["git", "pull"], cwd=os.path.dirname(os.path.realpath(__file__)))
     df = get_latest()
     date_fmt = df["Date"].max().date().strftime("%Y%m%d")
-    df.to_csv(f"data-{date_fmt}.csv")
+    fout = f"data-{date_fmt}.csv"
+    update = not os.path.exists(fout)
+    df.to_csv(fout)
+    if update:
+        check_call(["git", "add", fout])
+        check_call(
+            ["git", "commit", "-m", f'Updating NJ data for {df["Date"].max().date()}']
+        )
+        check_call(["git", "push"])
+    else:
+        print(f'Already have latest data for {df["Date"].max().date()}')
 
 
 if __name__ == "__main__":
