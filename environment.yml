@@ -29,3 +29,5 @@ dependencies:
     - pytest
     - nb2mail
     - bs4
+    - dropbox
+    - slackclient
