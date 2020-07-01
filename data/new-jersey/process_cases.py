@@ -93,24 +93,34 @@ def main(infile=None, counts_only=False):
         ts = ats[ix]
         ws = np.diff([0] + ws[ix].tolist())
         es = []
+        # assert np.cumsum(ws)[-1] == _ws[-1], (np.cumsum(ws), _ws[-1])
+        remove = 0
         for i in range(len(ts)):
             w = int(ws[i])
             if w <= 0:
+                remove -= w
                 continue
             tp = ts[i] - 1
             # print(tp, ts[i], w)
             _es = sorted(np.random.uniform(tp, ts[i], w))
+            assert len(_es) == w
             if len(es) > 0:
                 # print(es[-1], _es[0], _es[-1])
                 assert es[-1] < _es[0], (_es[0], es[-1])
             es += _es
             # es += [ts[i]] * w
+        # FIXME: we want to distribute this
+        # FIXME: doesn't work for smoothed version
+        if not smooth:
+            es = es[remove:]
         if len(es) > 0:
             # if county in cmap:
             #    county = cmap[county]
             kid = kreis_ids[county]
             _ts += es
             _ns += [kid] * len(es)
+            assert len(_ts) == len(_ns)
+            print(county, len(es))
 
     # assert len(_ts) == nevents, (len(_ts), nevents)
     knames = [None for _ in range(len(kreis_ids))]
