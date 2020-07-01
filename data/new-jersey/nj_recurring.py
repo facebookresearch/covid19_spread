@@ -15,6 +15,7 @@ import process_cases
 import tempfile
 import numpy as np
 from subprocess import check_call, check_output
+from glob import glob
 import sqlite3
 import pandas
 import sweep
@@ -37,11 +38,19 @@ class NJRecurring(recurring.Recurring):
 
     # Create the new timeseries.h5 dataset
     def update_data(self, env_vars={"SMOOTH": "1"}, counts_only=False):
-        df = get_latest()
+        repo = "git@github.com:fairinternal/covid19_spread.git"
+        user = os.environ["USER"]
+        data_dir = f"/checkpoint/{user}/covid19/data/nj_data"
+        if not os.path.exists(data_dir):
+            check_call(["git", "clone", repo, data_dir])
+        check_call(["git", "pull"], cwd=data_dir)
+        latest_pth = sorted(glob(f"{data_dir}/data/new-jersey/data-202*.csv"))[-1]
+        df = pandas.read_csv(latest_pth, parse_dates=["Date"])
         date_fmt = df["Date"].max().date().strftime("%Y%m%d")
         csv_file = f"{script_dir}/data-{date_fmt}.csv"
         df.to_csv(csv_file)
-        process_cases.main(csv_file, counts_only=counts_only)
+        with recurring.env_var(env_vars):
+            process_cases.main(csv_file, counts_only=counts_only)
 
     def latest_date(self):
         df = pandas.read_csv("data_cases.csv", index_col="region")
@@ -103,6 +112,12 @@ class NJSweepRecurring(NJRecurring):
                 shell=True,
             )
         return base_dir
+
+    def schedule(self) -> str:
+        """Cron schedule"""
+        # run every 5 minutes, offset by 2 minutes.  This avoids conflicts
+        # with the AR data prep pipeline
+        return "2-59/5 * * * *"
 
     def command(self):
         return super().command() + f" --kind sweep"
