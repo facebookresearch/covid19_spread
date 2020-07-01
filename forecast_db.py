@@ -166,6 +166,8 @@ def get_ihme_file(dir):
     This function tries to resolve these inconsistencies.
     """
     csvs = glob(os.path.join(dir, "*/*.csv"))
+    if any(["Best_mask_hospitalization_all_locs.csv" in f for f in csvs]):
+        csvs = [f for f in csvs if "Best_mask_hospitalization_all_locs.csv" in f]
     if len(csvs) > 1:
         csvs = [f for f in csvs if "hospitalization" in os.path.basename(f).lower()]
     if len(csvs) == 1:
