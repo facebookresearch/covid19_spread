@@ -56,7 +56,8 @@ def get_latest_with_nyt(metric="cases"):
 
 
 def get_latest():
-    latest_pth = sorted(glob("data-202*.csv"))[-1]
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    latest_pth = sorted(glob(f"{script_dir}/data-202*.csv"))[-1]
     df = pandas.read_csv(latest_pth, parse_dates=["Date"], index_col=0).set_index(
         "Date"
     )
@@ -100,10 +101,11 @@ def get_latest():
 
 
 def main():
-    check_call(["git", "pull"], cwd=os.path.dirname(os.path.realpath(__file__)))
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    check_call(["git", "pull"], cwd=script_dir)
     df = get_latest()
     date_fmt = df["Date"].max().date().strftime("%Y%m%d")
-    fout = f"data-{date_fmt}.csv"
+    fout = os.path.join(script_dir, f"data-{date_fmt}.csv")
     update = not os.path.exists(fout)
     df.to_csv(fout)
     if update:
