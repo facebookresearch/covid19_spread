@@ -17,6 +17,7 @@ from subprocess import check_call, check_output
 import sqlite3
 import process_cases
 import pandas
+from lib.slack import get_client as get_slack_client
 
 
 MAIL_TO = ["mattle@fb.com", "lematt1991@gmail.com"]
@@ -49,6 +50,9 @@ class NYARRecurring(recurring.Recurring):
         return pandas.to_datetime(df.columns).max().date()
 
     def launch_job(self, **kwargs):
+        client = get_slack_client()
+        msg = f"*New Data Available for New York: {self.latest_date()}*"
+        client.chat_postMessage(channel="#new-data", text=msg)
         return super().launch_job(module="ar", cv_config="ny", **kwargs)
 
 
