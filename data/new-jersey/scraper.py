@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 
+import sys
+import os
+
+script_dir = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.join(script_dir, "../.."))
 import requests
 import pandas
 from datetime import date, timedelta, datetime
-import os
 import numpy as np
 from subprocess import check_call, check_output
 from glob import glob
+from lib.slack import get_client as get_slack_client
 
 
 URL = "https://services7.arcgis.com/Z0rixLlManVefxqY/arcgis/rest/services/DailyCaseCounts/FeatureServer/0/query?f=json&where=1%3D1&returnGeometry=false&spatialRel=esriSpatialRelIntersects&outFields=*&orderByFields=TOTAL_CASES%20desc"
@@ -101,6 +106,7 @@ def get_latest():
 
 
 def main():
+    print(f"Checking for new data at {datetime.now()}")
     script_dir = os.path.dirname(os.path.realpath(__file__))
     check_call(["git", "pull"], cwd=script_dir)
     df = get_latest()
@@ -109,11 +115,15 @@ def main():
     update = not os.path.exists(fout)
     df.to_csv(fout)
     if update:
-        check_call(["git", "add", fout])
+        client = get_slack_client()
+        msg = f'*New Data Available for New Jersey: {df["Date"].max().date()}*'
+        client.chat_postMessage(channel="#new-data", text=msg)
+        check_call(["git", "add", fout], cwd=script_dir)
         check_call(
-            ["git", "commit", "-m", f'Updating NJ data for {df["Date"].max().date()}']
+            ["git", "commit", "-m", f'Updating NJ data for {df["Date"].max().date()}'],
+            cwd=script_dir,
         )
-        check_call(["git", "push"])
+        check_call(["git", "push"], cwd=script_dir)
     else:
         print(f'Already have latest data for {df["Date"].max().date()}')
 
