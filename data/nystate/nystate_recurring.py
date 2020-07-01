@@ -39,6 +39,9 @@ class NYARRecurring(recurring.Recurring):
     def module(self):
         return "ar"
 
+    def schedule(self):
+        return "2-59/5 * * * *"
+
     # Create the new timeseries.h5 dataset
     def update_data(self):
         URL = "https://health.data.ny.gov/api/views/xdss-u53e/rows.csv?accessType=DOWNLOAD"

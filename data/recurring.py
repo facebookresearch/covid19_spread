@@ -127,7 +127,7 @@ class Recurring:
                     f"source {home}/.bashrc",
                     conda_env,
                     f"cd {self.script_dir}",
-                    self.command(),
+                    "slack-on-fail " + self.command(),
                 ]
                 cmd = [c for c in cmd if c is not None]
                 subject = f"ERROR in recurring sweep: {self.get_id()}"
@@ -135,11 +135,9 @@ class Recurring:
                     f'PATH="/usr/local/bin:/private/home/{user}/bin:/usr/sbin:$PATH"',
                     "__PROD__=1",
                     f"USER={user}",
-                    f"MAIL_TO={user}@fb.com",
-                    f'SUBJECT="{subject}"',
                 ]
                 print(
-                    f'{schedule} {" ".join(envs)} email-on-fail bash -c "{" && ".join(cmd)}" >> {stdoutfile} 2>> {stderrfile}',
+                    f'{schedule} {" ".join(envs)} bash -c "{" && ".join(cmd)} >> {stdoutfile} 2>> {stderrfile}"',
                     file=fout,
                 )
             check_call(["crontab", tfile.name])
