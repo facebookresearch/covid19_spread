@@ -98,6 +98,7 @@ def mk_db():
     conn.execute("CREATE INDEX loc_deaths_idx ON deaths(loc1, loc2, loc3);")
     conn.execute("CREATE INDEX id_deaths_idx ON deaths(id);")
     conn.execute("CREATE INDEX forecast_date_deaths_idx ON deaths(forecast_date);")
+    conn.execute("CREATE TABLE gt_mapping (id text, gt text);")
 
 
 @click.group()
@@ -114,6 +115,29 @@ def to_sql(conn, df, table):
     df.to_sql("temp____", conn, if_exists="replace", index=False)
     cols = ", ".join(df.columns)
     conn.execute(f"INSERT OR REPLACE INTO {table}({cols}) SELECT {cols} FROM temp____")
+    conn.commit()
+
+
+def create_gt_mapping(conn):
+    df = pandas.DataFrame(
+        [
+            {"id": "yyg", "gt": "jhu_ground_truth"},
+            {"id": "mit-delphi", "gt": "jhu_ground_truth"},
+            {"id": "cv_ar", "gt": "nyt_ground_truth"},
+            {"id": "cv_ar_daily", "gt": "nyt_ground_truth"},
+            {"id": "new-jersey_fast", "gt": "nyt_ground_truth"},
+            {"id": "new-jersey_slow", "gt": "nyt_ground_truth"},
+            {"id": "nystate_fast", "gt": "nyt_ground_truth"},
+            {"id": "nystate_slow", "gt": "nyt_ground_truth"},
+            {"id": "los_alamos", "gt": "jhu_ground_truth"},
+        ]
+    )
+    df.to_sql("temp___", conn, if_exists="replace", index=False)
+    cols = "id, gt"
+    conn.execute(
+        f"INSERT OR REPLACE INTO gt_mapping({cols}) SELECT {cols} FROM temp___"
+    )
+    conn.commit()
 
 
 def sync_max_forecasts(conn):
