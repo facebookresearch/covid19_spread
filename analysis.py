@@ -59,7 +59,7 @@ def load_backfill(
     return forecasts, configs
 
 
-def plot_metric(mets, other, title, metric, height=350, weight=450):
+def plot_metric(mets, others, days, title, metric, height=350, weight=450):
     source = ColumnDataSource(mets)
     p = figure(
         x_axis_type="datetime",
@@ -69,6 +69,7 @@ def plot_metric(mets, other, title, metric, height=350, weight=450):
         tools="save,hover",
         x_axis_label="Day",
         y_axis_label=metric,
+        tooltips=[("Model", "$name"), (metric, "$y")],
     )
     p.extra_y_ranges = {
         "counts": Range1d(start=mets["counts"].min(), end=mets["counts"].max())
@@ -81,7 +82,8 @@ def plot_metric(mets, other, title, metric, height=350, weight=450):
         source=source,
         line_width=3,
         color="black",
-        legend_label="FAIR-AR",
+        legend_label="β-AR",
+        name="β-AR",
     )
     l_na = p.line(
         x="day",
@@ -90,18 +92,30 @@ def plot_metric(mets, other, title, metric, height=350, weight=450):
         line_width=3,
         color="#009ed7",
         legend_label="Naive",
+        name="Naive",
         line_dash="dotted",
     )
-    # l_ot = p.line(x='day', y=other, source=source, line_width=3, color='#009ed7', legend_label=other)
-    p.line(
-        x="day",
-        y="counts",
-        source=source,
-        line_width=1,
-        color="LightGray",
-        line_alpha=0.2,
-        y_range_name="counts",
-    )
+    l_others = []
+    for k, v in others.items():
+        l_ot = p.line(
+            x="day",
+            y=k,
+            source=source,
+            line_width=3,
+            color=v[1],
+            line_dash=v[2],
+            legend_label=k,
+            name=k,
+        )
+    # p.line(
+    #   x="day",
+    #   y="counts",
+    #   source=source,
+    #   line_width=1,
+    #   color="LightGray",
+    #    line_alpha=0.2,
+    #    y_range_name="counts",
+    # )
     band = Band(
         base="day",
         upper="counts",
@@ -111,8 +125,8 @@ def plot_metric(mets, other, title, metric, height=350, weight=450):
         fill_color="LightGray",
         y_range_name="counts",
     )
-    p.add_layout(band)
-    p.y_range.renderers = [l_ar, l_na]
+    # p.add_layout(band)
+    p.y_range.renderers = [l_ar, l_na] + l_others
 
     p.legend.location = "top_left"
     p.output_backend = "svg"
@@ -125,31 +139,43 @@ def plot_metric(mets, other, title, metric, height=350, weight=450):
     return p
 
 
-def plot_metric_for_dates(fs, df_gt, dates, other, model, metric="MAE", state=None):
+def plot_metric_for_dates(
+    fs, df_gt, dates, metric="MAE", subregion=None, others={}, f_aggr=None
+):
     ps = []
     for date in dates:
-        # df_other = load_predictions(f'/checkpoint/mattle/covid19/csvs/deaths/{model}/counts_{date}.csv').iloc[1:]
+        if not os.path.exists(fs[date]):
+            continue
         df_ar = pd.read_csv(fs[date], index_col="date", parse_dates=["date"])
-        if state is not None:
-            # df_other = df_other[state].to_frame()
-            df_ar = df_ar[state].to_frame()
-            df_gt = df_gt[state].to_frame()
+        df_others = {
+            k: pd.read_csv(v[0].format(date), index_col="date", parse_dates=["date"])
+            for k, v in others.items()
+        }
+        if f_aggr is not None:
+            df_ar = f_aggr(df_ar)
+        if subregion is not None:
+            df_ar = df_ar[subregion].to_frame()
+            df_gt = df_gt[subregion].to_frame()
+            for k, v in df_others.items():
+                df_others[k] = v[subregion].to_frame()
 
-        # met_other = _compute_metrics(df_gt, df_other)
         met_ar = _compute_metrics(df_gt, df_ar)
-        # display(met_ar)
-        source = pd.DataFrame(
-            {
-                "Naive": met_ar.loc[f"{metric}_NAIVE"],
-                # other: met_other.loc[metric],
-                "AR": met_ar.loc[metric],
-            }
-        )
+        days = met_ar.columns
+        mets = {
+            "Naive": met_ar.loc[f"{metric}_NAIVE"],
+            "AR": met_ar.loc[metric],
+        }
+        # display(df_ar)
+        for k, v in df_others.items():
+            # display(v)
+            # print(_compute_metrics(df_gt, v))
+            mets[k] = _compute_metrics(df_gt, v).loc[metric][days]
+        source = pd.DataFrame(mets)
+        # display(source)
         source.index.set_names("day", inplace=True)
         source["counts"] = df_gt.loc[source.index].sum(axis=1)
 
-        region = "US" if state is None else state
-        p = plot_metric(source, other, f"{region} {date}", metric)
+        p = plot_metric(source, others, days, f"{date}", metric)
         ps.append(p)
     return ps
 
