@@ -42,8 +42,8 @@ def main(infile=None, counts_only=False):
     else:
         df = get_latest()[usecols]
 
-    window = 7
     smooth = "SMOOTH" in os.environ and os.environ["SMOOTH"] == "1"
+    window = 7 if smooth else 1
     print("Smoothing data =", smooth)
 
     if smooth:
@@ -111,6 +111,7 @@ def main(infile=None, counts_only=False):
             kid = kreis_ids[county]
             _ts += es
             _ns += [kid] * len(es)
+            print(county, len(es))
 
     # assert len(_ts) == nevents, (len(_ts), nevents)
     knames = [None for _ in range(len(kreis_ids))]
