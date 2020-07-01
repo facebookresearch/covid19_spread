@@ -45,12 +45,8 @@ class NJRecurring(recurring.Recurring):
             check_call(["git", "clone", repo, data_dir])
         check_call(["git", "pull"], cwd=data_dir)
         latest_pth = sorted(glob(f"{data_dir}/data/new-jersey/data-202*.csv"))[-1]
-        df = pandas.read_csv(latest_pth, parse_dates=["Date"])
-        date_fmt = df["Date"].max().date().strftime("%Y%m%d")
-        csv_file = f"{script_dir}/data-{date_fmt}.csv"
-        df.to_csv(csv_file)
         with recurring.env_var(env_vars):
-            process_cases.main(csv_file, counts_only=counts_only)
+            process_cases.main(latest_pth, counts_only=counts_only)
 
     def latest_date(self):
         df = pandas.read_csv("data_cases.csv", index_col="region")
