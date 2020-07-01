@@ -24,6 +24,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from nb2mail import MailExporter
 import socket
+from lib.slack import get_client as get_slack_client
 
 
 license_txt = (
@@ -77,22 +78,12 @@ def submit(pth: str, module: str, region: str, email: bool = True):
                 print("Not sending email...")
                 return
 
-            if shutil.which("pushover"):
-                user = os.environ["USER"]
-                cred = json.load(open(f"/private/home/{user}/.credentials.json"))[
-                    "pushover"
-                ]
-                msg = f"[covid19-forecast] {region} - {module} forecast for {basedate}"
-                check_call(
-                    [
-                        "pushover",
-                        "--api-token",
-                        cred["api_key"],
-                        "--user-key",
-                        cred["user_key"],
-                        msg,
-                    ]
-                )
+            try:
+                client = get_slack_client()
+                msg = f"*Forecast for {region} - {module} is ready: {basedate}*"
+                client.chat_postMessage(channel="#sweep-updates", text=msg)
+            except Exception:
+                pass
 
             # Run the notebook for this forecast
             notebook = f"{script_dir}/notebooks/forecast_template.ipynb"
