@@ -109,6 +109,10 @@ class NJSweepRecurring(NJRecurring):
             )
         return base_dir
 
+    def update_data(self):
+        super().update_data(env_vars={"SMOOTH": "1"})
+        super().update_data(env_vars={})
+
     def schedule(self) -> str:
         """Cron schedule"""
         # run every 5 minutes, offset by 2 minutes.  This avoids conflicts
