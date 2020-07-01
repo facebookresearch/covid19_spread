@@ -452,8 +452,16 @@ def sync_matts_forecasts(conn):
 
 
 def sync_austria_gt(conn):
-    url = "https://raw.githubusercontent.com/fairinternal/covid19_spread/master/data/austria/data.csv?token=ADEIXC74R7VYK7KD6JOUJH267M7H4"
-    df = pandas.read_csv(url, index_col="region").transpose()
+    user = os.environ["USER"]
+    data_dir = f"/checkpoint/{user}/covid19/data/covid19_spread"
+    if not os.path.exists(data_dir):
+        check_call(
+            ["git", "clone", "git@github.com:fairinternal/covid19_spread.git", data_dir]
+        )
+    check_call(["git", "pull"], cwd=data_dir)
+    df = pandas.read_csv(
+        f"{data_dir}/data/austria/data.csv", index_col="region"
+    ).transpose()
     df.index = pandas.to_datetime(df.index)
     df.index.name = "date"
     df = df.reset_index()
