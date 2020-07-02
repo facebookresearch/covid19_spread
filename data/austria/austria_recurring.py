@@ -12,6 +12,7 @@ import cv
 import sweep
 import argparse
 import pandas
+from subprocess import check_call
 
 
 MAIL_TO = ["mattle@fb.com", "lematt1991@gmail.com"]
@@ -38,11 +39,13 @@ class AustriaRecurring(recurring.Recurring):
         return "ar"
 
     def update_data(self):
-        # Avoid `git pull` since it could fail if the repo isn't in a clean state
-        df = pandas.read_csv(
-            "https://raw.githubusercontent.com/fairinternal/covid19_spread/master/data/austria/data.csv?token=ADEIXC5LV6KSB7ZAIR2Z5RS67ISSU",
-            index_col="region",
-        )
+        user = os.environ["USER"]
+        data_dir = f"/checkpoint/{user}/covid19/data/covid19_spread"
+        repo = "git@github.com:fairinternal/covid19_spread.git"
+        if not os.path.exists(data_dir):
+            check_call(["git", "clone", repo, data_dir])
+        check_call(["git", "pull"], cwd=data_dir)
+        df = pandas.read_csv(f"{data_dir}/data/austria/data.csv", index_col="region")
         df = df.cummax(axis=1)
         df.to_csv("data.csv", index_label="region")
 
