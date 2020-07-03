@@ -75,8 +75,9 @@ mae-nj:
 	@echo "\n--- MAE Fast ---"
 	python3 mae.py data/new-jersey/timeseries.h5 forecasts/new-jersey/forecast $(DATE) _fast
 
-data-nj: data/new-jersey/nj-official-$(shell date "+%m%d" -d $(DATE)).csv
-	cd data/new-jersey && make data-$(DATE).csv && make timeseries.h5 && make timeseries.h5 SMOOTH=1
+data-nj: #data/new-jersey/nj-official-$(shell date "+%m%d" -d $(DATE)).csv
+	# cd data/new-jersey && make data-$(DATE).csv && make timeseries.h5 && make timeseries.h5 SMOOTH=1
+	cd data/new-jersey && python3 scraper.py && make timeseries.h5 && make timeseries.h5 SMOOTH=1
 
 # --- NY State ---
 
