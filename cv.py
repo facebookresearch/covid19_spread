@@ -29,6 +29,7 @@ from lib import cluster
 import sys
 import traceback
 from lib.slurm_pool_executor import SlurmPoolExecutor
+from analysis import export_notebook
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
 
@@ -174,19 +175,16 @@ class CV:
         self.tb_writer = SummaryWriter(logdir=basedir)
 
 
-def run_cvs(module: str, cfgs, prefix="", basedate=None):
-    for cfg, basedir in cfgs:
-        try:
-            run_cv(module, basedir, cfg, prefix, basedate)
-        except KeyboardInterrupt:
-            sys.exit(1)
-        except Exception as e:
-            print(f"Job {basedir} failed")
-            print(e)
-            traceback.print_exc()
-
-
 def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=None):
+    try:
+        _run_cv(module, basedir, cfg, prefix, basedate)
+    except Exception as e:
+        print(f"Job {basedir} failed")
+        print(e)
+        traceback.print_exc()
+
+
+def _run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=None):
     """Runs cross validaiton for one set of hyperaparmeters"""
     try:
         basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
@@ -360,9 +358,26 @@ def run_best(config, module, remote, basedir, basedate=None, mail_to=None):
         launcher(tags, module, pth, cfg, "final_model_")
 
 
+def run_notebook(config, module, basedir):
+    experiment_id = "/".join(basedir.split("/")[-2:])
+    print("Running noteook for ", experiment_id)
+    os.environ["EXPERIMENT_ID"] = experiment_id
+    os.environ["EXPERIMENT_MOD"] = module
+    export_notebook(config["notebook"])
+
+
 @click.group(cls=DefaultGroup, default_command="cv")
 def cli():
     pass
+
+
+@cli.command()
+@click.argument("config_pth")
+@click.argument("sweep_dir")
+@click.argument("module")
+def notebook(config_pth, sweep_dir, module):
+    cfg = load_config(config_pth)
+    run_notebook(cfg, module, sweep_dir)
 
 
 @cli.command()
@@ -535,12 +550,17 @@ def backfill(
         dates = pd.date_range(
             start=start_date, end=gt.index.max(), freq=f"{period}D", closed="left"
         )
-
-    print(dates)
-    now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    basedir = (
-        f'{cluster.FS}/{os.environ["USER"]}/covid19/forecasts/{config["region"]}/{now}'
+    print(
+        "Running backfill for "
+        + ", ".join(map(lambda x: x.strftime("%Y-%m-%d"), dates))
     )
+
+    # setup experiment environment
+    now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    experiment_id = f'{config["region"]}/{now}'
+    basedir = f'{cluster.FS}/{os.environ["USER"]}/covid19/forecasts/{experiment_id}'
+
+    # setup executor
     extra_params = config[module].get("resources", {})
     executor = mk_executor(f'backfill_{config["region"]}', basedir, extra_params)
     print(f"Backfilling in {basedir}")
