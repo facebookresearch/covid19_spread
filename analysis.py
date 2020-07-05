@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import yaml
 import json
+import nbformat
 
 from pathlib import Path
 
@@ -25,6 +26,10 @@ from bokeh.models import (
 from bokeh.palettes import Blues
 from bokeh.plotting import figure, output_file, ColumnDataSource
 from bokeh.transform import factor_cmap
+
+from nbconvert import HTMLExporter
+from nbconvert.preprocessors import ExecutePreprocessor
+
 
 # lib
 from metrics import _compute_metrics
@@ -59,6 +64,22 @@ def load_backfill(
     return forecasts, configs
 
 
+def export_notebook(nb_path, fout="notebook.html"):
+    with open(nb_path, "r") as fin:
+        nb = nbformat.read(fin, as_version=4)
+
+    # exectute notebook
+    ep = ExecutePreprocessor(timeout=600, kernel_name="python3")
+    ep.preprocess(nb, {"metadata": {"path": "notebooks/"}})
+
+    html_exporter = HTMLExporter()
+    html_exporter.template_file = "basic"
+    (body, resources) = html_exporter.from_notebook_node(nb)
+
+    with open(fout, "w") as _fout:
+        _fout.write(body)
+
+
 def plot_metric(mets, others, days, title, metric, height=350, weight=450):
     source = ColumnDataSource(mets)
     p = figure(
@@ -69,7 +90,7 @@ def plot_metric(mets, others, days, title, metric, height=350, weight=450):
         tools="save,hover",
         x_axis_label="Day",
         y_axis_label=metric,
-        tooltips=[("Model", "$name"), (metric, "$y")],
+        tooltips=[("Model", "$name"), (metric, "$y{0.0}")],
     )
     p.extra_y_ranges = {
         "counts": Range1d(start=mets["counts"].min(), end=mets["counts"].max())
@@ -321,4 +342,45 @@ def plot_prediction_interval(mean, lower, upper, df_gt, region, p, backend="svg"
     p.legend.location = "bottom_left"
     p.add_layout(band)
     p.output_backend = "svg"
+    return p
+
+
+def plot_error(df, gt, title, regions=None, height=400, width=600, backend="svg"):
+    """
+    Plot error of predictions per region over time
+
+    Params
+    ======
+    - df: predictions (DataFrame date x region)
+    - gt: ground truth (DataFrame date x region)
+    - regions: subset of regions to plot (optional, List)
+    - height: height of plot
+    - width: width of plot
+    - backend: bokeh plotting backend
+    """
+    ix = np.intersect1d(pd.to_datetime(df.index), pd.to_datetime(gt.index))
+    source = ColumnDataSource(df.loc[ix] - gt.loc[ix])
+    p = figure(
+        x_axis_type="datetime",
+        plot_height=height,
+        plot_width=width,
+        title=title,
+        tools="save,hover",
+        x_axis_label="Day",
+        y_axis_label="Error",
+        tooltips=[("State", "$name"), ("Error", "$y")],
+    )
+    if regions is None:
+        regions = df.columns
+    for region in regions:
+        p.line(
+            x="date",
+            y=region,
+            source=source,
+            line_width=3,
+            color="#009ed7",
+            alpha=0.5,
+            name=region,
+        )
+    p.output_backend = backend
     return p
