@@ -11,6 +11,7 @@ from pathlib import Path
 
 # bokeh
 from bokeh.io import export_png, export_svgs
+from bokeh.io import show as bokeh_show
 from bokeh.palettes import Blues3 as palette
 from bokeh.models import (
     HoverTool,
@@ -27,9 +28,10 @@ from bokeh.palettes import Blues
 from bokeh.plotting import figure, output_file, ColumnDataSource
 from bokeh.transform import factor_cmap
 
+# Jupyter
 from nbconvert import HTMLExporter
 from nbconvert.preprocessors import ExecutePreprocessor
-
+from IPython.display import Image
 
 # lib
 from metrics import _compute_metrics
@@ -64,7 +66,8 @@ def load_backfill(
     return forecasts, configs
 
 
-def export_notebook(nb_path, fout="notebook.html"):
+def export_notebook(nb_path, fout="notebook.html", no_input=False, no_prompt=False):
+    os.environ["BOKEH_STATIC"] = "1"
     with open(nb_path, "r") as fin:
         nb = nbformat.read(fin, as_version=4)
 
@@ -74,10 +77,20 @@ def export_notebook(nb_path, fout="notebook.html"):
 
     html_exporter = HTMLExporter()
     html_exporter.template_file = "basic"
+    html_exporter.exclude_input = no_input
+    html_exporter.exclude_input_prompt = no_prompt
     (body, resources) = html_exporter.from_notebook_node(nb)
 
     with open(fout, "w") as _fout:
         _fout.write(body)
+
+
+def show(plot, path=None):
+    if path is not None and os.environ.get("BOKEH_STATIC", 0) == "1":
+        export_png(plot, filename=path)
+        return Image(path)
+    else:
+        return bokeh_show(plot)
 
 
 def plot_metric(mets, others, days, title, metric, height=350, weight=450):

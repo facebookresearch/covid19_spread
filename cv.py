@@ -363,10 +363,10 @@ def run_best(config, module, remote, basedir, basedate=None, mail_to=None):
 
 def run_notebook(config, module, basedir):
     experiment_id = "/".join(basedir.split("/")[-2:])
-    print("Running noteook for ", experiment_id)
+    print("Running noteook for", experiment_id)
     os.environ["EXPERIMENT_ID"] = experiment_id
     os.environ["EXPERIMENT_MOD"] = module
-    export_notebook(config["notebook"])
+    export_notebook(config["notebook"], no_input=True, no_prompt=True)
 
 
 @click.group(cls=DefaultGroup, default_command="cv")
