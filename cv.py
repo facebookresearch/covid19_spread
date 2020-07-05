@@ -1,35 +1,38 @@
 #!/usr/bin/env python3
 
+import copy
+import click
 import importlib
+import itertools
+import json
 import numpy as np
 import pandas as pd
 import os
+import random
+import shutil
+import sys
+import submitit
+import tempfile
 import torch as th
+import traceback
 import yaml
 from argparse import Namespace
+from collections import namedtuple
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
-import common
-import metrics
-import itertools
-import copy
-import random
-import submitit
 from functools import partial
 from glob import glob
-from timelord import snapshot
-from collections import namedtuple
-import click
-from lib.click_lib import DefaultGroup, OptionNArgs
-import tempfile
-import shutil
-import json
+from typing import Dict, Any, List, Optional, Tuple
 from tensorboardX import SummaryWriter
-from lib import cluster
-import sys
-import traceback
-from lib.slurm_pool_executor import SlurmPoolExecutor
+
+import common
+import metrics
 from analysis import export_notebook
+from lib import cluster
+from lib.click_lib import DefaultGroup, OptionNArgs
+from lib.slurm_pool_executor import SlurmPoolExecutor
+
+# FIXME: move snapshot to lib
+from timelord import snapshot
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
 
