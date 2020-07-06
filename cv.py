@@ -23,7 +23,7 @@ from functools import partial
 from glob import glob
 from typing import Dict, Any, List, Optional, Tuple
 from tensorboardX import SummaryWriter
-
+from contextlib import nullcontext
 import common
 import metrics
 from analysis import export_notebook
@@ -331,7 +331,7 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
     mod = importlib.import_module(module).CV_CLS()
     best_runs = mod.model_selection(basedir)
 
-    if executor is None:
+    if remote and executor is None:
         executor = mk_executor(
             "model_selection", basedir, config[module].get("resources", {})
         )
@@ -368,7 +368,7 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
         if remote:
             launcher = partial(executor.submit, run_cv_and_copy_results)
 
-        with executor.set_folder(pth):
+        with executor.set_folder(pth) if remote else nullcontext():
             launcher(tags, module, pth, cfg, "final_model_")
 
 
