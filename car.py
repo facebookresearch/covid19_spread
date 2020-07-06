@@ -8,33 +8,47 @@ import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.distributions import NegativeBinomial, Normal, Poisson, LogNormal
+from torch.distributions import NegativeBinomial, Normal, Poisson
 import load
 import cv
-from wavenet import Wavenet
-from coronanet import CoronaNet
 
 
 class BetaLatent(nn.Module):
     def __init__(self, regions, dim, layers, tmax, time_features):
+        """
+        Params
+        ======
+        - regions: names of regions (list)
+        - dim: dimensionality of hidden vector (int)
+        - layer: number of RNN layers (int)
+        - tmax: maximum observation time (float)
+        - time_features: tensor of temporal features (time x region x features)
+        """
         super(BetaLatent, self).__init__()
         self.M = len(regions)
         self.tmax = tmax
-        # self.fpos = F.softplus
         self.fpos = th.sigmoid
         self.time_features = time_features
         self.dim = dim
+        self.weekday = (
+            th.cat(
+                [th.eye(7).float() for _ in range(int(np.ceil((tmax + 21) / 7)))], dim=1
+            )
+            .t()
+            .cuda()
+        )
+        print(self.weekday.size())
         input_dim = 1
 
-        self.h0 = nn.Parameter(th.zeros(layers, self.M, dim))
-        # self.h0 = nn.Parameter(th.zeros(layers, 1, dim))
         if time_features is not None:
             self.w_time = nn.Linear(time_features.size(2), dim)
             nn.init.xavier_normal_(self.w_time.weight)
-            # input_dim += dim
             input_dim += time_features.size(2)
+
+        # initialize parameters
+        self.h0 = nn.Parameter(th.zeros(layers, self.M, dim))
         self.rnn = nn.RNN(input_dim, self.dim, layers)
-        self.v = nn.Linear(self.dim, 1, bias=False)
+        self.v = nn.Linear(self.dim, 1, bias=True)
 
         # initialize weights
         nn.init.xavier_normal_(self.v.weight)
@@ -42,17 +56,30 @@ class BetaLatent(nn.Module):
             if p.dim() == 2:
                 nn.init.xavier_normal_(p)
 
-    def forward(self, t):
-        t = t.unsqueeze(-1).unsqueeze(-1).float().div_(self.tmax)
+    def forward(self, t, ys):
+        _ys = th.zeros_like(ys)
+        # _ys.narrow(1, 1, ys.size(1) - 1).copy_(ys[:, 1:] - ys[:, :-1])
+        _ys.narrow(1, 1, ys.size(1) - 1).copy_(
+            th.log(ys[:, 1:] + 1) - th.log(ys[:, :-1] + 1)
+        )
+        # _ys.narrow(1, 1, ys.size(1) - 1).copy_(ys[:, 1:] / ys[:, :-1].clamp(min=1))
+        t = t.unsqueeze(-1).unsqueeze(-1).float()  # .div_(self.tmax)
         t = t.expand(t.size(0), self.M, 1)
+        x = [
+            t,
+            # self.weekday.narrow(0, 0, t.size(1))
+            # .unsqueeze(0)
+            # .expand(t.size(0), t.size(1), 7),
+            _ys.t().unsqueeze(-1),
+        ]
+        x = [t]
         if self.time_features is not None:
-            # f = self.w_time(self.time_features).narrow(0, 0, t.size(0))
             f = th.zeros(t.size(0), self.M, self.time_features.size(2)).to(t.device)
+            f.copy_(self.time_features.narrow(0, -1, 1))
             f.narrow(0, 0, self.time_features.size(0)).copy_(self.time_features)
-            # f = self.time_features.narrow(0, 0, t.size(0))
-            # f = f.unsqueeze(0).expand(t.size(0), self.M, self.dim)
-            t = th.cat([t, f], dim=2)
-        ht, hn = self.rnn(t, self.h0)
+            x.append(f)
+        x = th.cat(x, dim=2)
+        ht, hn = self.rnn(x, self.h0)
         beta = self.fpos(self.v(ht))
         # beta = beta.expand(beta.size(0), self.M, 1)
         return beta.squeeze().t()
@@ -62,18 +89,17 @@ class BetaLatent(nn.Module):
         return f"{self.rnn}"
 
 
-class CAR(nn.Module):
+class BAR(nn.Module):
     def __init__(self, regions, beta, window, dist, graph, features):
-        super(CAR, self).__init__()
+        super(BAR, self).__init__()
         self.regions = regions
         self.M = len(regions)
         self.beta = beta
         self.features = features
         self.window = window
-        self.z = nn.Parameter(th.ones((1, window)).fill_(0))
+        self.z = nn.Parameter(th.zeros((1, window)).fill_(1))
         # self.z = nn.Parameter(th.ones((self.M, window)).fill_(1))
-        self.alphas = nn.Parameter(th.ones((self.M, self.M)).fill_(0))
-        # self.alphas = nn.Parameter(th.ones((self.M, self.M)).fill_(1.0 / self.M))
+        self._alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(-5))
         self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(8))
         self._dist = dist
         self.graph = graph
@@ -84,26 +110,30 @@ class CAR(nn.Module):
             self.w_feat = nn.Linear(features.size(1), 1)
             nn.init.xavier_normal_(self.w_feat.weight)
 
+    # nn.init.xavier_normal_(self.z)
+    # nn.init.xavier_normal_(self._alphas)
+
     def dist(self, scores):
         if self._dist == "poisson":
             return Poisson(scores)
         elif self._dist == "nb":
             return NegativeBinomial(scores, logits=self.nu)
         elif self._dist == "normal":
-            return Normal(scores, F.softplus(self.nu))
+            # return Normal(scores, th.exp(self.nu))
+            return Normal(scores, 1)
         else:
             raise RuntimeError(f"Unknown loss")
 
-    def metapopulation_weights(self):
+    def alphas(self):
+        alphas = self._alphas
         with th.no_grad():
-            self.alphas.fill_diagonal_(-1e10)
-        #    self.alphas.fill_diagonal_(0)
-        # W = F.softmax(self.alphas, dim=1)
-        W = th.sigmoid(self.alphas)
-        # W = th.tanh(self.alphas)
+            alphas.fill_diagonal_(-1e10)
+        return alphas
+
+    def metapopulation_weights(self):
+        alphas = self.alphas()
+        W = th.sigmoid(alphas)
         # W = F.softplus(self.alphas)
-        # W = self.alphas
-        # W = W / W.sum()
         if self.graph is not None:
             W = W * self.graph
         return W
@@ -114,7 +144,6 @@ class CAR(nn.Module):
         length = ys.size(1) - self.window + 1
 
         ws = F.softplus(self.z)
-        # ws = th.sigmoid(self.z)
         ws = ws.expand(self.M, self.window)
         # self-correlation
         Z = F.conv1d(ys.unsqueeze(0), ws.unsqueeze(1), groups=self.M)
@@ -128,12 +157,13 @@ class CAR(nn.Module):
         # Ys = th.bmm(W, Ys).mean(dim=0)
         with th.no_grad():
             self.train_stats = (Z.sum().item(), Ys.sum().item())
+
         # beta evolution
+        beta = self.beta(t, ys)
         ys = ys.narrow(1, offset, ys.size(1) - offset)
-        beta = self.beta(t)
         beta = beta.narrow(-1, -ys.size(1), ys.size(1))
         if self.features is not None:
-            fail
+            Ys = Ys + F.softplus(self.w_feat(self.features))
         Ys = beta * (Z + Ys)
 
         assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
@@ -157,13 +187,11 @@ class CAR(nn.Module):
         return preds
 
     def __repr__(self):
-        return f"CAR({self.window}) | {self.beta} | EX ({self.train_stats[0]:.1e}, {self.train_stats[1]:.1e})"
+        return f"bAR({self.window}) | {self.beta} | EX ({self.train_stats[0]:.1e}, {self.train_stats[1]:.1e})"
 
 
-def train(model, new_cases, regions, optimizer, scheduler, checkpoint, args):
+def train(model, new_cases, regions, optimizer, checkpoint, args):
     print(args)
-    print(f"max inc = {new_cases.max()}")
-    print(f"number of regions = {len(regions)}")
     M = len(regions)
     device = new_cases.device
     tmax = new_cases.size(1)
@@ -187,41 +215,40 @@ def train(model, new_cases, regions, optimizer, scheduler, checkpoint, args):
         _loss = -dist.log_prob(target)
         loss = _loss.sum()
 
-        # if args.timger > 0:
-        #     reg = (
-        #         args.timger_eta
-        #         * th.clamp(-W * (W - args.timger) / (args.timger ** 2 / 4), min=0).sum()
-        #     )
-
-        reg = args.timger * th.pow(beta[:, 1:] - beta[:, :-1], 2).sum()
+        # temporal smoothness
+        if args.temporal > 0:
+            reg = th.pow(beta[:, 1:] - beta[:, :-1], 2).sum()
 
         # back prop
-        (loss + reg).backward()
+        (loss + args.temporal * reg).backward()
 
         if args.granger > 0:
             with th.no_grad():
                 mu = np.log(args.granger / (1 - args.granger))
                 r = args.lr * args.eta
-                model.alphas.copy_(model.alphas - r * (model.alphas - mu))
+                err = model.alphas() - mu
+                err.fill_diagonal_(0)
+                model._alphas.copy_(model._alphas - r * err)
 
         assert loss == loss, (loss, scores, _loss)
 
         optimizer.step()
-        # scheduler.step()
 
         # control
         if itr % 100 == 0:
             with th.no_grad(), np.printoptions(precision=3, suppress=True):
                 maes = th.abs(dist.mean - new_cases.narrow(1, 1, length))
                 z = F.softplus(model.z)
+                nu = th.sigmoid(model.nu)
                 print(
                     f"[{itr:04d}] Loss {loss.item():.2f} | "
-                    f"Granger {reg.item():.5f} | "
+                    f"Temporal {reg.item():.5f} | "
                     f"MAE {maes.mean():.2f} | "
                     f"{model} | "
                     f"{args.loss} ({scores[:, -1].min().item():.2f}, {scores[:, -1].max().item():.2f}) | "
                     f"z ({z.min().item():.2f}, {z.mean().item():.2f}, {z.max().item():.2f}) | "
-                    f"alpha ({W.min().item():.2f}, {W.mean().item():.2f}, {W.max().item():.2f})"
+                    f"alpha ({W.min().item():.2f}, {W.mean().item():.2f}, {W.max().item():.2f}) | "
+                    f"nu ({nu.min().item():.2f}, {nu.mean().item():.2f}, {nu.max().item():.2f})"
                 )
             th.save(model.state_dict(), checkpoint)
     print(f"Train MAE,{maes.mean():.2f}")
@@ -243,6 +270,7 @@ def _get_dict(args, v, device, regions):
     if hasattr(args, v):
         _feats = []
         for _file in getattr(args, v):
+            print(f"Loading {_file}")
             d = th.load(_file)
             feats = None
             for i, r in enumerate(regions):
@@ -252,14 +280,14 @@ def _get_dict(args, v, device, regions):
                 if feats is None:
                     feats = th.zeros(len(regions), d[r].size(0), _f.size(1))
                 feats[i, :, : _f.size(1)] = _f
-                feats.div_(feats.abs().max())
+            # feats.div_(feats.abs().max())
             _feats.append(feats.to(device).float())
         return th.cat(_feats, dim=2)
     else:
         return None
 
 
-class CARCV(cv.CV):
+class BARCV(cv.CV):
     def initialize(self, args):
         device = th.device("cuda" if th.cuda.is_available() else "cpu")
         cases, regions, basedate = load.load_confirmed_csv(args.fdat)
@@ -267,9 +295,18 @@ class CARCV(cv.CV):
         new_cases = cases[:, 1:] - cases[:, :-1]
         assert (new_cases >= 0).all(), th.where(new_cases < 0)
 
+        # prepare population
+        # populations = load.load_populations_by_region(args.fpop, regions=regions)
+        # populations = th.from_numpy(populations["population"].values).to(device)
+
         new_cases = new_cases.float().to(device)[:, args.t0 :]
-        print("Timeseries length", new_cases.size(1))
+        print("Number of Regions =", new_cases.size(0))
+        print("Timeseries length =", new_cases.size(1))
+        print("Max increase =", new_cases.max().item())
         tmax = new_cases.size(1) + 1
+
+        # adjust max window size to available data
+        args.window = min(args.window, new_cases.size(1) - 4)
 
         # setup optional features
         graph = _get_arg(args, "graph", device)
@@ -278,7 +315,7 @@ class CARCV(cv.CV):
         if time_features is not None:
             time_features = time_features.transpose(0, 1)
             time_features = time_features.narrow(0, args.t0, new_cases.size(1))
-            print(time_features.size(), new_cases.size())
+            print("Feature size = {} x {} x {}".format(*time_features.size()))
 
         self.weight_decay = 0
         # setup beta function
@@ -300,14 +337,10 @@ class CARCV(cv.CV):
             dim, layers = args.decay[6:].split("_")
             beta_net = BetaLatent(regions, int(dim), int(layers), tmax, time_features)
             self.weight_decay = args.weight_decay
-        elif args.decay.startswith("wave"):
-            blocks, layers, dim = args.decay[4:].split("_")
-            beta_net = BetaWavenet(regions, int(blocks), int(layers), int(2))
-            self.weight_decay = args.weight_decay
         else:
             raise ValueError("Unknown beta function")
 
-        self.func = CAR(regions, beta_net, args.window, args.loss, graph, features).to(
+        self.func = BAR(regions, beta_net, args.window, args.loss, graph, features).to(
             device
         )
 
@@ -319,29 +352,27 @@ class CARCV(cv.CV):
 
         params = []
         # exclude = {"nu", "beta.w_feat.weight", "beta.w_feat.bias"}
-        exclude = {"nu", "alphas", "beta.h0"}
-        # exclude = {"nu"}
+        exclude = {"nu", "_alphas", "beta.h0"}
+        # exclude = {"nu", "_alphas"}
         for name, p in dict(self.func.named_parameters()).items():
             wd = 0 if name in exclude else args.weight_decay
             if wd != 0:
-                print(name, wd)
+                print(f"Regularizing {name} = {wd}")
             params.append({"params": p, "weight_decay": wd})
         optimizer = optim.AdamW(
             params,
             lr=args.lr,
             betas=[args.momentum, 0.999],
             weight_decay=args.weight_decay,
+            amsgrad=False,
         )
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 10)
 
-        model = train(
-            self.func, new_cases, regions, optimizer, scheduler, checkpoint, args
-        )
+        model = train(self.func, new_cases, regions, optimizer, checkpoint, args)
 
         return model
 
 
-CV_CLS = CARCV
+CV_CLS = BARCV
 
 
 if __name__ == "__main__":
@@ -357,11 +388,10 @@ if __name__ == "__main__":
     parser.add_argument("-t0", default=10, type=int)
     parser.add_argument("-fit-on", default=5, type=int)
     parser.add_argument("-test-on", default=5, type=int)
-    parser.add_argument("-checkpoint", type=str, default="/tmp/ar_model.bin")
-    parser.add_argument("-keep-counties", type=int, default=0)
+    parser.add_argument("-checkpoint", type=str, default="/tmp/bar_model.bin")
     args = parser.parse_args()
 
-    cv = ARCV()
+    cv = BARCV()
 
     model = cv.run_train(args, args.checkpoint)
 
