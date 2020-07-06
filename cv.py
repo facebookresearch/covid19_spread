@@ -367,6 +367,7 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
         launcher = run_cv_and_copy_results
         if remote:
             launcher = partial(executor.submit, run_cv_and_copy_results)
+
         with executor.set_folder(pth):
             launcher(tags, module, pth, cfg, "final_model_")
 
@@ -399,7 +400,11 @@ def notebook(notebook_pth, sweep_dir, module):
 @click.option("-basedate", type=click.DateTime(), default=None)
 def model_selection(sweep_dir, module, remote, basedate):
     cfg = load_config(os.path.join(sweep_dir, "cfg.yml"))
-    run_best(cfg, module, remote, sweep_dir, basedate)
+    executor = mk_executor(
+        "model_selection", sweep_dir, cfg[module].get("resources", {})
+    )
+    run_best(cfg, module, remote, sweep_dir, basedate, executor=executor)
+    executor.launch(sweep_dir, workers=4)
 
 
 def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
