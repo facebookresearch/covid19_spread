@@ -75,8 +75,9 @@ mae-nj:
 	@echo "\n--- MAE Fast ---"
 	python3 mae.py data/new-jersey/timeseries.h5 forecasts/new-jersey/forecast $(DATE) _fast
 
-data-nj: data/new-jersey/nj-official-$(shell date "+%m%d" -d $(DATE)).csv
-	cd data/new-jersey && make data-$(DATE).csv && make timeseries.h5 && make timeseries.h5 SMOOTH=1
+data-nj: #data/new-jersey/nj-official-$(shell date "+%m%d" -d $(DATE)).csv
+	# cd data/new-jersey && make data-$(DATE).csv && make timeseries.h5 && make timeseries.h5 SMOOTH=1
+	cd data/new-jersey && python3 scraper.py && make timeseries.h5 && make timeseries.h5 SMOOTH=1
 
 # --- NY State ---
 
@@ -109,7 +110,7 @@ grid-nyc:
 grid-nys: runlog = runs/nys/$(DATE).log
 grid-nys:
 	touch $(runlog)
-	python3 sweep.py grids/nys.yml -remote -ncpus 40 -timeout-min 40 -partition "learnfair,scavenge" -comment "COVID-19 NY state Forecast" | tail -1 >> $(runlog)
+	python3 sweep.py grids/nys.yml -remote -ncpus 40 -timeout-min 60 -partition "learnfair,scavenge" -comment "COVID-19 NY state Forecast" | tail -1 >> $(runlog)
 	tail -1 $(runlog)
 
 
@@ -139,11 +140,11 @@ data-ny:
 
 # -- United States --
 data-usa:
-	cd data/usa && python3 convert.py && python3 convert.py deaths
+	cd data/usa && make data.csv data_deaths.csv
 
 select: fout = forecasts/$(REGION)/forecast-$(DATE)$(SUFFIX).csv
 select: fout_sir = forecasts/$(REGION)/SIR-forecast-$(DATE).csv
-select: license = "\nThis work is licensed under the Creative Commons Attribution-Noncommercial 4.0 International Public License (CC BY-NC 4.0). To view a copy of this license go to https://creativecommons.org/licenses/by-nc/4.0/. Retention of the foregoing language is sufficient for attribution."
+select: license = "\n\"This work is based on publicly available third party data sources which may not necessarily agree. Facebook makes no guarantees about the reliability, accuracy, or completeness of the data. It is not intended to be a substitute for either public health guidance or professional medical advice, diagnosis, or treatment.\"\n\"This work is licensed under the Creative Commons Attribution-Noncommercial 4.0 International Public License (CC BY-NC 4.0). To view a copy of this license go to https://creativecommons.org/licenses/by-nc/4.0/. Retention of the foregoing language is sufficient for attribution.\""
 select:
 	cat $(JOB)/forecasts.csv | grep -v "^KS," | grep -v "^pval," > $(fout)
 	echo $(license) >> $(fout)
@@ -153,4 +154,13 @@ select:
 cv-show: file=metrics.csv
 cv-show:
 	find $(sweep) -name "*_forecast.csv" -exec sh -c 'cat $$(dirname {})/$(file)' \;
+
+log: file=metrics.csv
+log: metric=MAE
+log: days=22
+log:
+	find /checkpoint/$(USER)/covid19/forecasts/$(job) -name "$(file)" -exec grep -H "^$(metric)," {} \; | cut -d, -f1,$(days) | sort -k2,2 -t, -n -r
+
+notebook:
+	cd notebooks && jupyter notebook --no-browser --port 8899 --log-level 0 &
 # end

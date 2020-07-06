@@ -1,29 +1,15 @@
 region: at
 population: &fpop data/austria/population.csv
 validation:
-  days: &vdays 7
-  output: validation-at.csv
+  days: 7
+  output: validation.csv
 forecast:
-  output: forecast-at.csv
-prediction_interval_:
-  nsamples: 10
-  output_mean: at_mean.csv
-  output_std: at_std.csv
-metasir:
-  data: data/austria/data.csv
-  output: metasir_model.bin
-  train:
-    fpop: *fpop
-    decay: rbf
-    lr: 0.005
-    weight_decay: 0
-    niters: 10000
-    method: euler
-    loss: lsq
-    t0: 10
-    fit_on: -10
-    test_on: *vdays
-    adjoint: false    
+  output: forecast.csv
+  days: &fdays 7
+prediction_interval:
+  nsamples: 1000
+  intervals: [0.99, 0.95, 0.8]
+  output: piv.csv
 ar:
   output: ar_model.bin
   data: data/austria/data.csv
@@ -31,18 +17,46 @@ ar:
     gpus: 1
     cpus: 1
     memgb: 5
-    timeout: 15
-  preprocess:
-    smooth: 7
+    timeout: 360
+  #preprocess:
+  #  smooth: 7
   train:
     fpop: *fpop
+    activation: sigmoid
+    no_cross_correlation: false
     decay: [latent2_1]
     window: [15, 20, 25]
-    momentum: [0.9]
+    momentum: [0.99]
     lr: [0.001]
-    weight_decay: [0.1, 0.2]
+    weight_decay: [0.2, 0.3]
     temp_smoothing: [0]
     niters: 20000
     loss: nb
     t0: 5
-    test_on: *vdays
+    test_on: *fdays
+bar:
+  output: bar_model.bin
+  data: data/austria/data.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 360
+  #preprocess:
+  #  smooth: 5
+  train:
+    fpop: *fpop
+    activation: sigmoid
+    no_cross_correlation: false
+    decay: [latent2_2]
+    window: [20, 25]
+    lr: [0.001]
+    momentum: [0.99]
+    weight_decay: [0.1, 0.2, 0.3]
+    niters: [30000]
+    granger: [0.5]
+    temporal: [0.5, 1, 2]
+    eta: [0.1, 0.2, 0.3]
+    loss: nb
+    t0: 5
+    test_on: *fdays

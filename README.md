@@ -51,3 +51,12 @@ To exclude integration tests:
 ```
 python -m pytest tests/ -v -m "not integration" 
 ```
+
+## Lint
+
+We have Circle CI setup which will run our test suite as well as run the `black` linter.  
+Please ensure that all code pushed passes the lint check.  You can install a Git pre-commit hook with:
+
+```
+pre-commit install
+```

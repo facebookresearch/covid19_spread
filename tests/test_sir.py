@@ -16,7 +16,7 @@ basedir = os.getcwd()
 
 
 class TrainParamsNY:
-    fdat = "data/nystate/timeseries.h5"
+    fdat = "data/nystate/data-new.csv"
     fpop = "data/population-data/US-states/new-york-population.csv"
     window = 14
     recovery_days = 14

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import torch as th
 from torch import nn
+import torch.nn.functional as F
 
 
 class BetaConst(nn.Module):

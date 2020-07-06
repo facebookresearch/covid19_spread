@@ -94,8 +94,8 @@ class AR(nn.Module):
         # self.population = population.float().unsqueeze(1) / 100000
         self.M = len(regions)
         self.alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(-5))
-        # self.repro = nn.Parameter(th.ones((self.M, window_size)).fill_(1))
-        self.repro = nn.Parameter(th.ones((1, window_size)))
+        self.repro = nn.Parameter(th.ones((self.M, window_size)).fill_(1))
+        # self.repro = nn.Parameter(th.ones((1, window_size)))
         self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(8))
         self.beta = beta_net
         self._dist = dist

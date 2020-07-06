@@ -13,8 +13,9 @@ DATE=$(shell date "+%m%d")
 
 .PHONY: timeseries.h5
 
-data-2020$(DATE).csv: $(PREV) nj-official-$(DATE).csv
-	python3 merge.py $(PREV) nj-official-$(DATE).csv 2020$(DATE)
+data-2020$(DATE).csv: #$(PREV) nj-official-$(DATE).csv
+	#python3 merge.py $(PREV) nj-official-$(DATE).csv 2020$(DATE)
+	python3 scraper.py
 
 timeseries.h5: data-2020$(DATE).csv
 	python3 process_cases.py $<

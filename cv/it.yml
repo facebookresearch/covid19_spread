@@ -1,24 +1,56 @@
 region: it
 population: &fpop data/italy/population.csv
-basegraph: &fgraph data/it/state_graph.pt
+notebooks:
+  backfill: notebooks/Italy.ipynb
 validation:
-  days: &vdays 21
+  days: 14
   output: validation.csv
 forecast:
   output: forecast.csv
+  days: &fdays 14
 prediction_interval:
   nsamples: 1000
-  intervals: [0.99, 0.95]
+  intervals: [0.99, 0.95, 0.8]
   output: piv.csv
 backfill:
   - 2020-04-22
   - 2020-04-29
-  - 2020-05-05
+  # - 2020-05-05
   # - 2020-05-10
   # IHME
-  - 2020-04-19
+  # - 2020-04-19
+  # - 2020-04-26
+  # - 2020-05-01
+backfill__:
+  - 2020-04-08
+  - 2020-04-10
+  - 2020-04-12
+  - 2020-04-14
+  - 2020-04-16
+  - 2020-04-18
+  - 2020-04-20
+  - 2020-04-22
+  - 2020-04-24
   - 2020-04-26
+  - 2020-04-28
+  - 2020-04-29
+  - 2020-04-30
   - 2020-05-01
+  - 2020-05-03
+  - 2020-05-05
+  - 2020-05-06
+  - 2020-05-07
+  - 2020-05-08
+  - 2020-05-09
+  - 2020-05-11
+  - 2020-05-13
+  - 2020-05-15
+  - 2020-05-18
+  - 2020-05-20
+  - 2020-05-22
+  - 2020-05-23
+  - 2020-05-24
+  - 2020-05-25
 ar:
   output: ar_model.bin
   data: data/italy/data-upc.csv
@@ -31,62 +63,71 @@ ar:
   #  smooth: 5
   train:
     fpop: *fpop
+    activation: sigmoid
+    no_cross_correlation: false
     decay: [latent2_1]
-    window: [10, 15, 20, 25]
+    window: [15, 20, 25]
     lr: [0.001]
     momentum: [0.9]
     weight_decay: [0.1, 0.2]
     # weight_decay: [0.01]
+    temp_smoothing: 0
     niters: [30000]
     loss: nb
     t0: 5
-    test_on: *vdays
-gar:
-  output: var_model.bin
-  data: data/spain/data_deaths.csv
+    test_on: *fdays
+# car:
+#   output: car_model.bin
+#   data: data/italy/data-upc.csv
+#   resources:
+#     gpus: 1
+#     cpus: 1
+#     memgb: 15
+#     timeout: 30
+#   #preprocess:
+#   #  smooth: 5
+#   train:
+#     fpop: *fpop
+#     activation: sigmoid
+#     no_cross_correlation: false
+#     decay: [latent2_1]
+#     window: [15, 20, 25]
+#     lr: [0.001]
+#     momentum: [0.99]
+#     weight_decay: [0.1, 0.2]
+#     niters: [30000, 40000]
+#     #granger: [1, 10, 100]
+#     # granger: [0.1, 1, 10]
+#     granger: [0.1, 0.15, 0.2]
+#     #niters: [30000, 40000]
+#     #granger: [0.01, 0.005]
+#     loss: nb
+#     t0: 5
+#     test_on: *fdays
+bar:
+  output: bar_model.bin
+  data: data/italy/data-upc.csv
   resources:
     gpus: 1
     cpus: 1
     memgb: 15
-    timeout: 30
+    timeout: 360
+  # preprocess:
+  #   smooth: 5
   train:
     fpop: *fpop
-    # features: data/usa/county_features.pt
-    # time_features: data/usa/policy_features.pt
-    # graph: *fgraph
-    dim: 64
-    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    blocks: [4]
-    layers: [6]
-    window: [2]
+    activation: sigmoid
+    decay: [latent2_2]
+    window: [20, 25]
     lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.1]
+    momentum: [0.99]
+    weight_decay: [0.1, 0.2]
+    # niters: [30000]
     niters: [20000]
+    granger: [0.5]
+    # granger: [0.3, 0.4, 0.5]
+    temporal: [0.5, 1, 2]
+    eta: [0.1, 0.2, 0.3]
     loss: nb
     t0: 5
-    test_on: *vdays
-dar:
-  output: var_model.bin
-  data: data/usa/data_deaths.csv
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 15
-    timeout: 30
-  train:
-    fpop: *fpop
-    # features: data/usa/county_features.pt
-    # time_features: data/usa/policy_features.pt
-    # graph: *fgraph
-    dim: 64
-    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    decay: [latent16_1]
-    window: [10, 15, 20]
-    lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.1]
-    niters: [20000]
-    loss: nb
-    t0: 5
-    test_on: *vdays
+    test_on: *fdays

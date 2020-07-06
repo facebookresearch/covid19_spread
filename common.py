@@ -69,7 +69,14 @@ def drop_k_days_csv(dset, outfile, days):
     df = pd.read_csv(dset, index_col="region")
     if days > 0:
         df = df[sorted(df.columns)[:-days]]
+    df = drop_all_zero_csv(df)
     df.to_csv(outfile)
+
+
+def drop_all_zero_csv(df):
+    counts = df.sum(axis=1)
+    df = df[counts > 0]
+    return df
 
 
 def smooth_csv(indset: str, outdset: str, days: int):
@@ -148,3 +155,13 @@ def print_model_stats(mus, beta, S, U, V, A):
     print(f"Avg Element: U = {np.mean(U).item():.3f}, V = {np.mean(V):.3f}")
     print(f"\nSelf:       max = {np.max(S):.3f}, avg = {np.mean(S):.3f}")
     print(f"Cross:      max = {np.max(C):.3f}, avg = {np.mean(C):.3f}")
+
+
+def standardize_county_name(county):
+    return (
+        county.replace(" County", "")
+        .replace(" Parish", "")
+        .replace(" Municipality", "")
+        .replace(" Municipality", "")
+        .replace(" Borough", "")
+    )

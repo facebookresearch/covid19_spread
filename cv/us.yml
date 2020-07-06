@@ -19,8 +19,8 @@ backfill:
   - 2020-04-19
   - 2020-04-22
   - 2020-04-26
-  - 2020-04-29
-  - 2020-05-03
+  #- 2020-04-29
+  #- 2020-05-03
   - 2020-05-06
   - 2020-05-10
   # - 2020-05-17
@@ -96,55 +96,6 @@ sir:
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
-gar:
-  output: var_model.bin
-  data: data/usa/data_deaths.csv
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 15
-    timeout: 30
-  train:
-    fpop: *fpop
-    # features: data/usa/county_features.pt
-    # time_features: data/usa/policy_features.pt
-    # graph: *fgraph
-    dim: 64
-    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    decay: [latent2_1]
-    layers: [5, 10]
-    window: [2, 5, 10]
-    lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.1]
-    niters: [20000]
-    loss: nb
-    t0: 10
-    test_on: *vdays
-dar:
-  output: var_model.bin
-  data: data/usa/data_deaths.csv
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 15
-    timeout: 30
-  train:
-    fpop: *fpop
-    # features: data/usa/county_features.pt
-    # time_features: data/usa/policy_features.pt
-    # graph: *fgraph
-    dim: 64
-    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    decay: [latent16_1]
-    window: [10, 15, 20]
-    lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.1]
-    niters: [20000]
-    loss: nb
-    t0: 10
-    test_on: *vdays
 matrix:
   output: mc_model.bin
   fpop: *fpop
@@ -168,30 +119,38 @@ matrix:
     seed: [1]
     t0: [0] #, 10] ######
     test_on: *vdays
-car:
-  output: car_model.bin
-  data: data/usa/data_deaths.csv
+bar:
+  output: bar_model.bin
+  data: data/usa/data_cases.csv
   resources:
     gpus: 1
     cpus: 1
     memgb: 15
-    timeout: 30
+    timeout: 3600
   #preprocess:
   #  smooth: 5
   train:
     fpop: *fpop
     # features: data/usa/county_features.pt
-    # time_features: data/usa/mobility_features.pt
-    # graph: *fgrap
-    blocks: [2, 3]
-    kernel_size: 2
-    layers: [6, 7, 8, 9, 10]
+    # time_features:
+    #   -
+    #     - data/usa/google/mobility_features.pt
+    #     - data/usa/fb/mobility_features.pt
+    #     - data/usa/symptom-survey/features.pt
+    # graph: *fgraph
+    activation: sigmoid
+    no_cross_correlation: false
+    decay: [latent2_1, latent2_2]
+    window: [20, 25]
     lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.1, 0.2, 0.3]
-    niters: [20000, 30000]
+    momentum: [0.99]
+    weight_decay: [0.2, 0.3]
+    niters: [50000]
+    granger: [0.5]
+    temporal: [0.5, 1, 5]
+    eta: [0.2, 0.3, 0.4]
     loss: nb
-    t0: 10
+    t0: 0
     test_on: *vdays
 naive:
   module: naive
