@@ -119,42 +119,38 @@ matrix:
     seed: [1]
     t0: [0] #, 10] ######
     test_on: *vdays
-car:
-  output: car_model.bin
-  data: data/usa/data_deaths.csv
+bar:
+  output: bar_model.bin
+  data: data/usa/data_cases.csv
   resources:
     gpus: 1
     cpus: 1
     memgb: 15
-    timeout: 30
+    timeout: 3600
   #preprocess:
   #  smooth: 5
   train:
     fpop: *fpop
     # features: data/usa/county_features.pt
-    # time_features: data/usa/mobility_features.pt
-    time_features: [[data/usa/google/mobility_features.pt, data/usa/symptom-survey/features.pt]]
+    # time_features:
+    #   -
+    #     - data/usa/google/mobility_features.pt
+    #     - data/usa/fb/mobility_features.pt
+    #     - data/usa/symptom-survey/features.pt
     # graph: *fgraph
-    #decay: [latent2_1]
     activation: sigmoid
     no_cross_correlation: false
-    decay: [latent2_1]
-    window: [15, 20, 25]
+    decay: [latent2_1, latent2_2]
+    window: [20, 25]
     lr: [0.001]
     momentum: [0.99]
-    weight_decay: [0.1]
-    niters: [40000]
-    granger: [0.25, 0.5]
-    # granger: [0.1, 1, 10]
-    # granger: [0.1, 0.15, 0.2]
-    # granger: [0.3, 0.4, 0.5]
-    #timger: [1, 10, 100, 1000]
-    timger: [10, 20, 50]
-    eta: [0.1, 0.2, 0.3]
-    #niters: [30000, 40000]
-    #granger: [0.01, 0.005]
+    weight_decay: [0.2, 0.3]
+    niters: [50000]
+    granger: [0.5]
+    temporal: [0.5, 1, 5]
+    eta: [0.2, 0.3, 0.4]
     loss: nb
-    t0: 10
+    t0: 0
     test_on: *vdays
 naive:
   module: naive
