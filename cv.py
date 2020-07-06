@@ -327,9 +327,14 @@ def rebase_forecast_deltas(val_in, df_forecast_deltas):
     return df_forecast
 
 
-def run_best(config, module, remote, basedir, basedate=None, mail_to=None):
+def run_best(config, module, remote, basedir, basedate=None, executor=None):
     mod = importlib.import_module(module).CV_CLS()
     best_runs = mod.model_selection(basedir)
+
+    if executor is None:
+        executor = mk_executor(
+            "model_selection", basedir, config[module].get("resources", {})
+        )
 
     with open(os.path.join(basedir, "model_selection.json"), "w") as fout:
         json.dump([x._asdict() for x in best_runs], fout)
@@ -361,15 +366,9 @@ def run_best(config, module, remote, basedir, basedate=None, mail_to=None):
         cfg[module] = job_config
         launcher = run_cv_and_copy_results
         if remote:
-            executor = mk_executor(
-                name, pth, cfg[module].get("resources", {}), ex=submitit.AutoExecutor
-            )
-            if mail_to is not None:
-                executor.update_parameters(
-                    additional_parameters={"mail_type": "END", "mail_user": mail_to}
-                )
             launcher = partial(executor.submit, run_cv_and_copy_results)
-        launcher(tags, module, pth, cfg, "final_model_")
+        with executor.set_folder(pth):
+            launcher(tags, module, pth, cfg, "final_model_")
 
 
 def run_notebook(notebook_pth, module, basedir):
@@ -510,20 +509,20 @@ def cv(
 
         # Find the best model and retrain on the full dataset
         launcher = (
-            partial(executor.submit_dependent, jobs, run_best) if remote else run_best
+            partial(executor.submit_dependent, jobs, run_best, executor=executor)
+            if remote
+            else run_best
         )
 
         if not validate_only:
-            job = launcher(
-                cfg, module, remote, basedir, basedate=basedate, mail_to=mail_to
-            )
+            job = launcher(cfg, module, remote, basedir, basedate=basedate)
             jobs.append(job)
 
             # run backfill notebook
             attach_notebook(cfg, "cv", jobs, executor)
 
-    if remote:
-        executor.launch(basedir + "/workers", array_parallelism)
+        if remote:
+            executor.launch(basedir + "/workers", array_parallelism)
     print(basedir)
     return basedir, jobs
 
