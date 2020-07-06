@@ -304,6 +304,17 @@ def log_configs(cfg: Dict[str, Any], module: str, path: str):
         yaml.dump(cfg[module], f)
 
 
+def attach_notebook(config, mode, jobs, executor):
+    """Run notebook for execution mode"""
+    if "notebooks" in config and mode in config["notebooks"]:
+        launcher = (
+            partial(executor.submit_dependent, jobs, run_notebook)
+            if remote
+            else run_notebook
+        )
+        launcher(config["notebooks"][mode], module, basedir)
+
+
 def rebase_forecast_deltas(val_in, df_forecast_deltas):
     gt = metrics.load_ground_truth(val_in)
     # Ground truth for the day before our first forecast
@@ -361,12 +372,12 @@ def run_best(config, module, remote, basedir, basedate=None, mail_to=None):
         launcher(tags, module, pth, cfg, "final_model_")
 
 
-def run_notebook(config, module, basedir):
+def run_notebook(notebook_pth, module, basedir):
     experiment_id = "/".join(basedir.split("/")[-2:])
-    print("Running noteook for", experiment_id)
+    print(f"Running noteook {notebook_pth} for {experiment_id}")
     os.environ["EXPERIMENT_ID"] = experiment_id
     os.environ["EXPERIMENT_MOD"] = module
-    export_notebook(config["notebook"], no_input=True, no_prompt=True)
+    export_notebook(notebook_pth, no_input=True, no_prompt=True)
 
 
 @click.group(cls=DefaultGroup, default_command="cv")
@@ -378,9 +389,8 @@ def cli():
 @click.argument("config_pth")
 @click.argument("sweep_dir")
 @click.argument("module")
-def notebook(config_pth, sweep_dir, module):
-    cfg = load_config(config_pth)
-    run_notebook(cfg, module, sweep_dir)
+def notebook(notebook_pth, sweep_dir, module):
+    run_notebook(notebook_pth, module, sweep_dir)
 
 
 @cli.command()
@@ -504,7 +514,13 @@ def cv(
         )
 
         if not validate_only:
-            launcher(cfg, module, remote, basedir, basedate=basedate, mail_to=mail_to)
+            job = launcher(
+                cfg, module, remote, basedir, basedate=basedate, mail_to=mail_to
+            )
+            jobs.append(job)
+
+            # run backfill notebook
+            attach_notebook(cfg, "cv", jobs, executor)
 
     if remote:
         executor.launch(basedir + "/workers", array_parallelism)
@@ -576,13 +592,17 @@ def backfill(
         with executor.nest(), executor.set_folder(
             os.path.join(basedir, f"sweep_{date.date()}/%j")
         ):
-            ctx.invoke(
+            _, jobs = ctx.invoke(
                 cv,
                 basedir=os.path.join(basedir, f"sweep_{date.date()}"),
                 basedate=date,
                 executor=executor,
                 **cv_params,
             )
+
+    # run notebooks
+    attach_notebook(config, "backfill", jobs, executor)
+
     if remote:
         executor.launch(basedir + "/workers", array_parallelism)
 
