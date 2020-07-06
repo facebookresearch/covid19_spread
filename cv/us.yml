@@ -96,6 +96,20 @@ sir:
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
+seir:
+  module: seir
+  output: seir_model.npy
+  data: data/usa/data_cases.csv
+  train:
+    fpop: *fpop
+    window: 10
+    recovery_days: 10
+    distancing_reduction: 0.9
+    # rate of progression
+    sigma: 0.2
+    days: *vdays
+    # number of days to keep for forecast
+    keep: *vdays
 matrix:
   output: mc_model.bin
   fpop: *fpop
