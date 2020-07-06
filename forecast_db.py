@@ -19,6 +19,7 @@ from xml.etree import ElementTree
 from bs4 import BeautifulSoup
 import yaml
 from lib import cluster
+from data.recurring import DB as RECURRING_DB
 
 
 DB = os.path.join(os.path.dirname(os.path.realpath(__file__)), "forecasts/forecast.db")
@@ -416,7 +417,7 @@ def dump_to_csv(conn, distribute):
 
 
 def sync_matts_forecasts(conn):
-    if not os.path.exists("/private/home/mattle/covid19_spread/data/.sweep.db"):
+    if not os.path.exists(RECURRING_DB):
         return
     loc_map = {
         "new-jersey": {"loc1": "United States", "loc2": "New Jersey"},
@@ -424,7 +425,7 @@ def sync_matts_forecasts(conn):
         "at": {"loc1": "Austria"},
     }
     module_map = {"ar": "ar", "ar_daily": "ar"}
-    _conn = sqlite3.connect("/private/home/mattle/covid19_spread/data/.sweep.db")
+    _conn = sqlite3.connect(RECURRING_DB)
     q = """
     SELECT path, basedate, module
     FROM sweeps
