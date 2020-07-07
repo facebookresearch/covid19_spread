@@ -26,8 +26,8 @@ DB = os.path.join(os.path.dirname(os.path.realpath(__file__)), "forecasts/foreca
 
 
 CLUSTERS = {
-    "H1": "devfairh1",
-    "H2": "devfairh2",
+    "H1": "devfairh2",
+    "H2": "devfairh1",
 }
 
 
