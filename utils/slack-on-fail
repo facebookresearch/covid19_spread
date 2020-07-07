@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# Cronic v3 - cron job report wrapper
+# Copyright 2007-2016 Chuck Houpt. No rights reserved, whatsoever.
+# Public Domain CC0: http://creativecommons.org/publicdomain/zero/1.0/
+
+
+set -eu
+
+TMP=$(mktemp -d)
+OUT=$TMP/cronic.out
+ERR=$TMP/cronic.err
+
+set +e
+"$@" >$OUT 2>$ERR
+RESULT=$?
+set -e
+
+
+if [ $RESULT -ne 0 ]
+    then
+    echo "Failed!"
+    MSG=$TMP/email_body.txt
+    echo "*Failure detected $(TZ=America/New_York date)*" >> $MSG
+    echo '```' >> $MSG
+    echo "$@" >> $MSG
+    echo '```' >> $MSG
+    echo "RESULT CODE: \`$RESULT\`" >> $MSG
+    echo "ERROR OUTPUT:" >> $MSG
+    echo '```' >> $MSG
+    cat "$ERR" >> $MSG
+    echo '```' >> $MSG
+    echo "STANDARD OUTPUT:" >> $MSG
+    echo '```' >> $MSG
+    cat "$OUT" >> $MSG
+    echo '```' >> $MSG
+    slack $MSG
+fi
+
+cat $OUT
+cat $ERR >&2
+
+rm -rf "$TMP"
