@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+from subprocess import check_output, check_call
+import tempfile
+import hashlib
+
+
+this_dir = os.path.dirname(os.path.realpath(__file__))
+
+
+def install(script, schedule, extra_args, enable_email, dry):
+    stdoutfile = os.path.realpath(script) + ".log"
+    stderrfile = os.path.realpath(script) + ".err"
+    prefix = "python " if script.endswith(".py") else ""
+    script = prefix + os.path.realpath(script) + " " + " ".join(extra_args)
+    script = script.strip()
+
+    envs = check_output(["conda", "env", "list"]).decode("utf-8").strip().split("\n")
+    active = [e for e in envs if "*" in e]
+    conda_env = None
+    if len(active) == 1:
+        conda_env = f"source activate {active[0].split()[0]}"
+
+    home = os.path.expanduser("~")
+    cmd = [
+        "source /etc/profile.d/modules.sh",
+        f"source {home}/.profile",
+        f"source {home}/.bash_profile",
+        f"source {home}/.bashrc",
+        conda_env,
+        f"{this_dir}/slack-on-fail " + script,
+    ]
+    cmd = [c for c in cmd if c is not None]
+    hsh = hashlib.md5((" ".join(cmd)).encode("utf-8")).hexdigest()
+    marker = f"__CRON_JOB_{hsh}__"
+    crontab = check_output(["crontab", "-l"]).decode("utf-8")
+    if marker in crontab and not dry:
+        raise ValueError(
+            "Cron job already installed, cleanup crontab"
+            " with `crontab -e` before installing again"
+        )
+    subject = f"ERROR: {script}"
+    with tempfile.NamedTemporaryFile() as tfile:
+        with open(tfile.name, "w") as fout:
+            fout = fout if not dry else None
+            print(crontab, file=fout)
+            print(f"# {marker}", file=fout)
+            user = os.environ["USER"]
+            script = os.path.realpath(__file__)
+
+            envs = [
+                f'PATH="/usr/local/bin:/usr/sbin:/private/home/{user}/bin:$PATH"',
+                f"USER={user}",
+            ]
+            print(
+                f'{schedule} {" ".join(envs)} bash -c "{" && ".join(cmd)} >> {stdoutfile} 2>> {stderrfile}"',
+                file=fout,
+            )
+        if not dry:
+            check_call(["crontab", tfile.name])
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("script")
+    parser.add_argument("--schedule", required=True)
+    parser.add_argument("--args", nargs="*", default=[])
+    parser.add_argument("--no-email", action="store_false", dest="email")
+    parser.add_argument("--email", action="store_true", dest="email")
+    parser.add_argument("--dry", action="store_true")
+    parser.set_defaults(email=True)
+    opt = parser.parse_args()
+
+    install(opt.script, opt.schedule, opt.args, opt.email, opt.dry)
