@@ -1,6 +1,5 @@
 region: nystate
-#population: &fpop data/population-data/US-states/new-york-population.csv
-population: &fpop data/usa/population.csv
+population: &fpop data/population-data/US-states/new-york-population.csv
 validation:
   days: 21
   output: validation.csv
