@@ -30,15 +30,7 @@ class BetaLatent(nn.Module):
         self.fpos = th.sigmoid
         self.time_features = time_features
         self.dim = dim
-        self.weekday = (
-            th.cat(
-                [th.eye(7).float() for _ in range(int(np.ceil((tmax + 21) / 7)))], dim=1
-            )
-            .t()
-            .cuda()
-        )
-        print(self.weekday.size())
-        input_dim = 1
+        input_dim = 2
 
         if time_features is not None:
             self.w_time = nn.Linear(time_features.size(2), dim)
@@ -48,7 +40,7 @@ class BetaLatent(nn.Module):
         # initialize parameters
         self.h0 = nn.Parameter(th.zeros(layers, self.M, dim))
         self.rnn = nn.RNN(input_dim, self.dim, layers)
-        self.v = nn.Linear(self.dim, 1, bias=True)
+        self.v = nn.Linear(self.dim, 1, bias=False)
 
         # initialize weights
         nn.init.xavier_normal_(self.v.weight)
@@ -65,14 +57,7 @@ class BetaLatent(nn.Module):
         # _ys.narrow(1, 1, ys.size(1) - 1).copy_(ys[:, 1:] / ys[:, :-1].clamp(min=1))
         t = t.unsqueeze(-1).unsqueeze(-1).float()  # .div_(self.tmax)
         t = t.expand(t.size(0), self.M, 1)
-        x = [
-            t,
-            # self.weekday.narrow(0, 0, t.size(1))
-            # .unsqueeze(0)
-            # .expand(t.size(0), t.size(1), 7),
-            _ys.t().unsqueeze(-1),
-        ]
-        x = [t]
+        x = [t, _ys.t().unsqueeze(-1)]
         if self.time_features is not None:
             f = th.zeros(t.size(0), self.M, self.time_features.size(2)).to(t.device)
             f.copy_(self.time_features.narrow(0, -1, 1))
@@ -222,6 +207,7 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
         # back prop
         (loss + args.temporal * reg).backward()
 
+        # do AdamW-like update for Granger regularization
         if args.granger > 0:
             with th.no_grad():
                 mu = np.log(args.granger / (1 - args.granger))
@@ -230,8 +216,10 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                 err.fill_diagonal_(0)
                 model._alphas.copy_(model._alphas - r * err)
 
+        # make sure we have no NaNs
         assert loss == loss, (loss, scores, _loss)
 
+        # take gradient step
         optimizer.step()
 
         # control
@@ -353,7 +341,6 @@ class BARCV(cv.CV):
         params = []
         # exclude = {"nu", "beta.w_feat.weight", "beta.w_feat.bias"}
         exclude = {"nu", "_alphas", "beta.h0"}
-        # exclude = {"nu", "_alphas"}
         for name, p in dict(self.func.named_parameters()).items():
             wd = 0 if name in exclude else args.weight_decay
             if wd != 0:
