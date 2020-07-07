@@ -26,10 +26,11 @@ from tensorboardX import SummaryWriter
 from contextlib import nullcontext
 import common
 import metrics
-from analysis import export_notebook
 from lib import cluster
 from lib.click_lib import DefaultGroup, OptionNArgs
 from lib.slurm_pool_executor import SlurmPoolExecutor
+from lib.mail import email_notebook
+from lib.context_managers import env_var
 
 # FIXME: move snapshot to lib
 from timelord import snapshot
@@ -304,15 +305,14 @@ def log_configs(cfg: Dict[str, Any], module: str, path: str):
         yaml.dump(cfg[module], f)
 
 
-def attach_notebook(config, mode, jobs, executor):
+def attach_notebook(config, mode, basedir):
     """Run notebook for execution mode"""
     if "notebooks" in config and mode in config["notebooks"]:
-        launcher = (
-            partial(executor.submit_dependent, jobs, run_notebook)
-            if remote
-            else run_notebook
-        )
-        launcher(config["notebooks"][mode], module, basedir)
+        notebook_pth = config["notebooks"][mode]
+        subject = f"[CV Notebook]: {config['region']}"
+        with env_var({"CV_BASE_DIR": basedir}):
+            user = os.environ["USER"]
+            email_notebook(notebook_pth, [f"{user}@fb.com"], subject)
 
 
 def rebase_forecast_deltas(val_in, df_forecast_deltas):
@@ -372,14 +372,6 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
             launcher(tags, module, pth, cfg, "final_model_")
 
 
-def run_notebook(notebook_pth, module, basedir):
-    experiment_id = "/".join(basedir.split("/")[-2:])
-    print(f"Running noteook {notebook_pth} for {experiment_id}")
-    os.environ["EXPERIMENT_ID"] = experiment_id
-    os.environ["EXPERIMENT_MOD"] = module
-    export_notebook(notebook_pth, no_input=True, no_prompt=True)
-
-
 @click.group(cls=DefaultGroup, default_command="cv")
 def cli():
     pass
@@ -389,8 +381,9 @@ def cli():
 @click.argument("config_pth")
 @click.argument("sweep_dir")
 @click.argument("module")
-def notebook(notebook_pth, sweep_dir, module):
-    run_notebook(notebook_pth, module, sweep_dir)
+def notebook(config_pth, sweep_dir, module):
+    config = load_config(config_pth)
+    attach_notebook(config, "backfill", module)
 
 
 @cli.command()
@@ -523,11 +516,11 @@ def cv(
             job = launcher(cfg, module, remote, basedir, basedate=basedate)
             jobs.append(job)
 
-            # run backfill notebook
-            attach_notebook(cfg, "cv", jobs, executor)
-
         if remote:
+            if not executor.nested:
+                executor.submit_final_job(attach_notebook, cfg, "cv", basedir)
             executor.launch(basedir + "/workers", array_parallelism)
+
     print(basedir)
     return basedir, jobs
 
@@ -604,10 +597,8 @@ def backfill(
                 **cv_params,
             )
 
-    # run notebooks
-    attach_notebook(config, "backfill", jobs, executor)
-
     if remote:
+        executor.submit_final_job(attach_notebook, config, "backfill", basedir)
         executor.launch(basedir + "/workers", array_parallelism)
 
 
