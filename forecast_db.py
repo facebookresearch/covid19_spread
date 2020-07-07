@@ -277,38 +277,32 @@ def sync_ihme(conn):
 
 
 def sync_reich_forecast(conn, name, mdl_id):
-    url = f"https://github.com/reichlab/covid19-forecast-hub/tree/master/data-processed/{name}"
-    # Issue request: r => requests.models.Response
-    req = requests.get(url)
+    user = os.environ["USER"]
+    data_dir = f"{cluster.FS}/{user}/covid19/data/covid19-forecast-hub"
+    os.makedirs(os.path.dirname(data_dir), exist_ok=True)
+    if not os.path.exists(data_dir):
+        check_call(
+            [
+                "git",
+                "clone",
+                "https://github.com/reichlab/covid19-forecast-hub.git",
+                data_dir,
+            ]
+        )
+    check_call(["git", "pull"], cwd=data_dir)
+    loc_codes = pandas.read_csv(f"{data_dir}/data-locations/locations.csv")
 
-    # Extract text: html_doc => str
-    html_doc = req.text
-    soup = BeautifulSoup(html_doc, "html.parser")
-    # Find all links
-    a_tags = soup.find_all("a")
-    urls = [
-        "https://raw.githubusercontent.com" + re.sub("/blob", "", link.get("href"))
-        for link in a_tags
-        if ".csv" in link.get("href")
-    ]
-
-    # Store a list of Data Frame names to be assigned to the list: df_list_names => list
-    df_list_names = [url.split(".csv")[0].split("/")[url.count("/")] for url in urls]
-
-    # Initialise an empty list the same length as the urls list: df_list => list
-    df_list = [pandas.DataFrame([None]) for i in range(len(urls))]
-
-    # Store an empty list of dataframes: df_list => list
-    df_list = [pandas.read_csv(url, sep=",") for url in urls]
-
-    # Name the dataframes in the list, coerce to a dictionary: df_dict => dict
-    df_dict = dict(zip(df_list_names, df_list))
-
-    for key, value in df_dict.items():
-        value = value.loc[
+    for pth in glob(f"{data_dir}/data-processed/{name}/*.csv"):
+        value = pandas.read_csv(pth, dtype={"location": str})
+        value = value[
             (value["type"] == "point")
-            & value["target"].str.endswith("day ahead cum death")
-        ]
+            & (value["target"].str.match("\d wk ahead cum death"))
+            & (value["location"].str.match("\d\d"))
+        ].copy()
+        value = value.merge(loc_codes, on="location")
+        value["days"] = value["target"].str.extract("(\d+) wk")
+        value = value[value["days"] == value["days"].max()]
+
         value = value.rename(
             columns={
                 "target_end_date": "date",
