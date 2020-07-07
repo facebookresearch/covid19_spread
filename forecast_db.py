@@ -25,6 +25,12 @@ from data.recurring import DB as RECURRING_DB
 DB = os.path.join(os.path.dirname(os.path.realpath(__file__)), "forecasts/forecast.db")
 
 
+CLUSTERS = {
+    "H1": "devfairh1",
+    "H2": "devfairh2",
+}
+
+
 class MaxBy:
     def __init__(self):
         self.max_key = None
@@ -399,13 +405,14 @@ def dump_to_csv(conn, distribute):
     f("infections", False)
 
     if distribute:
+        ssh_alias = CLUSTERS[cluster.FAIR_CLUSTER]
         check_call(
             [
                 "rsync",
                 "--delete",
                 "-av",
                 basedir,
-                f"devfairh1:{os.path.dirname(basedir)}",
+                f"{ssh_alias}:{os.path.dirname(basedir)}",
             ]
         )
 
@@ -511,10 +518,7 @@ def sync_jhu(conn):
 
 @click.command()
 @click.option(
-    "--distribute",
-    type=click.BOOL,
-    default=False,
-    help="Distribute across clusters (H1/H2)",
+    "--distribute", is_flag=True, help="Distribute across clusters (H1/H2)",
 )
 def sync_forecasts(distribute=False):
     if not os.path.exists(DB):
@@ -531,7 +535,8 @@ def sync_forecasts(distribute=False):
     sync_yyg(conn)
     conn.execute("REINDEX;")
     if distribute:
-        DEST_DB = f"devfairh1:/private/home/{os.environ['USER']}/covid19_spread/forecasts/forecast.db"
+        ssh_alias = CLUSTERS[cluster.FAIR_CLUSTER]
+        DEST_DB = f"{ssh_alias}:/private/home/{os.environ['USER']}/covid19_spread/forecasts/forecast.db"
         check_call(["scp", DB, DEST_DB])
     dump_to_csv(conn, distribute)
 
