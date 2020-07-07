@@ -10,7 +10,7 @@ import hashlib
 this_dir = os.path.dirname(os.path.realpath(__file__))
 
 
-def install(script, schedule, extra_args, enable_email, dry):
+def install(script, schedule, extra_args, dry):
     stdoutfile = os.path.realpath(script) + ".log"
     stderrfile = os.path.realpath(script) + ".err"
     prefix = "python " if script.endswith(".py") else ""
@@ -65,12 +65,22 @@ def install(script, schedule, extra_args, enable_email, dry):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("script")
-    parser.add_argument("--schedule", required=True)
-    parser.add_argument("--args", nargs="*", default=[])
-    parser.add_argument("--no-email", action="store_false", dest="email")
-    parser.add_argument("--email", action="store_true", dest="email")
-    parser.add_argument("--dry", action="store_true")
-    parser.set_defaults(email=True)
+    parser.add_argument(
+        "--schedule",
+        required=True,
+        help="Cron schedule (ex: */5 * * * *) will run every 5 min.",
+    )
+    parser.add_argument(
+        "--args",
+        nargs="*",
+        default=[],
+        help="Extra arguments to be passed to the script run by cron",
+    )
+    parser.add_argument(
+        "--dry",
+        action="store_true",
+        help="Dry run.  Will print out what would be added to cron",
+    )
     opt = parser.parse_args()
 
-    install(opt.script, opt.schedule, opt.args, opt.email, opt.dry)
+    install(opt.script, opt.schedule, opt.args, opt.dry)
