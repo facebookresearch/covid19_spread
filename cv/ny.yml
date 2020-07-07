@@ -12,15 +12,21 @@ backfill:
   #- 2020-04-05
   #- 2020-04-08
   #- 2020-04-12
-  - 2020-04-15
-  #- 2020-04-19
-  - 2020-04-22
-  # - 2020-04-26
-  - 2020-04-29
-  #- 2020-05-03
-  - 2020-05-06
-  #- 2020-05-10
-  #- 2020-05-17
+  # - 2020-04-15
+  - 2020-04-19
+  # - 2020-04-22
+  - 2020-04-26
+  # - 2020-04-29
+  - 2020-05-03
+  # - 2020-05-06
+  - 2020-05-10
+  - 2020-05-17
+  - 2020-05-24
+  - 2020-05-31
+  - 2020-06-07
+  - 2020-06-13
+  - 2020-06-21
+  - 2020-06-28
 ar:
   data: data/nystate/data_cases.csv
   output: ar_model.bin
@@ -86,29 +92,29 @@ bar:
     cpus: 1
     memgb: 15
     timeout: 3600
-  preprocess:
-    smooth: 7
+  #preprocess:
+  #  smooth: 7
   train:
     fpop: *fpop
     # features: data/usa/county_features.pt
     # time_features:
-    #   -
-    #     - data/usa/google/mobility_features.pt
-    #     - data/usa/fb/mobility_features.pt
-    #     - data/usa/symptom-survey/features.pt
+    #  -
+    #    - data/usa/google/mobility_features.pt
+    #    - data/usa/fb/mobility_features.pt
+    #    - data/usa/symptom-survey/features.pt
     activation: sigmoid
-    decay: [latent2_1]
+    decay: [latent2_2]
     # decay: [latent2_2, latent16_2, latent32_2]
     window: [20, 25]
     lr: [0.001]
     momentum: [0.99]
     weight_decay: [0.2, 0.3]
-    niters: [30000]
+    niters: [50000]
     granger: [0.5]
     # granger: [0.3, 0.4, 0.5]
-    temporal: [0.5, 1, 5]
+    temporal: [0.5, 1, 2]
     # eta: [0.2, 0.3, 0.4]
-    eta: [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    eta: [0.2, 0.3, 0.4, 0.5]
     loss: nb
     t0: 0
     test_on: *fdays
