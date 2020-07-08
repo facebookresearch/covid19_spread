@@ -25,11 +25,17 @@ declare -A users=(
     ["maxn"]="<@U016DQES1BL>"
 )
 
+
+MENTION=""
+if [ ${users[$USER]+_} ]; then 
+    MENTION=" (${users[$USER]})"
+fi
+
 if [ $RESULT -ne 0 ]
     then
     echo "Failed!"
     MSG=$TMP/email_body.txt
-    echo "*Failure detected $(TZ=America/New_York date)* (${users[$USER]})" >> $MSG
+    echo "*Failure detected $(TZ=America/New_York date)*$MENTION" >> $MSG
     echo '```' >> $MSG
     echo "$@" >> $MSG
     echo '```' >> $MSG
