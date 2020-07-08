@@ -518,7 +518,7 @@ def cv(
 
         if remote:
             if not executor.nested:
-                executor.submit_final_job(attach_notebook, cfg, "cv", basedir)
+                executor.submit_final_job(attach_notebook, cfg, "cv", module, basedir)
             executor.launch(basedir + "/workers", array_parallelism)
 
     print(basedir)
@@ -598,7 +598,7 @@ def backfill(
             )
 
     if remote:
-        executor.submit_final_job(attach_notebook, config, "backfill", basedir)
+        executor.submit_final_job(attach_notebook, config, "backfill", module, basedir)
         executor.launch(basedir + "/workers", array_parallelism)
 
 
