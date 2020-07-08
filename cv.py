@@ -153,10 +153,10 @@ class CV:
             runs.append(
                 {
                     "pth": os.path.dirname(metrics_pth),
-                    "mae": metrics.loc["MAE"].mean(),
-                    "rmse": metrics.loc["RMSE"].mean(),
+                    "mae": metrics.loc["MAE"][-1],
+                    "rmse": metrics.loc["RMSE"][-1],
                     "mae_deltas": metrics.loc["MAE_DELTAS"].mean(),
-                    "state_mae": metrics.loc["STATE_MAE"].mean(),
+                    "state_mae": metrics.loc["STATE_MAE"][-1],
                 }
             )
         df = pd.DataFrame(runs)
