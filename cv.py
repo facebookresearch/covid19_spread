@@ -28,8 +28,9 @@ import common
 import metrics
 from lib import cluster
 from lib.click_lib import DefaultGroup, OptionNArgs
-from lib.slurm_pool_executor import SlurmPoolExecutor
+from lib.slurm_pool_executor import SlurmPoolExecutor, JobStatus
 from lib.mail import email_notebook
+import sqlite3
 from lib.context_managers import env_var
 
 # FIXME: move snapshot to lib
@@ -600,6 +601,33 @@ def backfill(
     if remote:
         executor.submit_final_job(attach_notebook, config, "backfill", module, basedir)
         executor.launch(basedir + "/workers", array_parallelism)
+
+
+@cli.command()
+@click.argument("sweep_dir")
+def progress(sweep_dir):
+    sweep_dir = os.path.realpath(sweep_dir)
+    DB = glob(f"{sweep_dir}/**/.job.db", recursive=True)[0]
+    conn = sqlite3.connect(DB)
+    df = pd.read_sql("SELECT status, worker_id FROM jobs", conn)
+    msg = {
+        "success": int((df["status"] == JobStatus.success.value).sum()),
+        "failed": int((df["status"] == JobStatus.failure.value).sum()),
+        "pending": int((df["status"] == JobStatus.pending.value).sum()),
+        "running": int((df["status"] > len(JobStatus)).sum()),
+    }
+    print(json.dumps(msg, indent=4))
+
+
+@cli.command()
+@click.argument("sweep_dir")
+@click.argument("workers", type=click.INT)
+def add_workers(sweep_dir, workers):
+    DB = os.path.realpath(glob(f"{sweep_dir}/**/.job.db", recursive=True)[0])
+    cfg = load_config(glob(f"{sweep_dir}/**/cfg.yml")[0])
+    extra_params = cfg[cfg["this_module"]].get("resources", {})
+    executor = mk_executor("add_workers", os.path.dirname(DB), extra_params)
+    executor.launch(f"{sweep_dir}/workers", workers)
 
 
 if __name__ == "__main__":

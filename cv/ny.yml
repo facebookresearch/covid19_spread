@@ -37,7 +37,7 @@ ar:
     gpus: 1
     cpus: 1
     memgb: 10
-    timeout: 30
+    timeout: 300
   train:
     fpop: *fpop
     activation: sigmoid
