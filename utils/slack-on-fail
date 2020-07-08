@@ -19,11 +19,17 @@ RESULT=$?
 set -e
 
 
+declare -A users=( 
+    ["mattle"]="<@U0171210VU0>" 
+    ["marksibrahim"]="<@U017DEB8H96>"
+    ["maxn"]="<@U016DQES1BL>"
+)
+
 if [ $RESULT -ne 0 ]
     then
     echo "Failed!"
     MSG=$TMP/email_body.txt
-    echo "*Failure detected $(TZ=America/New_York date)*" >> $MSG
+    echo "*Failure detected $(TZ=America/New_York date)* (${users[$USER]})" >> $MSG
     echo '```' >> $MSG
     echo "$@" >> $MSG
     echo '```' >> $MSG
