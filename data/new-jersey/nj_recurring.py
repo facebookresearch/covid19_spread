@@ -52,7 +52,7 @@ class NJRecurring(recurring.Recurring):
         df = pandas.read_csv("data_cases.csv", index_col="region")
         return pandas.to_datetime(df.columns).max().date()
 
-    def launch_job(self, cv_config="nj", module="mhp", **kwargs):
+    def launch_job(self, cv_config="nj_prod", module="mhp", **kwargs):
         return super().launch_job(cv_config=cv_config, module=module, **kwargs)
 
 
@@ -64,7 +64,7 @@ class NJARRecurring(NJRecurring):
         return super().command() + f" --kind ar"
 
     def launch_job(self, **kwargs):
-        return super().launch_job(cv_config="nj", module="ar", **kwargs)
+        return super().launch_job(cv_config="nj_prod", module="ar", **kwargs)
 
     def module(self):
         return "ar"
