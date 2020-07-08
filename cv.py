@@ -305,12 +305,12 @@ def log_configs(cfg: Dict[str, Any], module: str, path: str):
         yaml.dump(cfg[module], f)
 
 
-def attach_notebook(config, mode, basedir):
+def attach_notebook(config, mode, module, basedir):
     """Run notebook for execution mode"""
     if "notebooks" in config and mode in config["notebooks"]:
         notebook_pth = config["notebooks"][mode]
         subject = f"[CV Notebook]: {config['region']}"
-        with env_var({"CV_BASE_DIR": basedir}):
+        with env_var({"CV_BASE_DIR": basedir, "CV_MODULE": module}):
             user = os.environ["USER"]
             email_notebook(notebook_pth, [f"{user}@fb.com"], subject)
 
@@ -383,7 +383,7 @@ def cli():
 @click.argument("module")
 def notebook(config_pth, sweep_dir, module):
     config = load_config(config_pth)
-    attach_notebook(config, "backfill", module)
+    attach_notebook(config, "backfill", module, sweep_dir)
 
 
 @cli.command()
