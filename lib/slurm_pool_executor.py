@@ -13,7 +13,12 @@ import sqlite3
 from functools import partial
 import enum
 import re
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from contextlib import (
+    contextmanager,
+    redirect_stderr,
+    redirect_stdout,
+    AbstractContextManager,
+)
 import traceback
 
 
@@ -41,33 +46,60 @@ def env_var(key_vals: tp.Dict[str, tp.Union[str, None]]):
             del os.environ[k]
 
 
-@contextmanager
-def transaction(DB: str):
-    """Execute a transaction with exclusive access to the DB (lock the entire DB)"""
-    exn = None
-    for i in range(20):
-        try:
-            conn = sqlite3.connect(DB, timeout=30)
-            conn.isolation_level = "EXCLUSIVE"
-            conn.execute("BEGIN EXCLUSIVE")
-            yield conn
-            conn.commit()
-            conn.close()
-            exn = None
-            break
-        except sqlite3.OperationalError as e:
-            print(f"Failed to execute transaction!", file=sys.stderr)
-            print(e, file=sys.stderr)
-            time.sleep(1)
-            exn = e
-    if exn is not None:
-        raise exn
+class TransactionManager(AbstractContextManager):
+    """
+    Class for managing exclusive database transactions.  This locks the entire 
+    database to ensure atomicity.  This allows nesting transactions, where
+    the inner transaction is idempotent.
+    """
+
+    def __init__(self, db_url: str, nretries: int = 20):
+        self.retries = nretries
+        self.db_url = db_url
+        self.exn = None
+        self.conn = None
+        self.nesting = 0
+
+    def __enter__(self):
+        if self.conn is None:
+            self.conn = sqlite3.connect(self.db_url, timeout=30)
+            self.conn.isolation_level = "EXCLUSIVE"
+            self.conn.execute("BEGIN EXCLUSIVE")
+        self.nesting += 1
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        self.nesting -= 1
+        if self.nesting == 0:
+            self.conn.commit()
+            self.conn.close()
+            self.conn = None
+        if self.exn is not None:
+            raise self.exn
+
+    def execute(self, query, *args):
+        res = None
+        assert self.conn is not None, "Executing outside of transaction!!!"
+        for _ in range(self.retries):
+            try:
+                res = self.conn.execute(query, *args)
+                self.exn = None
+                break
+            except sqlite3.OperationalError as e:
+                print(f"Failed to execute transaction!", file=sys.stderr)
+                print(e, file=sys.stderr)
+                time.sleep(1)
+                self.exn = e
+        if self.exn is not None:
+            raise self.exn
+        return res
 
 
 class JobStatus(enum.IntEnum):
     pending = 0
     success = 1
     failure = 2
+    final = 3  # pending if all other jobs are finished
 
     def __conform__(self, protocol):
         if protocol is sqlite3.PrepareProtocol:
@@ -82,9 +114,9 @@ def worker(db_pth, worker_id):
     """
     worker_env = job_environment.JobEnvironment()
     running_status = len(JobStatus) + worker_id + 1  # mark in progress with this code
-    conn = sqlite3.connect(db_pth, timeout=300)
+    transaction_manager = TransactionManager(db_pth)
     while True:
-        with transaction(db_pth) as conn:
+        with transaction_manager as conn:
             # Select a pending job that doesn't have any unfinished dependencies
             res = conn.execute(
                 f"""
@@ -99,9 +131,25 @@ def worker(db_pth, worker_id):
             LIMIT 1
             """
             ).fetchall()
-            if len(res) == 0:  # not jobs left
-                print(f"Worker {worker_id} is finished!")
-                break
+            if len(res) == 0:  # no jobs left
+                status = (JobStatus.success, JobStatus.failure, JobStatus.final)
+                unfinished = conn.execute(
+                    f"SELECT COUNT(1) FROM jobs WHERE status NOT IN (?,?,?)", status
+                )
+                if unfinished.fetchone()[0] > 0:
+                    # Other jobs are still running, just exit...
+                    print(f"Worker {worker_id} is finished!")
+                    return
+                # All other workers have exited.  Check if there are any final jobs to execute...
+                res = conn.execute(
+                    f"SELECT pickle, job_id FROM jobs WHERE status={JobStatus.final} LIMIT 1"
+                ).fetchall()
+                if len(res) == 0:
+                    # No final jobs to execute, exit...
+                    print(f"Worker {worker_id} is finished!")
+                    return
+                print(f"Worker {worker_id} is executing final_job: {res[0][0]}")
+
             [(pickle, job_id)] = res
             # Mark that we're working on this job.
             res = conn.execute(
@@ -116,9 +164,9 @@ def worker(db_pth, worker_id):
             "SLURM_ARRAY_JOB_ID": None,
             "SLURM_ARRAY_TASK_ID": None,
         }
-        if re.match("job_(\d+)", job_id):
+        if re.match(r"job_(\d+)", job_id):
             env_vars["SLURM_ARRAY_JOB_ID"] = "job"
-            env_vars["SLURM_ARRAY_TASK_ID"] = re.search("job_(\d+)", job_id).group(1)
+            env_vars["SLURM_ARRAY_TASK_ID"] = re.search(r"job_(\d+)", job_id).group(1)
         with env_var(
             env_vars
         ):  # will reset os.environ when leaving the context manager
@@ -137,7 +185,7 @@ def worker(db_pth, worker_id):
                         traceback.print_exc(file=sys.stderr)
 
             print(f"Worker {worker_id} finished job with status {status}")
-            with transaction(db_pth) as conn:
+            with transaction_manager as conn:
                 conn.execute(
                     f"UPDATE jobs SET status={status.value} WHERE pickle=?", (pickle,)
                 )
@@ -147,17 +195,26 @@ class SlurmPoolExecutor(SlurmExecutor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.nested = False
-        self.jobs = []
         os.makedirs(self.folder, exist_ok=True)
         self.db_pth = os.path.join(str(self.folder), ".job.db")
-        with sqlite3.connect(self.db_pth) as conn:
+        self.transaction_manager = TransactionManager(self.db_pth)
+
+        with self.transaction_manager as conn:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS jobs(status int, pickle text, job_id text, worker_id text)"
             )
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS dependencies(pickle text, depends_on text)"
             )
-            conn.commit()
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state["transaction_manager"]
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self.transaction_manager = TransactionManager(self.db_pth)
 
     def _submit_command(self, command):
         tmp_uuid = uuid.uuid4().hex
@@ -168,49 +225,52 @@ class SlurmPoolExecutor(SlurmExecutor):
     def _internal_process_submissions(
         self, delayed_submissions: tp.List[utils.DelayedSubmission]
     ) -> tp.List[core.Job[tp.Any]]:
-        if len(delayed_submissions) == 1:
-            jobs = super()._internal_process_submissions(delayed_submissions)
-            vals = (
-                JobStatus.pending,
-                str(jobs[0].paths.submitted_pickle),
-                jobs[0].job_id,
-            )
-            with sqlite3.connect(self.db_pth) as conn:
+        with self.transaction_manager as conn:
+            if len(delayed_submissions) == 1:
+                jobs = super()._internal_process_submissions(delayed_submissions)
+                vals = (
+                    JobStatus.pending,
+                    str(jobs[0].paths.submitted_pickle),
+                    jobs[0].job_id,
+                )
                 conn.execute(
                     "INSERT INTO jobs(status, pickle, job_id) VALUES(?, ?, ?)", vals
                 )
-            return jobs
-        # array
-        folder = utils.JobPaths.get_first_id_independent_folder(self.folder)
-        folder.mkdir(parents=True, exist_ok=True)
-        pickle_paths = []
-        for d in delayed_submissions:
-            pickle_path = folder / f"{uuid.uuid4().hex}.pkl"
-            d.timeout_countdown = self.max_num_timeout
-            d.dump(pickle_path)
-            pickle_paths.append(pickle_path)
-        n = len(delayed_submissions)
-        # Make a copy of the executor, since we don't want other jobs to be
-        # scheduled as arrays.
-        array_ex = self.__class__(self.folder, self.max_num_timeout)
-        array_ex.update_parameters(**self.parameters)
-        array_ex.parameters["map_count"] = n
-        self._throttle()
+                return jobs
+            # array
+            folder = utils.JobPaths.get_first_id_independent_folder(self.folder)
+            folder.mkdir(parents=True, exist_ok=True)
+            pickle_paths = []
+            for d in delayed_submissions:
+                pickle_path = folder / f"{uuid.uuid4().hex}.pkl"
+                d.timeout_countdown = self.max_num_timeout
+                d.dump(pickle_path)
+                pickle_paths.append(pickle_path)
+            n = len(delayed_submissions)
+            self._throttle()
 
-        tasks_ids = list(range(len(pickle_paths)))
-        jobs: tp.List[core.Job[tp.Any]] = [
-            SlurmJob(folder=self.folder, job_id=f"job_{a}", tasks=tasks_ids)
-            for a in range(n)
-        ]
-        with sqlite3.connect(self.db_pth) as conn:
+            tasks_ids = list(range(len(pickle_paths)))
+            jobs: tp.List[core.Job[tp.Any]] = [
+                SlurmJob(folder=self.folder, job_id=f"job_{a}", tasks=tasks_ids)
+                for a in range(n)
+            ]
             for job, pickle_path in zip(jobs, pickle_paths):
                 job.paths.move_temporary_file(pickle_path, "submitted_pickle")
                 vals = (JobStatus.pending, str(job.paths.submitted_pickle), job.job_id)
                 conn.execute(
                     "INSERT INTO jobs(status, pickle, job_id) VALUES(?, ?, ?)", vals
                 )
-        self.jobs.extend(jobs)
         return jobs
+
+    def submit_final_job(
+        self, fn: tp.Callable[..., core.R], *args: tp.Any, **kwargs: tp.Any,
+    ) -> core.Job[core.R]:
+        with self.transaction_manager as conn:
+            job = self.submit(fn, *args, **kwargs)
+            conn.execute(
+                f"UPDATE jobs SET status={JobStatus.final} WHERE pickle=?",
+                (str(job.paths.submitted_pickle),),
+            )
 
     def submit_dependent(
         self,
@@ -221,7 +281,7 @@ class SlurmPoolExecutor(SlurmExecutor):
     ) -> core.Job[core.R]:
         job = self.submit(fn, *args, **kwargs)
 
-        with sqlite3.connect(self.db_pth) as conn:
+        with self.transaction_manager as conn:
             for dep in depends_on:
                 vals = (
                     str(job.paths.submitted_pickle),
@@ -230,11 +290,10 @@ class SlurmPoolExecutor(SlurmExecutor):
                 conn.execute(
                     "INSERT INTO dependencies(pickle, depends_on) VALUES (?,?)", vals
                 )
-            conn.commit()
 
     def launch(self, folder=None, workers: int = 2):
         if not self.nested:
-            with sqlite3.connect(self.db_pth) as conn:
+            with self.transaction_manager as conn:
                 (njobs,) = conn.execute("SELECT COUNT(1) FROM jobs").fetchone()
             workers = min(workers, njobs)
             ex = SlurmExecutor(folder or self.folder)

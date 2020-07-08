@@ -56,8 +56,9 @@ def load_backfill(
         job = jobs[0]
         date = date[6:]
         forecasts[date] = os.path.join(job, f"../forecasts/forecast_{forecast}.csv")
-        cfg = job + f"/{model}.yml"
-        cfg = yaml.load(open(cfg), Loader=yaml.FullLoader)["train"]
+        cfg = yaml.safe_load(open(os.path.join(job, "../cfg.yml")))
+        cfg = yaml.safe_load(open(os.path.join(job, f"{cfg['this_module']}.yml")))
+        cfg = cfg["train"]
         cfg["date"] = date
         cfg["job"] = job
         configs.append(cfg)
@@ -87,6 +88,7 @@ def export_notebook(nb_path, fout="notebook.html", no_input=False, no_prompt=Fal
 
 def show(plot, path=None):
     if path is not None and os.environ.get("BOKEH_STATIC", 0) == "1":
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         export_png(plot, filename=path)
         return Image(path)
     else:

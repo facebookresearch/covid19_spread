@@ -23,13 +23,15 @@ from functools import partial
 from glob import glob
 from typing import Dict, Any, List, Optional, Tuple
 from tensorboardX import SummaryWriter
-
+from contextlib import nullcontext
 import common
 import metrics
-from analysis import export_notebook
 from lib import cluster
 from lib.click_lib import DefaultGroup, OptionNArgs
-from lib.slurm_pool_executor import SlurmPoolExecutor
+from lib.slurm_pool_executor import SlurmPoolExecutor, JobStatus
+from lib.mail import email_notebook
+import sqlite3
+from lib.context_managers import env_var
 
 # FIXME: move snapshot to lib
 from timelord import snapshot
@@ -304,15 +306,14 @@ def log_configs(cfg: Dict[str, Any], module: str, path: str):
         yaml.dump(cfg[module], f)
 
 
-def attach_notebook(config, mode, jobs, executor):
+def attach_notebook(config, mode, module, basedir):
     """Run notebook for execution mode"""
     if "notebooks" in config and mode in config["notebooks"]:
-        launcher = (
-            partial(executor.submit_dependent, jobs, run_notebook)
-            if remote
-            else run_notebook
-        )
-        launcher(config["notebooks"][mode], module, basedir)
+        notebook_pth = config["notebooks"][mode]
+        subject = f"[CV Notebook]: {config['region']}"
+        with env_var({"CV_BASE_DIR": basedir, "CV_MODULE": module}):
+            user = os.environ["USER"]
+            email_notebook(notebook_pth, [f"{user}@fb.com"], subject)
 
 
 def rebase_forecast_deltas(val_in, df_forecast_deltas):
@@ -327,9 +328,14 @@ def rebase_forecast_deltas(val_in, df_forecast_deltas):
     return df_forecast
 
 
-def run_best(config, module, remote, basedir, basedate=None, mail_to=None):
+def run_best(config, module, remote, basedir, basedate=None, executor=None):
     mod = importlib.import_module(module).CV_CLS()
     best_runs = mod.model_selection(basedir)
+
+    if remote and executor is None:
+        executor = mk_executor(
+            "model_selection", basedir, config[module].get("resources", {})
+        )
 
     with open(os.path.join(basedir, "model_selection.json"), "w") as fout:
         json.dump([x._asdict() for x in best_runs], fout)
@@ -361,23 +367,10 @@ def run_best(config, module, remote, basedir, basedate=None, mail_to=None):
         cfg[module] = job_config
         launcher = run_cv_and_copy_results
         if remote:
-            executor = mk_executor(
-                name, pth, cfg[module].get("resources", {}), ex=submitit.AutoExecutor
-            )
-            if mail_to is not None:
-                executor.update_parameters(
-                    additional_parameters={"mail_type": "END", "mail_user": mail_to}
-                )
             launcher = partial(executor.submit, run_cv_and_copy_results)
-        launcher(tags, module, pth, cfg, "final_model_")
 
-
-def run_notebook(notebook_pth, module, basedir):
-    experiment_id = "/".join(basedir.split("/")[-2:])
-    print(f"Running noteook {notebook_pth} for {experiment_id}")
-    os.environ["EXPERIMENT_ID"] = experiment_id
-    os.environ["EXPERIMENT_MOD"] = module
-    export_notebook(notebook_pth, no_input=True, no_prompt=True)
+        with executor.set_folder(pth) if remote else nullcontext():
+            launcher(tags, module, pth, cfg, "final_model_")
 
 
 @click.group(cls=DefaultGroup, default_command="cv")
@@ -389,8 +382,9 @@ def cli():
 @click.argument("config_pth")
 @click.argument("sweep_dir")
 @click.argument("module")
-def notebook(notebook_pth, sweep_dir, module):
-    run_notebook(notebook_pth, module, sweep_dir)
+def notebook(config_pth, sweep_dir, module):
+    config = load_config(config_pth)
+    attach_notebook(config, "backfill", module, sweep_dir)
 
 
 @cli.command()
@@ -400,7 +394,11 @@ def notebook(notebook_pth, sweep_dir, module):
 @click.option("-basedate", type=click.DateTime(), default=None)
 def model_selection(sweep_dir, module, remote, basedate):
     cfg = load_config(os.path.join(sweep_dir, "cfg.yml"))
-    run_best(cfg, module, remote, sweep_dir, basedate)
+    executor = mk_executor(
+        "model_selection", sweep_dir, cfg[module].get("resources", {})
+    )
+    run_best(cfg, module, remote, sweep_dir, basedate, executor=executor)
+    executor.launch(sweep_dir, workers=4)
 
 
 def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
@@ -510,20 +508,20 @@ def cv(
 
         # Find the best model and retrain on the full dataset
         launcher = (
-            partial(executor.submit_dependent, jobs, run_best) if remote else run_best
+            partial(executor.submit_dependent, jobs, run_best, executor=executor)
+            if remote
+            else run_best
         )
 
         if not validate_only:
-            job = launcher(
-                cfg, module, remote, basedir, basedate=basedate, mail_to=mail_to
-            )
+            job = launcher(cfg, module, remote, basedir, basedate=basedate)
             jobs.append(job)
 
-            # run backfill notebook
-            attach_notebook(cfg, "cv", jobs, executor)
+        if remote:
+            if not executor.nested:
+                executor.submit_final_job(attach_notebook, cfg, "cv", module, basedir)
+            executor.launch(basedir + "/workers", array_parallelism)
 
-    if remote:
-        executor.launch(basedir + "/workers", array_parallelism)
     print(basedir)
     return basedir, jobs
 
@@ -600,11 +598,36 @@ def backfill(
                 **cv_params,
             )
 
-    # run notebooks
-    attach_notebook(config, "backfill", jobs, executor)
-
     if remote:
+        executor.submit_final_job(attach_notebook, config, "backfill", module, basedir)
         executor.launch(basedir + "/workers", array_parallelism)
+
+
+@cli.command()
+@click.argument("sweep_dir")
+def progress(sweep_dir):
+    sweep_dir = os.path.realpath(sweep_dir)
+    DB = glob(f"{sweep_dir}/**/.job.db", recursive=True)[0]
+    conn = sqlite3.connect(DB)
+    df = pd.read_sql("SELECT status, worker_id FROM jobs", conn)
+    msg = {
+        "success": int((df["status"] == JobStatus.success.value).sum()),
+        "failed": int((df["status"] == JobStatus.failure.value).sum()),
+        "pending": int((df["status"] == JobStatus.pending.value).sum()),
+        "running": int((df["status"] > len(JobStatus)).sum()),
+    }
+    print(json.dumps(msg, indent=4))
+
+
+@cli.command()
+@click.argument("sweep_dir")
+@click.argument("workers", type=click.INT)
+def add_workers(sweep_dir, workers):
+    DB = os.path.realpath(glob(f"{sweep_dir}/**/.job.db", recursive=True)[0])
+    cfg = load_config(glob(f"{sweep_dir}/**/cfg.yml")[0])
+    extra_params = cfg[cfg["this_module"]].get("resources", {})
+    executor = mk_executor("add_workers", os.path.dirname(DB), extra_params)
+    executor.launch(f"{sweep_dir}/workers", workers)
 
 
 if __name__ == "__main__":
