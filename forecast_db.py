@@ -16,7 +16,6 @@ import shutil
 from data.usa.process_cases import get_nyt
 import requests
 from xml.etree import ElementTree
-from bs4 import BeautifulSoup
 import yaml
 from lib import cluster
 from data.recurring import DB as RECURRING_DB
@@ -106,6 +105,17 @@ def mk_db():
     conn.execute("CREATE INDEX id_deaths_idx ON deaths(id);")
     conn.execute("CREATE INDEX forecast_date_deaths_idx ON deaths(forecast_date);")
     conn.execute("CREATE TABLE gt_mapping (id text, gt text);")
+
+
+def update_repo(repo):
+    user = os.environ["USER"]
+    match = re.search(r"([^(\/|:)]+)/([^(\/|:)]+)\.git", repo)
+    name = f"{match.group(1)}_{match.group(2)}"
+    data_pth = f"{cluster.FS}/{user}/covid19/data/{name}"
+    if not os.path.exists(data_pth):
+        check_call(["git", "clone", repo, data_pth])
+    check_call(["git", "pull"], cwd=data_pth)
+    return data_pth
 
 
 @click.group()
@@ -283,19 +293,7 @@ def sync_ihme(conn):
 
 
 def sync_reich_forecast(conn, name, mdl_id):
-    user = os.environ["USER"]
-    data_dir = f"{cluster.FS}/{user}/covid19/data/covid19-forecast-hub"
-    os.makedirs(os.path.dirname(data_dir), exist_ok=True)
-    if not os.path.exists(data_dir):
-        check_call(
-            [
-                "git",
-                "clone",
-                "https://github.com/reichlab/covid19-forecast-hub.git",
-                data_dir,
-            ]
-        )
-    check_call(["git", "pull"], cwd=data_dir)
+    data_dir = update_repo("https://github.com/reichlab/covid19-forecast-hub.git")
     loc_codes = pandas.read_csv(f"{data_dir}/data-locations/locations.csv")
 
     for pth in glob(f"{data_dir}/data-processed/{name}/*.csv"):
@@ -454,13 +452,7 @@ def sync_matts_forecasts(conn):
 
 
 def sync_austria_gt(conn):
-    user = os.environ["USER"]
-    data_dir = f"/checkpoint/{user}/covid19/data/covid19_spread"
-    if not os.path.exists(data_dir):
-        check_call(
-            ["git", "clone", "git@github.com:fairinternal/covid19_spread.git", data_dir]
-        )
-    check_call(["git", "pull"], cwd=data_dir)
+    data_dir = update_repo("git@github.com:fairinternal/covid19_spread.git")
     df = pandas.read_csv(
         f"{data_dir}/data/austria/data.csv", index_col="region"
     ).transpose()
@@ -474,13 +466,7 @@ def sync_austria_gt(conn):
 
 
 def sync_jhu(conn):
-    user = os.environ["USER"]
-    data_pth = f"{cluster.FS}/{user}/covid19/data/jhu_covid_data"
-    if not os.path.exists(data_pth):
-        check_call(
-            ["git", "clone", "https://github.com/CSSEGISandData/COVID-19.git", data_pth]
-        )
-    check_call(["git", "pull"], cwd=data_pth)
+    data_pth = update_repo("https://github.com/CSSEGISandData/COVID-19.git")
     col_map = {
         "Country/Region": "loc1",
         "Province/State": "loc2",
@@ -516,6 +502,38 @@ def sync_jhu(conn):
             pdb.set_trace()
 
 
+def sync_columbia(conn):
+    data_dir = update_repo("git@github.com:shaman-lab/COVID-19Projection.git")
+    fips_dir = update_repo("git@github.com:kjhealy/fips-codes.git")
+    fips = pandas.read_csv(
+        f"{fips_dir}/county_fips_master.csv", encoding="latin1", dtype={"fips": str}
+    )
+    fips["fips"] = fips["fips"].apply(lambda x: x.zfill(5))
+    for file in glob(f"{data_dir}/Projection_*/Projection_*.csv"):
+        print(file)
+        df = pandas.read_csv(
+            file, encoding="latin1", dtype={"fips": str}, parse_dates=["Date"]
+        )
+        merged = df.merge(fips[["fips", "county_name", "state_name"]], on="fips")
+        merged = merged.rename(
+            columns={
+                "report_50": "counts",
+                "state_name": "loc2",
+                "county_name": "loc3",
+                "Date": "date",
+            }
+        )
+        merged = merged[["counts", "loc2", "loc3", "date"]]
+        merged["loc1"] = "United States"
+        name = re.search("Projection_(.*).csv", os.path.basename(file)).group(1)
+        merged["id"] = f"columbia_{name}"
+        merged["loc3"] = merged["loc3"].str.replace(" (County|Municipality|Parish)", "")
+        merged["forecast_date"] = merged["date"].min()
+        to_sql(
+            conn, merged, "infections",
+        )
+
+
 @click.command()
 @click.option(
     "--distribute", is_flag=True, help="Distribute across clusters (H1/H2)",
@@ -524,6 +542,7 @@ def sync_forecasts(distribute=False):
     if not os.path.exists(DB):
         mk_db()
     conn = sqlite3.connect(DB)
+    sync_columbia(conn)
     sync_jhu(conn)
     sync_austria_gt(conn)
     sync_matts_forecasts(conn)
