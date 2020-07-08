@@ -1,5 +1,7 @@
 region: nystate
 population: &fpop data/population-data/US-states/new-york-population.csv
+notebooks:
+  backfill: notebooks/NY.ipynb
 validation:
   days: 21
   output: validation.csv
@@ -19,13 +21,13 @@ backfill:
   - 2020-05-03
   # - 2020-05-06
   - 2020-05-10
-  - 2020-05-17
-  - 2020-05-24
-  - 2020-05-31
-  - 2020-06-07
-  - 2020-06-13
-  - 2020-06-21
-  - 2020-06-28
+  #- 2020-05-17
+  #- 2020-05-24
+  #- 2020-05-31
+  #- 2020-06-07
+  #- 2020-06-13
+  #- 2020-06-21
+  #- 2020-06-28
 ar:
   data: data/nystate/data_cases.csv
   output: ar_model.bin
@@ -96,10 +98,11 @@ bar:
   train:
     fpop: *fpop
     # features: data/usa/county_features.pt
-    # time_features:
-    #  -
-    #    - data/usa/google/mobility_features.pt
-    #    - data/usa/fb/mobility_features.pt
+    time_features:
+      -
+        - data/usa/testing/features.pt
+        - data/usa/fb/mobility_features.pt
+        - data/usa/google/mobility_features.pt
     #    - data/usa/symptom-survey/features.pt
     activation: sigmoid
     decay: [latent2_2]
