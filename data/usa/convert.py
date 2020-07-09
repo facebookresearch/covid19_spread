@@ -60,7 +60,7 @@ def read_population():
     return population
 
 
-def process_mobility(df, prefix):
+def process_mobility(df, prefix, shift=0):
     mobility = pd.read_csv(f"{prefix}/mobility_features.csv")
     dates = pd.to_datetime(mobility.columns[2:])
     dates = dates[np.where(dates >= df.columns.min())[0]]
@@ -76,10 +76,11 @@ def process_mobility(df, prefix):
 
     mob = {}
     skipped = 0
-    start_ix = np.where(dates.min() == df.columns)[0][0]
+    start_ix = np.where(dates.min() == df.columns)[0][0] + shift
     # FIXME: check via dates between google and fb are not aligned
     # end_ix = np.where(dates.max() == df.columns)[0][0]
     end_ix = start_ix + len(dates)
+    end_ix = min(end_ix, df.shape[1])
     for region in df.index:
         if region not in mobility_types:
             # print(region)
@@ -87,21 +88,23 @@ def process_mobility(df, prefix):
             continue
         _m = th.zeros(df.shape[1], n_mobility_types)
         _v = mobility_types[region].iloc[:, 2:].transpose()
+        _v = _v[: end_ix - start_ix]
         _m[start_ix:end_ix] = th.from_numpy(_v.values)
         mob[region] = _m
     th.save(mob, f"{prefix}/mobility_features.pt")
     print(skipped, df.shape[0])
 
 
-def process_symptom_survey(df):
+def process_symptom_survey(df, shift=1):
     symptoms = pd.read_csv(
         "symptom-survey/data-smoothed_cli-state.csv", index_col="region"
     )
     sym = {}
     skipped = 0
     dates = pd.to_datetime(symptoms.columns[1:])
-    start_ix = np.where(dates.min() == df.columns)[0][0] - 1
+    start_ix = np.where(dates.min() == df.columns)[0][0] + shift
     end_ix = start_ix + len(dates)
+    end_ix = min(end_ix, df.shape[1])
     for region in df.index:
         _, state = region.split(", ")
         if state not in symptoms.index:
@@ -110,9 +113,34 @@ def process_symptom_survey(df):
             continue
         _m = th.zeros(df.shape[1])
         _v = symptoms.loc[state]  # .rolling(7).mean()
+        _v = _v[: end_ix - start_ix + 1]
         _m[start_ix:end_ix] = th.from_numpy(_v.values[1:])
         sym[region] = _m.unsqueeze(1)
     th.save(sym, "symptom-survey/features.pt")
+    print(skipped, df.shape[0])
+
+
+def process_testing(df):
+    tests = pd.read_csv("testing/testing_features.csv", index_col="region")
+    ts = {}
+    skipped = 0
+    dates = pd.to_datetime(tests.columns[1:])
+    start_ix = np.where(dates.min() == df.columns)[0][0]
+    end_ix = start_ix + len(dates)
+    for region in df.index:
+        _, state = region.split(", ")
+        if state not in tests.index:
+            print("Skipping {region}")
+            skipped += 1
+            continue
+        _m = th.zeros(df.shape[1])
+        _v = tests.loc[state]  # .rolling(7).mean()
+        _v = np.diff(np.log(_v.values[1:] + 1))
+        _m[start_ix : end_ix - 1] = th.from_numpy(
+            _v
+        )  # make last zero (i.e., testing doesn't change)
+        ts[region] = _m.unsqueeze(1)
+    th.save(ts, "testing/features.pt")
     print(skipped, df.shape[0])
 
 
@@ -181,9 +209,10 @@ if __name__ == "__main__":
     th.save(th.from_numpy(adj), "state_graph.pt")
 
     if opt.with_features:
-        process_symptom_survey(df)
-        process_mobility(df, "google")
-        process_mobility(df, "fb")
+        process_testing(df)
+        process_symptom_survey(df, 5)
+        process_mobility(df, "google", 10)
+        process_mobility(df, "fb", 10)
 
 # for region in df.index:
 #     df_feat.loc[region]
