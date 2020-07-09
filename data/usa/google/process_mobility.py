@@ -48,6 +48,7 @@ for (name, _df) in df.groupby("region"):
     assert len(dates) == len(np.unique(dates)), _df
     _df = _df.loc[:, ~_df.columns.duplicated()]
     _df = _df.drop(columns=["region", "date"]).transpose()
+    _df = _df / 100
     _df["region"] = [name] * len(_df)
     _df.columns = list(map(lambda x: x.strftime("%Y-%m-%d"), dates)) + ["region"]
     regions.append(_df.reset_index())
