@@ -1,5 +1,5 @@
 region: us
-population: &fpop data/usa/state_population.csv
+population: &fpop data/usa/population.csv
 basegraph: &fgraph data/usa/state_graph.pt
 validation:
   days: &vdays 21
@@ -11,30 +11,18 @@ prediction_interval_:
   output_mean: mean.csv
   output_std: std.csv
 backfill:
-  # NeurIPS
-  - 2020-04-22
-  - 2020-04-29
-  - 2020-05-06
-  - 2020-05-13
-  - 2020-05-20
   # LANL
-  # - 2020-03-15
-  # - 2020-04-15
-  # - 2020-05-15
-  # - 2020-05-30
-  # - 2020-03-25
   #- 2020-04-05
   #- 2020-04-08
-  # - 2020-04-15
-  # - 2020-04-25
-  # - 2020-04-15
-  # - 2020-04-19
-  # - 2020-04-22
-  # - 2020-04-26
-  # - 2020-04-29
-  # - 2020-05-03
-  # - 2020-05-06
-  # - 2020-05-10
+  #- 2020-04-12
+  - 2020-04-15
+  - 2020-04-19
+  - 2020-04-22
+  - 2020-04-26
+  #- 2020-04-29
+  #- 2020-05-03
+  - 2020-05-06
+  - 2020-05-10
   # - 2020-05-17
   # IHME
   # - 2020-05-01
@@ -99,66 +87,31 @@ ar:
 sir:
   module: sir
   output: sir_model.npy
-  data: data/usa/data_state_cases.csv
+  data: data/usa/data_cases.csv
+  train:
+    fpop: *fpop
+    window: 10
+    recovery_days: 10
+    distancing_reduction: 0.9
+    days: *vdays
+    # number of days to keep for forecast
+    keep: *vdays
+sir_adaptive_beta:
+  module: sir_adaptive_beta
+  output: sir_adaptive_beta_model.npy
+  data: data/usa/data_cases.csv
   train:
     fpop: *fpop
     min_window: [5, 10, 20, 30]
     recovery_days: [10, 12, 14]
-    distancing_reduction: [0.2, 0.4, 0.6, 0.8, 0.9]
+    distancing_reduction: [0.4, 0.6, 0.8, 0.9]
+    # scale confirmed cases to get total infections
+    cases_to_infections_scale: [1.0, 5.0, 10.0, 15.0]
     rolling_window: 5
     cap: 100.0
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
-gar:
-  output: var_model.bin
-  data: data/usa/data_deaths.csv
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 15
-    timeout: 30
-  train:
-    fpop: *fpop
-    # features: data/usa/county_features.pt
-    # time_features: data/usa/policy_features.pt
-    # graph: *fgraph
-    dim: 64
-    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    decay: [latent2_1]
-    layers: [5, 10]
-    window: [2, 5, 10]
-    lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.1]
-    niters: [20000]
-    loss: nb
-    t0: 10
-    test_on: *vdays
-dar:
-  output: var_model.bin
-  data: data/usa/data_deaths.csv
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 15
-    timeout: 30
-  train:
-    fpop: *fpop
-    # features: data/usa/county_features.pt
-    # time_features: data/usa/policy_features.pt
-    # graph: *fgraph
-    dim: 64
-    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    decay: [latent16_1]
-    window: [10, 15, 20]
-    lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.1]
-    niters: [20000]
-    loss: nb
-    t0: 10
-    test_on: *vdays
 matrix:
   output: mc_model.bin
   fpop: *fpop
@@ -182,34 +135,43 @@ matrix:
     seed: [1]
     t0: [0] #, 10] ######
     test_on: *vdays
-car:
-  output: car_model.bin
-  data: data/usa/data_deaths.csv
+bar:
+  output: bar_model.bin
+  data: data/usa/data_cases.csv
   resources:
     gpus: 1
     cpus: 1
     memgb: 15
-    timeout: 30
+    timeout: 3600
   #preprocess:
   #  smooth: 5
   train:
     fpop: *fpop
     # features: data/usa/county_features.pt
-    # time_features: data/usa/mobility_features.pt
-    # graph: *fgrap
-    blocks: [2, 3]
-    kernel_size: 2
-    layers: [6, 7, 8, 9, 10]
+    # time_features:
+    #   -
+    #     - data/usa/google/mobility_features.pt
+    #     - data/usa/fb/mobility_features.pt
+    #     - data/usa/symptom-survey/features.pt
+    # graph: *fgraph
+    activation: sigmoid
+    no_cross_correlation: false
+    decay: [latent2_1, latent2_2]
+    window: [20, 25]
     lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.1, 0.2, 0.3]
-    niters: [20000, 30000]
+    momentum: [0.99]
+    weight_decay: [0.2, 0.3]
+    niters: [50000]
+    granger: [0.5]
+    temporal: [0.5, 1, 5]
+    eta: [0.2, 0.3, 0.4]
     loss: nb
-    t0: 10
+    t0: 0
     test_on: *vdays
 naive:
   module: naive
   output: naive_model.npy
-  data: data/usa/data_state_cases.csv
+  data: data/usa/data_cases.csv
   train:
     days: *vdays
+

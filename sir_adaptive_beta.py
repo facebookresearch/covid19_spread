@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 
+"""
+To run for US:
+python sir.py -fdat data/usa/data_cases.csv -fpop data/usa/population.csv -days 21 -keep 21
+"""
+
 import argparse
 import numpy as np
 import pandas as pd
@@ -37,26 +42,32 @@ def gen_sir(s: float, i: float, r: float, beta: float, gamma: float, n_days: int
 
 
 def simulate(
-    cases, population, doubling_time, recovery_days, distancing_reduction, days, keep
+    cases,
+    population,
+    doubling_times,
+    recovery_days,
+    distancing_reduction,
+    days,
+    keep,
+    cases_to_infections_scale=1.0,
 ):
-    # corner cases where latest cumulative case count is 0 or 1
-    if doubling_time == 0 or cases[-1] == 0:
-        return constant_forecast(cases[-1], keep)
-    I0 = cases[0]
-    S0 = population - I0
+    # begin simulation on day of first case
+    start_index = cases.size - doubling_times.size
     R0 = 0.0
+    I0 = cases[start_index] * cases_to_infections_scale
+    S0 = population - I0 - R0
 
-    intrinsic_growth_rate = 2.0 ** (1.0 / doubling_time) - 1.0
-
-    # Contact rate, beta
+    intrinsic_growth_rates = 2.0 ** (1.0 / doubling_times) - 1.0
     gamma = 1.0 / recovery_days
-    beta = (intrinsic_growth_rate + gamma) / S0 * (1.0 - distancing_reduction)
+    betas = (intrinsic_growth_rates + gamma) / S0 * (1.0 - distancing_reduction)
 
     # simulate forward
-    IN = cases[-1]
-    SN = population - IN
-    RN = 0
-    res = {d: (_I, _R) for d, _S, _I, _R in gen_sir(SN, IN, RN, beta, gamma, days)}
+    # I = confirmed cases - recovered
+    RN = simulate_recovered(S0, I0, R0, cases, population, gamma, betas)
+    IN = (cases[-1] - RN) * cases_to_infections_scale
+    SN = population - IN - RN
+
+    res = {d: (_I, _R) for d, _S, _I, _R in gen_sir(SN, IN, RN, betas[-1], gamma, days)}
 
     # remove day 0, since prediction parameters start at day 1
     days_kept, infected, recovered = [], [], []
@@ -80,9 +91,9 @@ def simulate(
 
     meta = pd.DataFrame(
         {
-            "Doubling time": [np.around(doubling_time, decimals=3)],
-            "R0": [np.around(beta / gamma * S0, 3)],
-            "beta": [np.around(beta * S0, 3)],
+            "Doubling time": [np.around(doubling_times[-1], decimals=3)],
+            "R0": [np.around(betas / gamma * S0, 3)],
+            "beta": [np.around(betas * S0, 3)],
             "gamma": [np.around(gamma, 3)],
             "Peak days": [peak_days],
             "Peak cases": [peak_cases],
@@ -93,39 +104,70 @@ def simulate(
     return meta, infs
 
 
-def constant_forecast(last_case_count, days):
-    """Simulates infections for doubling_time = 0 by
-    projecting constant of latest case count"""
-    infected, recovered = [last_case_count] * days, [0] * days
-    infs = pd.DataFrame(
-        {"Day": range(1, days + 1, 1), "infected": infected, "recovered": recovered}
-    )
-
-    meta = pd.DataFrame({"Doubling time": [0]})
-    return meta, infs
+def simulate_recovered(S0, I0, R0, cases, population, gamma, betas):
+    """Simulates recovered at the end of given time series"""
+    S, I, R = S0, I0, R0
+    for i, case_count in enumerate(betas):
+        S, I, R = sir(S, I, R, betas[i], gamma, S + I + R)
+        I = case_count - R
+        S = population - I - R
+    return R
 
 
-def estimate_growth_const(cases, window=None):
-    """Estimates doubling time."""
-    growth_rate = np.exp(np.diff(np.log(cases))) - 1
-    if window is not None:
-        growth_rate = growth_rate[-window:]
-    doubling_times = np.log(2) / growth_rate
+def estimate_doubling_times(cases, min_window=3, cap=50.0, rolling_window=2):
+    """Estimates doubling times, begining on the day of first case.
 
-    # impute mean for nan or inf
-    doubling_time = mean_doubling(doubling_times)
-    return doubling_time
-
-
-def mean_doubling(doubling_times, cap=50):
-    """Returns mean accounting for inf and nans.
-    Imputes the mean for nans and returns the cap if 
-    doubling times contain infinity the mean is nan
+    Args:
+        cases (np.array): contains array of cumulative cases.
+        window (int): window to consider for estimating doubling time
+        cap (int): maximum doubling time to use if no cases are present or 
+            first occurrence occurs on last day.
+    
+    Returns: np.array of doubling times.
     """
-    doubling_time = doubling_times[np.isfinite(doubling_times)].mean()
-    if np.isnan(doubling_time) or any(np.isinf(doubling_times)):
-        return cap
-    return doubling_time
+    non_zero_indices = np.nonzero(cases)[0]
+    # if there are no cases or first case occurs before window, return cap
+    if non_zero_indices.size < min_window:
+        return np.array([cap])
+
+    first_non_zero_i = non_zero_indices[0]
+    cases_from_first = cases[first_non_zero_i:]
+    growth_rates = np.exp(np.diff(np.log(cases_from_first))) - 1
+
+    # add epsilon to growth rate 0.0
+    growth_rates[growth_rates == 0.0] = 1 / cap
+    doubling_times = np.log(2) / growth_rates
+
+    # impute max or cap when doubling time is infinite
+    # occurs when the number of cases is repeated
+    doubling_times = impute_max_or_cap(doubling_times, cap)
+    # compute 2-day rolling mean for doubling times
+    doubling_times_rolling = compute_rolling_mean(doubling_times, rolling_window)
+
+    return doubling_times_rolling
+
+
+def compute_rolling_mean(a, window):
+    """Computes rolling mean over window. 
+    First elements in window are unchanged.
+    Example: with window 2, [1, 3, 3] -> [1, 3, 3.5]
+
+    Returns: np.array of same length as a.
+    """
+    rolling_mean = pd.Series(a).rolling(window=window).mean().dropna().values
+    result = np.concatenate([a[: window - 1], rolling_mean])
+    return result
+
+
+def impute_max_or_cap(a, cap):
+    """Imputes max or cap of the array for infinite values."""
+    if np.isfinite(a).any():
+        imputed_value = a[np.isfinite(a)].max()
+    else:
+        imputed_value = cap
+
+    a[np.isinf(a)] = imputed_value
+    return a
 
 
 class SIRCV(cv.CV):
@@ -144,15 +186,19 @@ class SIRCV(cv.CV):
         cases_df = load.load_confirmed_by_region(dset)
         regions = cases_df.columns
         # estimate doubling times per region
-        doubling_times = []
+        doubling_times_per_region = []
+
         for region in regions:
             cases = cases_df[region].values
-            doubling_time = estimate_growth_const(cases, train_params.window)
-            doubling_times.append(doubling_time)
+            doubling_times = estimate_doubling_times(
+                cases,
+                min_window=train_params.min_window,
+                cap=train_params.cap,
+                rolling_window=train_params.rolling_window,
+            )
+            doubling_times_per_region.append(doubling_times)
 
-        model = [np.array(doubling_times), regions]
-        # save estimate
-        np.save(model_out, np.array(model))
+        model = [np.array(doubling_times_per_region), regions]
         return model
 
     def run_simulate(self, dset, train_params, model, sim_params):
@@ -182,7 +228,7 @@ class SIRCV(cv.CV):
             population = populations_df[populations_df["region"] == region][
                 "population"
             ].values[0]
-            cases = cases_df[region].tolist()
+            cases = cases_df[region].values
             _, infs = simulate(
                 cases,
                 population,
@@ -191,11 +237,12 @@ class SIRCV(cv.CV):
                 distancing_reduction,
                 days,
                 keep,
+                cases_to_infections_scale=train_params.cases_to_infections_scale,
             )
             # prediction  = infected + recovered to match cases count
             infected = infs["infected"].values
             recovered = infs["recovered"].values
-            prediction = infected + recovered
+            prediction = (infected + recovered) / train_params.cases_to_infections_scale
             region_to_prediction[region] = prediction
 
         df = pd.DataFrame(region_to_prediction)
@@ -259,16 +306,9 @@ def parse_args(args: List):
     parser.add_argument(
         "-keep", type=int, help="Number of days to keep in CSV", required=True
     )
-    parser.add_argument("-window", type=int, help="window to compute doubling time")
-    parser.add_argument(
-        "-doubling-times",
-        type=float,
-        nargs="+",
-        help="Additional doubling times to simulate",
-    )
     parser.add_argument("-recovery-days", type=int, default=14, help="Recovery days")
     parser.add_argument(
-        "-distancing-reduction", type=float, default=0.2, help="Recovery days"
+        "-distancing-reduction", type=float, default=0.9, help="Recovery days"
     )
     parser.add_argument(
         "-fsuffix", type=str, help="prefix to store forecast and metadata"
@@ -278,55 +318,27 @@ def parse_args(args: List):
     return opt
 
 
+class TrainParams:
+    distancing_reduction = 0.9
+    recovery_days = 10
+
+
 def main(args):
     opt = parse_args(args)
+    TrainParams.window = opt.distancing_reduction
+    TrainParams.recovery_days = opt.recovery_days
 
-    cases_df = load.load_confirmed_by_region(opt.fdat, None)
-    regions = cases_df.columns
-    # load only population data for regions with cases
-    population = load.load_population(opt.fpop, regions=regions)
-    cases = cases_df.sum(axis=1).tolist()
-    tmax = len(cases)
-    t = np.arange(tmax) + 1
+    sir_model = SIRCV()
 
-    doubling_time = estimate_growth_const(cases, opt.window)
-    print(f"Population size = {population}")
-    print(f"Inferred doubling time = {doubling_time}")
-
-    f_sim = lambda dt: simulate(
-        cases,
-        population,
-        dt,
-        opt.recovery_days,
-        opt.distancing_reduction,
-        opt.days,
-        opt.keep + 1,
+    doubling_times_per_region, regions = sir_model.run_train(
+        opt.fdat, TrainParams, "/tmp/sir_model.npy"
     )
-    meta, df = f_sim(doubling_time)
-    df = _add_doubling_time_to_col_names(df, doubling_time)
 
-    for dt in opt.doubling_times:
-        _meta, _df = f_sim(dt)
-        meta = meta.append(_meta, ignore_index=True)
+    for region, doubling_times in zip(regions, doubling_times_per_region):
+        print(region)
+        print(doubling_times)
 
-        doubling_time = float(_meta["Doubling time"].values)
-        _df = _add_doubling_time_to_col_names(_df, doubling_time)
-
-        df = pd.merge(df, _df, on="Day")
-
-    # set prediction dates
-    dates = _get_prediction_dates(cases_df, df.shape[0])
-    df["dates"] = dates
-    df = df.drop(columns="Day")
-    df = df.set_index("dates")
-    print()
-    print(meta)
-    print()
-    print(df)
-
-    if opt.fsuffix is not None:
-        meta.to_csv(f"{opt.dout}/SIR-metadata-{opt.fsuffix}.csv")
-        df.to_csv(f"{opt.dout}/SIR-forecast-{opt.fsuffix}.csv")
+    forecast = sir_model.run_simulate
 
 
 if __name__ == "__main__":
