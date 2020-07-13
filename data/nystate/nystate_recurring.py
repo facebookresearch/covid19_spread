@@ -20,7 +20,7 @@ import pandas
 from lib.slack import get_client as get_slack_client
 
 
-MAIL_TO = ["mattle@fb.com", "lematt1991@gmail.com"]
+MAIL_TO = ["mattle@fb.com"]
 if os.environ.get("__PROD__") == "1":
     MAIL_TO.append("maxn@fb.com")
 

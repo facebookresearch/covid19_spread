@@ -20,7 +20,7 @@ import sqlite3
 import pandas
 import sweep
 
-MAIL_TO = ["mattle@fb.com", "lematt1991@gmail.com"]
+MAIL_TO = ["mattle@fb.com"]
 if os.environ.get("__PROD__") == "1":
     MAIL_TO.append("maxn@fb.com")
 
