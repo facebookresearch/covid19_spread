@@ -45,35 +45,38 @@ def email_notebook(
     )
     # service = build('gmail', 'v1', credentials=creds)
 
-    with open(notebook_pth, "r") as fin:
-        nb = nbformat.read(fin, as_version=4)
+    for nb_path in notebook_pth:
+        with open(nb_path, "r") as fin:
+            nb = nbformat.read(fin, as_version=4)
 
-    # exectute notebook
-    ep = ExecutePreprocessor(timeout=600, kernel_name="python3")
-    ep.preprocess(nb, {"metadata": {"path": os.path.dirname(notebook_pth)}})
+        # exectute notebook
+        ep = ExecutePreprocessor(timeout=600, kernel_name="python3")
+        ep.preprocess(nb, {"metadata": {"path": os.path.dirname(nb_path)}})
 
-    conf = Config()
-    conf.MailExporter.exclude_input = exclude_input
-    exporter = MailExporter(config=conf)
+        nb["metadata"]["nb2mail"] = {
+            "To": ", ".join(recipients),
+            "From": "Covid 19 Forecasting Team <faircovid19group@gmail.com>",
+            "Subject": f"{subject} - {os.path.basename(nb_path)}",
+        }
 
-    nb["metadata"]["nb2mail"] = {
-        "To": ", ".join(recipients),
-        "From": "Covid 19 Forecasting Team <faircovid19group@gmail.com>",
-        "Subject": subject,
-    }
+        conf = Config()
+        conf.MailExporter.exclude_input = exclude_input
+        exporter = MailExporter(config=conf)
+        (body, resources) = exporter.from_notebook_node(nb)
 
-    (body, resources) = exporter.from_notebook_node(nb)
-    req = (
-        service.users()
-        .messages()
-        .send(
-            userId="me",
-            body={
-                "raw": base64.urlsafe_b64encode(body.encode("utf-8")).decode("utf-8")
-            },
+        req = (
+            service.users()
+            .messages()
+            .send(
+                userId="me",
+                body={
+                    "raw": base64.urlsafe_b64encode(body.encode("utf-8")).decode(
+                        "utf-8"
+                    )
+                },
+            )
         )
-    )
-    req.execute()
+        req.execute()
 
 
 if __name__ == "__main__":
