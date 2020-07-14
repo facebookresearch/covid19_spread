@@ -622,7 +622,7 @@ def progress(sweep_dir):
 @click.argument("workers", type=click.INT)
 def add_workers(sweep_dir, workers):
     DB = os.path.realpath(glob(f"{sweep_dir}/**/.job.db", recursive=True)[0])
-    cfg = load_config(glob(f"{sweep_dir}/**/cfg.yml")[0])
+    cfg = load_config(glob(f"{sweep_dir}/**/cfg.yml", recursive=True)[0])
     extra_params = cfg[cfg["this_module"]].get("resources", {})
     executor = mk_executor("add_workers", os.path.dirname(DB), extra_params)
     executor.launch(f"{sweep_dir}/workers", workers)
