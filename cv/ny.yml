@@ -1,7 +1,11 @@
 region: nystate
 population: &fpop data/population-data/US-states/new-york-population.csv
 notebooks:
-  backfill: notebooks/NY.ipynb
+  backfill:
+    - notebooks/NY.ipynb
+    - "notebooks/Model Analysis.ipynb"
+  cv:
+    - "notebooks/Model Analysis.ipynb"
 validation:
   days: 21
   output: validation.csv
@@ -21,10 +25,10 @@ backfill:
   - 2020-05-03
   # - 2020-05-06
   - 2020-05-10
-  #- 2020-05-17
-  #- 2020-05-24
-  #- 2020-05-31
-  #- 2020-06-07
+  - 2020-05-17
+  - 2020-05-24
+  - 2020-05-31
+  - 2020-06-07
   #- 2020-06-13
   #- 2020-06-21
   #- 2020-06-28
@@ -37,7 +41,7 @@ ar:
     gpus: 1
     cpus: 1
     memgb: 10
-    timeout: 300
+    timeout: 30
   train:
     fpop: *fpop
     activation: sigmoid
@@ -97,26 +101,45 @@ bar:
   #  smooth: 7
   train:
     fpop: *fpop
-    # features: data/usa/county_features.pt
+    # features: [[data/usa/county_features.pt]]
     time_features:
       -
         - data/usa/testing/features.pt
         - data/usa/fb/mobility_features.pt
-        - data/usa/google/mobility_features.pt
     #    - data/usa/symptom-survey/features.pt
+        - data/usa/google/mobility_features.pt
     activation: sigmoid
     decay: [latent2_2]
-    # decay: [latent2_2, latent16_2, latent32_2]
-    window: [20, 25]
+    #window: [20, 25]
+    window: [25, 30]
     lr: [0.001]
     momentum: [0.99]
     weight_decay: [0.2, 0.3]
     niters: [50000]
     granger: [0.5]
-    # granger: [0.3, 0.4, 0.5]
     temporal: [0.5, 1, 2]
-    # eta: [0.2, 0.3, 0.4]
-    eta: [0.2, 0.3, 0.4, 0.5]
+    eta: [0.5]
     loss: nb
     t0: 0
+    test_on: *fdays
+metasir:
+  output: msir_model.bin
+  data: data/usa/data_cases_ny.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 3600
+  preprocess:
+    smooth: 7
+  train:
+    fpop: data/usa/population.csv
+    decay: [exp]
+    adjoint: False
+    method: euler
+    niters: [4000]
+    lr: [0.001]
+    momentum: 0.9
+    loss: normal
+    t0: 50
     test_on: *fdays
