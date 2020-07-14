@@ -424,7 +424,6 @@ def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
 @click.option("-max-jobs", type=click.INT, default=200)
 @click.option("-basedir", default=None, help="Path to sweep base directory")
 @click.option("-basedate", type=click.DateTime(), help="Date to treat as last date")
-@click.option("-mail-to", help="Send email when jobs finish")
 def cv(
     config_pth: str,
     module: str,
@@ -434,7 +433,6 @@ def cv(
     max_jobs: int,
     basedir: str,
     basedate: Optional[datetime] = None,
-    mail_to: Optional[str] = None,
     executor=None,
 ):
     """
