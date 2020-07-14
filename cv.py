@@ -607,6 +607,7 @@ def progress(sweep_dir):
     sweep_dir = os.path.realpath(sweep_dir)
     DB = glob(f"{sweep_dir}/**/.job.db", recursive=True)[0]
     conn = sqlite3.connect(DB)
+    conn.execute("PRAGMA read_uncommitted = true;")
     df = pd.read_sql("SELECT status, worker_id FROM jobs", conn)
     msg = {
         "success": int((df["status"] == JobStatus.success.value).sum()),
