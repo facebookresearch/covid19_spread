@@ -91,7 +91,7 @@ def submit(pth: str, module: str, region: str, email: bool = True):
                 nb = nbformat.read(fin, as_version=nbformat.current_nbformat)
             with env_var({"FORECAST_PTH": pth}):
                 print("Executing notebook...")
-                ep = ExecutePreprocessor(kernel_name="python3")
+                ep = ExecutePreprocessor(kernel_name="python3", timeout=240)
                 ep.preprocess(nb, {"metadata": {"path": os.path.dirname(notebook)}})
 
             # Export to an email
