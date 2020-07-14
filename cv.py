@@ -398,7 +398,7 @@ def model_selection(sweep_dir, module, remote, basedate):
         "model_selection", sweep_dir, cfg[module].get("resources", {})
     )
     run_best(cfg, module, remote, sweep_dir, basedate, executor=executor)
-    executor.launch(sweep_dir, workers=4)
+    executor.launch(sweep_dir + "/workers", workers=4)
 
 
 def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
