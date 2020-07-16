@@ -102,7 +102,7 @@ def get_latest():
     assert not df.isnull().any().any(), "Found NaNs in data!!!!"
     # Check there are no gaps or redundant days in the dataset
     assert (pandas.Series(df.index).diff().dt.components.days[1:] == 1).all()
-    counties = [c for c in df.columns if c != "Start day"]
+    counties = [c for c in df.columns if c not in {"Start day", "Unknown"}]
     assert not np.all(
         df[counties].diff().iloc[-1].values == 0
     ), "Today's values are the same as yesterday's!!!!"
