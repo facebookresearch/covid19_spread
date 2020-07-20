@@ -11,24 +11,18 @@ prediction_interval_:
   output_mean: mean.csv
   output_std: std.csv
 backfill:
-  # paper
-  # - 2020-04-22
-  # - 2020-04-29
-  # - 2020-05-06
-  # - 2020-05-13
-  # - 2020-05-20
   # LANL
   #- 2020-04-05
   #- 2020-04-08
   #- 2020-04-12
-  - 2020-04-15
-  - 2020-04-19
-  - 2020-04-22
-  - 2020-04-26
+  # - 2020-04-15
+  # - 2020-04-19
+  # - 2020-04-22
+  # - 2020-04-26
   #- 2020-04-29
   #- 2020-05-03
-  - 2020-05-06
-  - 2020-05-10
+  # - 2020-05-06
+  # - 2020-05-10
   # - 2020-05-17
   # IHME
   # - 2020-05-01
@@ -111,8 +105,9 @@ seir:
     window: [8, 10, 12, 14]
     recovery_days: [8, 10, 12, 14, 16]
     distancing_reduction: [0.4, 0.6, 0.8, 0.9]
+    cases_to_infections_scale: [1.0, 2.0, 5.0, 10.0, 15.0, 20.0]
     # rate of progression
-    sigma: [0.1, 0.2, 0.3, 0.4]
+    sigma: [0.1, 0.15, 0.2, 0.3, 0.4]
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays

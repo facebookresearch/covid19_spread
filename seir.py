@@ -66,11 +66,12 @@ def simulate(
     days,
     keep,
     sigma=0.2,
+    cases_to_infections_scale=1.0,
 ):
     # corner cases where latest cumulative case count is 0 or 1
     if doubling_time == 0 or cases[-1] == 0:
         return constant_forecast(cases[-1], keep)
-    I0 = cases[0]
+    I0 = cases[0] * cases_to_infections_scale
     E0 = 20.0 * I0
     S0 = population - I0 - E0
     R0 = 0.0
@@ -82,7 +83,7 @@ def simulate(
     beta = (intrinsic_growth_rate + gamma) / S0 * (1.0 - distancing_reduction)
 
     # simulate forward
-    IN = cases[-1]
+    IN = cases[-1] * cases_to_infections_scale
     EN = 20.0 * IN
     SN = population - IN - EN
     RN = 0
@@ -225,11 +226,12 @@ class SEIRCV(cv.CV):
                 days,
                 keep,
                 sigma=train_params.sigma,
+                cases_to_infections_scale=train_params.cases_to_infections_scale,
             )
             # prediction  = infected + recovered to match cases count
             infected = infs["infected"].values
             recovered = infs["recovered"].values
-            prediction = infected + recovered
+            prediction = (infected + recovered) / train_params.cases_to_infections_scale
             region_to_prediction[region] = prediction
 
         df = pd.DataFrame(region_to_prediction)
@@ -304,6 +306,13 @@ def parse_args(args: List):
     parser.add_argument(
         "-distancing-reduction", type=float, default=0.2, help="Recovery days"
     )
+    parser.add_argument("-sigma", type=float, default=0.2, help="Rate of progression")
+    parser.add_argument(
+        "-cases-to-infections-scale",
+        type=float,
+        default=1.0,
+        help="ratio of confirmed cases to total infections",
+    )
     parser.add_argument(
         "-fsuffix", type=str, help="prefix to store forecast and metadata"
     )
@@ -335,6 +344,8 @@ def main(args):
         opt.distancing_reduction,
         opt.days,
         opt.keep + 1,
+        sigma=opt.sigma,
+        cases_to_infections_scale=opt.cases_to_infections_scale,
     )
     meta, df = f_sim(doubling_time)
     df = _add_doubling_time_to_col_names(df, doubling_time)
