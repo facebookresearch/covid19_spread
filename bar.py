@@ -43,6 +43,21 @@ class BetaRNN(nn.Module):
         return str(self.rnn)
 
 
+class BetaAttn(nn.Module):
+    def __init__(self, M, input_dim):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(input_dim, 1)
+        self.v = nn.Linear(input_dim, 1, bias=False)
+        nn.init.xavier_normal_(self.v.weight.data)
+
+    def forward(self, x):
+        attn_output, _ = self.attn(x, x, x)
+        return th.sigmoid(self.v(attn_output))
+
+    def __repr__(self):
+        return "attn"
+
+
 class BetaWavenet(nn.Module):
     def __init__(self, M, blocks, layers, channels, kernel):
         super(BetaWavenet, self).__init__()
@@ -115,6 +130,10 @@ class BetaLatent(nn.Module):
         # beta = beta.expand(beta.size(0), self.M, 1)
         return beta.squeeze().t()
         # return beta[0].squeeze(), beta[1].squeeze()
+
+    def apply(self, x):
+        ht, hn = self.rnn(x, self.h0)
+        return self.fpos(self.v(ht))
 
     def __repr__(self):
         return str(self.fbeta)
@@ -436,6 +455,9 @@ class BARCV(cv.CV):
                 M, int(blocks), int(layers), input_dim, int(kernel)
             )
             beta_net = BetaLatent(fbeta, regions, tmax, time_features)
+            self.weight_decay = args.weight_decay
+        elif args.decay.startswith("attn"):
+            beta_net = BetaLatent(BetaAttn, regions, tmax, time_features)
             self.weight_decay = args.weight_decay
         else:
             raise ValueError("Unknown beta function")
