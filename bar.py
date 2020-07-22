@@ -11,10 +11,64 @@ import torch.optim as optim
 from torch.distributions import NegativeBinomial, Normal, Poisson
 import load
 import cv
+from wavenet import Wavenet
+
+
+class BetaRNN(nn.Module):
+    def __init__(self, M, layers, dim, input_dim):
+        # initialize parameters
+        super(BetaRNN, self).__init__()
+        self.h0 = nn.Parameter(th.zeros(layers, M, dim))
+        self.rnn = nn.RNN(input_dim, dim, layers)
+        self.v = nn.Linear(dim, 1, bias=False)
+        self.fpos = th.sigmoid
+
+        # initialize weights
+        nn.init.xavier_normal_(self.v.weight)
+        for p in self.rnn.parameters():
+            if p.dim() == 2:
+                nn.init.xavier_normal_(p)
+
+    def forward(self, x):
+        ht, hn = self.rnn(x, self.h0)
+        beta = self.fpos(self.v(ht))
+        return beta
+
+    def __repr__(self):
+        return str(self.rnn)
+
+
+class BetaWavenet(nn.Module):
+    def __init__(self, M, blocks, layers, channels, kernel):
+        super(BetaWavenet, self).__init__()
+        self.embeddings = nn.Parameter(th.randn(M, channels))
+        self.blocks = blocks
+        self.layers = layers
+        self.kernel = kernel
+        self.wv = Wavenet(
+            blocks,
+            layers,
+            channels,
+            kernel,
+            embeddings=self.embeddings,
+            groups=channels,
+        )
+        self.v = nn.Linear(channels, 1, bias=True)
+        self.fpos = th.sigmoid
+
+    def forward(self, x):
+        hs = self.wv(x.permute(0, 2, 1))
+        hs = hs.permute(0, 2, 1)
+        # beta = self.fpos(self.v(hs))
+        beta = self.fpos(hs)
+        return beta
+
+    def __repr__(self):
+        return f"Wave ({self.blocks},{self.layers},{self.kernel})"
 
 
 class BetaLatent(nn.Module):
-    def __init__(self, regions, dim, layers, tmax, time_features):
+    def __init__(self, fbeta, regions, tmax, time_features):
         """
         Params
         ======
@@ -27,26 +81,13 @@ class BetaLatent(nn.Module):
         super(BetaLatent, self).__init__()
         self.M = len(regions)
         self.tmax = tmax
-        self.fpos = th.sigmoid
         self.time_features = time_features
-        self.dim = dim
         input_dim = 2
 
         if time_features is not None:
-            self.w_time = nn.Linear(time_features.size(2), dim)
-            nn.init.xavier_normal_(self.w_time.weight)
             input_dim += time_features.size(2)
 
-        # initialize parameters
-        self.h0 = nn.Parameter(th.zeros(layers, self.M, dim))
-        self.rnn = nn.RNN(input_dim, self.dim, layers)
-        self.v = nn.Linear(self.dim, 1, bias=False)
-
-        # initialize weights
-        nn.init.xavier_normal_(self.v.weight)
-        for p in self.rnn.parameters():
-            if p.dim() == 2:
-                nn.init.xavier_normal_(p)
+        self.fbeta = fbeta(self.M, input_dim)
 
     def forward(self, t, ys):
         _ys = th.zeros_like(ys)
@@ -60,18 +101,18 @@ class BetaLatent(nn.Module):
         x = [t, _ys.t().unsqueeze(-1)]
         if self.time_features is not None:
             f = th.zeros(t.size(0), self.M, self.time_features.size(2)).to(t.device)
-            f.copy_(self.time_features.narrow(0, -1, 1))
+            # f.copy_(self.time_features.narrow(0, -1, 1))
             f.narrow(0, 0, self.time_features.size(0)).copy_(self.time_features)
             x.append(f)
         x = th.cat(x, dim=2)
-        ht, hn = self.rnn(x, self.h0)
-        beta = self.fpos(self.v(ht))
+        beta = self.fbeta(x)
+        # beta = beta.permute(2, 1, 0)
         # beta = beta.expand(beta.size(0), self.M, 1)
         return beta.squeeze().t()
-        # return beta.permute(2, 1, 0)
+        # return beta[0].squeeze(), beta[1].squeeze()
 
     def __repr__(self):
-        return f"{self.rnn}"
+        return str(self.fbeta)
 
 
 class BAR(nn.Module):
@@ -84,7 +125,8 @@ class BAR(nn.Module):
         self.window = window
         self.z = nn.Parameter(th.zeros((1, window)).fill_(1))
         # self.z = nn.Parameter(th.ones((self.M, window)).fill_(1))
-        self._alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(-5))
+        # self.z = nn.Parameter(th.ones((self.M, 2)).fill_(1))
+        self._alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(0))
         self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(8))
         self._dist = dist
         self.graph = graph
@@ -99,13 +141,15 @@ class BAR(nn.Module):
     # nn.init.xavier_normal_(self._alphas)
 
     def dist(self, scores):
+        nu = th.zeros_like(scores)
         if self._dist == "poisson":
             return Poisson(scores)
         elif self._dist == "nb":
             return NegativeBinomial(scores, logits=self.nu)
+            # return NegativeBinomial(scores, logits=self.nu * self.nu_scale)
         elif self._dist == "normal":
-            # return Normal(scores, th.exp(self.nu))
-            return Normal(scores, 1)
+            return Normal(scores, th.exp(self.nu))
+            # return Normal(scores, 1)
         else:
             raise RuntimeError(f"Unknown loss")
 
@@ -129,44 +173,59 @@ class BAR(nn.Module):
         length = ys.size(1) - self.window + 1
 
         ws = F.softplus(self.z)
-        ws = ws.expand(self.M, self.window)
+        ws = ws.expand(self.M, self.z.size(1))
         # self-correlation
-        Z = F.conv1d(ys.unsqueeze(0), ws.unsqueeze(1), groups=self.M)
+        Z = F.conv1d(
+            F.pad(ys.unsqueeze(0), (self.z.size(1) - 1, 0)),
+            ws.unsqueeze(1),
+            groups=self.M,
+        )
         Z = Z.squeeze(0)
         Z = Z.div(float(self.window))
 
         # cross-correlation
         W = self.metapopulation_weights()
-        Ys = th.stack([ys.narrow(1, i, length) for i in range(self.window)])
+        Ys = th.stack(
+            [
+                F.pad(ys.narrow(1, i, length), (self.window - 1, 0))
+                for i in range(self.window)
+            ]
+        )
         Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(dim=0)
         # Ys = th.bmm(W, Ys).mean(dim=0)
         with th.no_grad():
             self.train_stats = (Z.sum().item(), Ys.sum().item())
+            # self.train_stats = (Ys.sum().item(), Ys.sum().item())
 
         # beta evolution
         beta = self.beta(t, ys)
-        ys = ys.narrow(1, offset, ys.size(1) - offset)
-        beta = beta.narrow(-1, -ys.size(1), ys.size(1))
+        # ys = ys.narrow(1, offset, ys.size(1) - offset)
+        # beta = beta.narrow(-1, -ys.size(1), ys.size(1))
+        # nu_scale = nu.narrow(-1, -ys.size(1), ys.size(1))
         if self.features is not None:
             Ys = Ys + F.softplus(self.w_feat(self.features))
         Ys = beta * (Z + Ys)
+        # Ys = beta * Ys
 
-        assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
-        return Ys, Z, beta, W
+        # assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
+        # self.nu_scale = nu_scale
+        return Ys, beta, W
 
     def simulate(self, tobs, ys, days, deterministic=True):
         preds = ys.clone()
         assert tobs == preds.size(1), (tobs, preds.size())
         for d in range(days):
             t = th.arange(tobs + d).to(ys.device) + 1
-            s, _, _, _ = self.score(t, preds)
+            s, _, _ = self.score(t, preds)
             assert (s >= 0).all(), s.squeeze()
-            s = s.narrow(1, -1, 1).clamp(min=1e-8)
+            assert s.dim() == 2, s.size()
             if deterministic:
                 y = self.dist(s).mean
             else:
                 y = self.dist(s).sample()
+            assert y.dim() == 2, y.size()
             assert (y >= 0).all(), y.squeeze()
+            y = y.narrow(1, -1, 1).clamp(min=1e-8)
             preds = th.cat([preds, y], dim=1)
         preds = preds.narrow(1, -days, days)
         return preds
@@ -181,21 +240,23 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
     device = new_cases.device
     tmax = new_cases.size(1)
     t = th.arange(tmax).to(device) + 1
-    size_pred = tmax - args.window
+    # size_pred = tmax - args.window
+    size_pred = tmax - 1
     reg = th.tensor([0]).to(device)
-    target = new_cases.narrow(1, args.window, size_pred)
+    # target = new_cases.narrow(1, args.window, size_pred)
+    target = new_cases.narrow(1, 1, size_pred)
 
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
-        scores, scores_restricted, beta, W = model.score(t, new_cases)
+        scores, beta, W = model.score(t, new_cases)
         scores = scores.clamp(min=1e-8)
-        # scores_restricted = scores_restricted.clamp(min=1e-8)
+        assert scores.dim() == 2, scores.size()
         assert scores.size(1) == size_pred + 1
-        assert size_pred + args.window == new_cases.size(1)
+        # assert size_pred + args.window == new_cases.size(1)
         assert beta.size(0) == M
 
         # compute loss
-        length = scores.size(1) - 1
+        # model.nu_scale = model.nu_scale.narrow(1, 0, size_pred)
         dist = model.dist(scores.narrow(1, 0, size_pred))
         _loss = -dist.log_prob(target)
         loss = _loss.sum()
@@ -219,12 +280,14 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
         # make sure we have no NaNs
         assert loss == loss, (loss, scores, _loss)
 
+        # nn.utils.clip_grad_norm_(model.beta.parameters(), 5)
         # take gradient step
         optimizer.step()
 
         # control
         if itr % 100 == 0:
             with th.no_grad(), np.printoptions(precision=3, suppress=True):
+                length = scores.size(1) - 1
                 maes = th.abs(dist.mean - new_cases.narrow(1, 1, length))
                 z = F.softplus(model.z)
                 nu = th.sigmoid(model.nu)
@@ -243,13 +306,14 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
     return model
 
 
-def _get_arg(args, v, device):
+def _get_arg(args, v, device, regions):
     if hasattr(args, v):
-        arg = getattr(args, v)
-        if isinstance(arg, list):
-            ts = [th.load(a).to(device).float() for a in arg]
-            return th.cat(ts, dim=2)
-        return th.load(arg).to(device).float()
+        fs = []
+        for _file in getattr(args, v):
+            d = th.load(_file)
+            _fs = th.cat([d[r].unsqueeze(0) for r in regions], dim=0)
+            fs.append(_fs)
+        return th.cat(fs, dim=1).float().to(device)
     else:
         return None
 
@@ -263,6 +327,7 @@ def _get_dict(args, v, device, regions):
             feats = None
             for i, r in enumerate(regions):
                 if r not in d:
+                    print(r)
                     continue
                 _f = d[r]
                 if feats is None:
@@ -282,12 +347,12 @@ class BARCV(cv.CV):
         assert (cases == cases).all(), th.where(cases != cases)
         new_cases = cases[:, 1:] - cases[:, :-1]
         assert (new_cases >= 0).all(), th.where(new_cases < 0)
+        new_cases = new_cases.float().to(device)[:, args.t0 :]
 
         # prepare population
         # populations = load.load_populations_by_region(args.fpop, regions=regions)
         # populations = th.from_numpy(populations["population"].values).to(device)
 
-        new_cases = new_cases.float().to(device)[:, args.t0 :]
         print("Number of Regions =", new_cases.size(0))
         print("Timeseries length =", new_cases.size(1))
         print("Max increase =", new_cases.max().item())
@@ -297,8 +362,8 @@ class BARCV(cv.CV):
         args.window = min(args.window, new_cases.size(1) - 4)
 
         # setup optional features
-        graph = _get_arg(args, "graph", device)
-        features = _get_arg(args, "features", device)
+        graph = _get_arg(args, "graph", device, regions)
+        features = _get_arg(args, "features", device, regions)
         time_features = _get_dict(args, "time_features", device, regions)
         if time_features is not None:
             time_features = time_features.transpose(0, 1)
@@ -323,7 +388,15 @@ class BARCV(cv.CV):
             beta_net = decay.BetaRBF(regions, dim, "gaussian", tmax)
         elif args.decay.startswith("latent"):
             dim, layers = args.decay[6:].split("_")
-            beta_net = BetaLatent(regions, int(dim), int(layers), tmax, time_features)
+            fbeta = lambda M, input_dim: BetaRNN(M, int(layers), int(dim), input_dim)
+            beta_net = BetaLatent(fbeta, regions, tmax, time_features)
+            self.weight_decay = args.weight_decay
+        elif args.decay.startswith("wave"):
+            blocks, layers, kernel = args.decay[4:].split("_")
+            fbeta = lambda M, input_dim: BetaWavenet(
+                M, int(blocks), int(layers), input_dim, int(kernel)
+            )
+            beta_net = BetaLatent(fbeta, regions, tmax, time_features)
             self.weight_decay = args.weight_decay
         else:
             raise ValueError("Unknown beta function")
@@ -340,7 +413,7 @@ class BARCV(cv.CV):
 
         params = []
         # exclude = {"nu", "beta.w_feat.weight", "beta.w_feat.bias"}
-        exclude = {"nu", "_alphas", "beta.h0"}
+        exclude = {"nu", "_alphas", "beta.fbeta.h0"}
         for name, p in dict(self.func.named_parameters()).items():
             wd = 0 if name in exclude else args.weight_decay
             if wd != 0:
@@ -355,7 +428,6 @@ class BARCV(cv.CV):
         )
 
         model = train(self.func, new_cases, regions, optimizer, checkpoint, args)
-
         return model
 
 
@@ -363,7 +435,7 @@ CV_CLS = BARCV
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("ODE demo")
+    parser = argparse.ArgumentParser("beta-AR")
     parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
     parser.add_argument("-fpop", help="Path to population data", required=True)
     parser.add_argument("-lr", type=float, default=5e-2)
