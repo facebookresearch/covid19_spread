@@ -51,7 +51,7 @@ def mk_executor(
         gpus_per_node=extra_params.get("gpus", 0),
         cpus_per_task=extra_params.get("cpus", 3),
         mem=f'{cluster.MEM_GB(extra_params.get("memgb", 20))}GB',
-        array_parallelism=extra_params.get("array_parallelism", 50),
+        array_parallelism=extra_params.get("array_parallelism", 100),
         time=extra_params.get("timeout", 12 * 60),
     )
     return executor
@@ -181,8 +181,11 @@ class CV:
 
 
 def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=None):
+    return _run_cv(module, basedir, cfg, prefix, basedate)
     try:
         _run_cv(module, basedir, cfg, prefix, basedate)
+    except KeyboardInterrupt as e:
+        raise e
     except Exception as e:
         print(f"Job {basedir} failed")
         print(e)
@@ -209,7 +212,7 @@ def _run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=
     mod = importlib.import_module(module).CV_CLS()
 
     # -- store configs to reproduce results --
-    log_configs(cfg, module, _path(f"{module}.yml"))
+    log_configs(cfg, module, _path(prefix + f"{module}.yml"))
 
     ndays = cfg["validation"]["days"]
     if basedate is not None:
@@ -506,7 +509,12 @@ def cv(
 
         # Find the best model and retrain on the full dataset
         launcher = (
-            partial(executor.submit_dependent, jobs, run_best, executor=executor)
+            partial(
+                executor.submit_dependent,
+                jobs,
+                run_best,
+                executor=copy.deepcopy(executor),
+            )
             if remote
             else run_best
         )
