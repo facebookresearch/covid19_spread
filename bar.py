@@ -11,6 +11,11 @@ import torch.optim as optim
 from torch.distributions import NegativeBinomial, Normal, Poisson
 import load
 import cv
+from cv import rebase_forecast_deltas
+import yaml
+import metrics
+import click
+import sys
 
 
 class BetaLatent(nn.Module):
@@ -75,12 +80,15 @@ class BetaLatent(nn.Module):
 
 
 class BAR(nn.Module):
-    def __init__(self, regions, beta, window, dist, graph, features):
+    def __init__(
+        self, regions, beta, window, dist, graph, features, self_correlation=True
+    ):
         super(BAR, self).__init__()
         self.regions = regions
         self.M = len(regions)
         self.beta = beta
         self.features = features
+        self.self_correlation = self_correlation
         self.window = window
         self.z = nn.Parameter(th.zeros((1, window)).fill_(1))
         # self.z = nn.Parameter(th.ones((self.M, window)).fill_(1))
@@ -111,8 +119,9 @@ class BAR(nn.Module):
 
     def alphas(self):
         alphas = self._alphas
-        with th.no_grad():
-            alphas.fill_diagonal_(-1e10)
+        if self.self_correlation:
+            with th.no_grad():
+                alphas.fill_diagonal_(-1e10)
         return alphas
 
     def metapopulation_weights(self):
@@ -128,12 +137,14 @@ class BAR(nn.Module):
         offset = self.window - 1
         length = ys.size(1) - self.window + 1
 
-        ws = F.softplus(self.z)
-        ws = ws.expand(self.M, self.window)
-        # self-correlation
-        Z = F.conv1d(ys.unsqueeze(0), ws.unsqueeze(1), groups=self.M)
-        Z = Z.squeeze(0)
-        Z = Z.div(float(self.window))
+        Z = th.zeros(0).sum()
+        if self.self_correlation:
+            ws = F.softplus(self.z)
+            ws = ws.expand(self.M, self.window)
+            # self-correlation
+            Z = F.conv1d(ys.unsqueeze(0), ws.unsqueeze(1), groups=self.M)
+            Z = Z.squeeze(0)
+            Z = Z.div(float(self.window))
 
         # cross-correlation
         W = self.metapopulation_weights()
@@ -149,6 +160,8 @@ class BAR(nn.Module):
         beta = beta.narrow(-1, -ys.size(1), ys.size(1))
         if self.features is not None:
             Ys = Ys + F.softplus(self.w_feat(self.features))
+
+        # Ys = F.softplus(self.out_proj(th.stack([beta, Z, Ys], dim=-1)).squeeze())
         Ys = beta * (Z + Ys)
 
         assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
@@ -156,6 +169,7 @@ class BAR(nn.Module):
 
     def simulate(self, tobs, ys, days, deterministic=True):
         preds = ys.clone()
+        self.eval()
         assert tobs == preds.size(1), (tobs, preds.size())
         for d in range(days):
             t = th.arange(tobs + d).to(ys.device) + 1
@@ -169,6 +183,7 @@ class BAR(nn.Module):
             assert (y >= 0).all(), y.squeeze()
             preds = th.cat([preds, y], dim=1)
         preds = preds.narrow(1, -days, days)
+        self.train()
         return preds
 
     def __repr__(self):
@@ -275,7 +290,31 @@ def _get_dict(args, v, device, regions):
         return None
 
 
+from glob import glob
+from typing import List
+from cv import BestRun
+import os
+
+
 class BARCV(cv.CV):
+    # def model_selection(self, basedir: str) -> List[BestRun]:
+    #     """
+    #     Evaluate a sweep returning a list of models to retrain on the full dataset.
+    #     """
+    #     runs = []
+    #     for metrics_pth in glob(os.path.join(basedir, "*/metrics.csv")):
+    #         metrics = pd.read_csv(metrics_pth, index_col="Measure")
+    #         runs.append(
+    #             {
+    #                 "pth": os.path.dirname(metrics_pth),
+    #                 "mae": metrics.loc["MAE"][-1]
+    #             }
+    #         )
+    #     df = pd.DataFrame(runs)
+    #     return [
+    #         BestRun(row.pth, f"best_mae_{i}") for i, (_, row) in enumerate(df.iterrows())
+    #     ]
+
     def initialize(self, args):
         device = th.device("cuda" if th.cuda.is_available() else "cpu")
         cases, regions, basedate = load.load_confirmed_csv(args.fdat)
@@ -328,9 +367,15 @@ class BARCV(cv.CV):
         else:
             raise ValueError("Unknown beta function")
 
-        self.func = BAR(regions, beta_net, args.window, args.loss, graph, features).to(
-            device
-        )
+        self.func = BAR(
+            regions,
+            beta_net,
+            args.window,
+            args.loss,
+            graph,
+            features,
+            self_correlation=getattr(args, "self_correlation", True),
+        ).to(device)
 
         return new_cases, regions, basedate, device
 
@@ -362,7 +407,34 @@ class BARCV(cv.CV):
 CV_CLS = BARCV
 
 
-if __name__ == "__main__":
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+@click.argument("pth")
+def simulate(pth):
+    chkpnt = th.load(pth)
+    cv = BARCV()
+    if "final_model" in pth:
+        prefix = "final_model_"
+    cfg = yaml.safe_load(open(f"{os.path.dirname(pth)}/{prefix}bar.yml"))
+    args = argparse.Namespace(**cfg["train"])
+    new_cases, regions, basedate, device = cv.initialize(args)
+    cv.func.load_state_dict(chkpnt)
+    res = cv.func.simulate(new_cases.size(1), new_cases, args.test_on)
+    df = pd.DataFrame(res.cpu().data.numpy().transpose(), columns=regions)
+    df.index = pd.date_range(
+        start=pd.to_datetime(basedate) + timedelta(days=1), periods=len(df)
+    )
+    df = rebase_forecast_deltas(cfg["data"], df)
+    gt = pd.read_csv(cfg["data"], index_col="region").transpose()
+    gt.index = pd.to_datetime(gt.index)
+    print(metrics._compute_metrics(gt, df))
+
+
+def main(args):
     parser = argparse.ArgumentParser("ODE demo")
     parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
     parser.add_argument("-fpop", help="Path to population data", required=True)
@@ -371,16 +443,25 @@ if __name__ == "__main__":
     parser.add_argument("-niters", type=int, default=2000)
     parser.add_argument("-amsgrad", default=False, action="store_true")
     parser.add_argument("-loss", default="lsq", choices=["nb", "poisson"])
-    parser.add_argument("-decay", default="exp", choices=["exp", "powerlaw", "latent"])
+    parser.add_argument("-decay", default="exp")
     parser.add_argument("-t0", default=10, type=int)
     parser.add_argument("-fit-on", default=5, type=int)
     parser.add_argument("-test-on", default=5, type=int)
     parser.add_argument("-checkpoint", type=str, default="/tmp/bar_model.bin")
+    parser.add_argument("-window", type=int, default=25)
+    parser.add_argument("-momentum", type=float, default=0.99)
     args = parser.parse_args()
 
     cv = BARCV()
 
-    model = cv.run_train(args, args.checkpoint)
+    model = cv.run_train(args.fdat, args, args.checkpoint)
 
     with th.no_grad():
         forecast = cv.run_simulate(args, model)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] in cli.commands:
+        cli()
+    else:
+        main(sys.argv[1:])
