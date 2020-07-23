@@ -27,3 +27,10 @@ dependencies:
     - pre-commit
     - black==19.10b0
     - pytest
+    - nb2mail
+    - bs4
+    - dropbox
+    - slackclient
+    - google-api-python-client
+    - google-auth-httplib2
+    - google-auth-oauthlib

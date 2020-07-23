@@ -1,46 +1,58 @@
 #!/usr/bin/env python3
 
+import copy
+import click
 import importlib
+import itertools
+import json
 import numpy as np
 import pandas as pd
 import os
+import random
+import shutil
+import sys
+import submitit
+import tempfile
 import torch as th
+import traceback
 import yaml
 from argparse import Namespace
+from collections import namedtuple
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
-import common
-import metrics
-import itertools
-import copy
-import random
-import submitit
 from functools import partial
 from glob import glob
-from timelord import snapshot
-from collections import namedtuple
-import click
-from lib.click_lib import DefaultGroup, OptionNArgs
-import tempfile
-import shutil
-import json
+from typing import Dict, Any, List, Optional, Tuple
 from tensorboardX import SummaryWriter
+from contextlib import nullcontext
+import common
+import metrics
+from lib import cluster
+from lib.click_lib import DefaultGroup, OptionNArgs
+from lib.slurm_pool_executor import SlurmPoolExecutor, JobStatus
+from lib.mail import email_notebook
+import sqlite3
+from lib.context_managers import env_var
 
+# FIXME: move snapshot to lib
+from timelord import snapshot
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
 
 pi_multipliers = {0.99: 2.58, 0.95: 1.96, 0.80: 1.28}
 
 
-def mk_executor(name: str, folder: str, extra_params: Dict[str, Any]):
-    executor = submitit.AutoExecutor(folder=folder)
+def mk_executor(
+    name: str, folder: str, extra_params: Dict[str, Any], ex=SlurmPoolExecutor
+):
+    executor = (ex or submitit.AutoExecutor)(folder=folder)
     executor.update_parameters(
-        name=name,
+        job_name=name,
+        partition=cluster.PARTITION,
         gpus_per_node=extra_params.get("gpus", 0),
         cpus_per_task=extra_params.get("cpus", 3),
-        mem_gb=extra_params.get("memgb", 20),
-        array_parallelism=extra_params.get("array_parallelism", 50),
-        timeout_min=extra_params.get("timeout", 12 * 60),
+        mem=f'{cluster.MEM_GB(extra_params.get("memgb", 20))}GB',
+        array_parallelism=extra_params.get("array_parallelism", 100),
+        time=extra_params.get("timeout", 12 * 60),
     )
     return executor
 
@@ -61,7 +73,7 @@ class CV:
         cases, regions, basedate, device = self.initialize(args)
         tmax = cases.size(1)
 
-        test_preds = model.simulate(tmax, cases, args.test_on)
+        test_preds = model.simulate(tmax, cases, args.test_on, **sim_params)
         test_preds = test_preds.cpu().numpy()
 
         df = pd.DataFrame(test_preds.T, columns=regions)
@@ -142,9 +154,10 @@ class CV:
             runs.append(
                 {
                     "pth": os.path.dirname(metrics_pth),
-                    "mae": metrics.loc["MAE"].values[-1],
-                    "rmse": metrics.loc["RMSE"].mean(),
+                    "mae": metrics.loc["MAE"][-1],
+                    "rmse": metrics.loc["RMSE"][-1],
                     "mae_deltas": metrics.loc["MAE_DELTAS"].mean(),
+                    "state_mae": metrics.loc["STATE_MAE"][-1],
                 }
             )
         df = pd.DataFrame(runs)
@@ -152,6 +165,7 @@ class CV:
             BestRun(df.sort_values(by="mae").iloc[0].pth, "best_mae"),
             BestRun(df.sort_values(by="rmse").iloc[0].pth, "best_rmse"),
             BestRun(df.sort_values(by="mae_deltas").iloc[0].pth, "best_mae_deltas"),
+            BestRun(df.sort_values(by="state_mae").iloc[0].pth, "best_state_mae"),
         ]
 
     def compute_metrics(
@@ -167,12 +181,23 @@ class CV:
 
 
 def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=None):
+    return _run_cv(module, basedir, cfg, prefix, basedate)
+    try:
+        _run_cv(module, basedir, cfg, prefix, basedate)
+    except KeyboardInterrupt as e:
+        raise e
+    except Exception as e:
+        print(f"Job {basedir} failed")
+        print(e)
+        traceback.print_exc()
+
+
+def _run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=None):
     """Runs cross validaiton for one set of hyperaparmeters"""
     try:
         basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
     except Exception:
         pass  # running locally, basedir is fine...
-
     os.makedirs(basedir, exist_ok=True)
 
     def _path(path):
@@ -187,7 +212,7 @@ def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=N
     mod = importlib.import_module(module).CV_CLS()
 
     # -- store configs to reproduce results --
-    log_configs(cfg, module, _path(f"{module}.yml"))
+    log_configs(cfg, module, _path(prefix + f"{module}.yml"))
 
     ndays = cfg["validation"]["days"]
     if basedate is not None:
@@ -284,6 +309,16 @@ def log_configs(cfg: Dict[str, Any], module: str, path: str):
         yaml.dump(cfg[module], f)
 
 
+def attach_notebook(config, mode, module, basedir):
+    """Run notebook for execution mode"""
+    if "notebooks" in config and mode in config["notebooks"]:
+        notebook_pth = config["notebooks"][mode]
+        subject = f"[CV Notebook]: {config['region']}"
+        with env_var({"CV_BASE_DIR": basedir, "CV_MODULE": module}):
+            user = os.environ["USER"]
+            email_notebook(notebook_pth, [f"{user}@fb.com"], subject)
+
+
 def rebase_forecast_deltas(val_in, df_forecast_deltas):
     gt = metrics.load_ground_truth(val_in)
     # Ground truth for the day before our first forecast
@@ -296,9 +331,14 @@ def rebase_forecast_deltas(val_in, df_forecast_deltas):
     return df_forecast
 
 
-def run_best(config, module, remote, basedir, basedate=None):
+def run_best(config, module, remote, basedir, basedate=None, executor=None):
     mod = importlib.import_module(module).CV_CLS()
     best_runs = mod.model_selection(basedir)
+
+    if remote and executor is None:
+        executor = mk_executor(
+            "model_selection", basedir, config[module].get("resources", {})
+        )
 
     with open(os.path.join(basedir, "model_selection.json"), "w") as fout:
         json.dump([x._asdict() for x in best_runs], fout)
@@ -330,9 +370,10 @@ def run_best(config, module, remote, basedir, basedate=None):
         cfg[module] = job_config
         launcher = run_cv_and_copy_results
         if remote:
-            executor = mk_executor(name, pth, cfg[module].get("resources", {}))
             launcher = partial(executor.submit, run_cv_and_copy_results)
-        launcher(tags, module, pth, cfg, "final_model_")
+
+        with executor.set_folder(pth) if remote else nullcontext():
+            launcher(tags, module, pth, cfg, "final_model_")
 
 
 @click.group(cls=DefaultGroup, default_command="cv")
@@ -340,10 +381,33 @@ def cli():
     pass
 
 
+@cli.command()
+@click.argument("config_pth")
+@click.argument("sweep_dir")
+@click.argument("module")
+def notebook(config_pth, sweep_dir, module):
+    config = load_config(config_pth)
+    attach_notebook(config, "backfill", module, sweep_dir)
+
+
+@cli.command()
+@click.argument("sweep_dir")
+@click.argument("module")
+@click.option("-remote", is_flag=True)
+@click.option("-basedate", type=click.DateTime(), default=None)
+def model_selection(sweep_dir, module, remote, basedate):
+    cfg = load_config(os.path.join(sweep_dir, "cfg.yml"))
+    executor = mk_executor(
+        "model_selection", sweep_dir, cfg[module].get("resources", {})
+    )
+    run_best(cfg, module, remote, sweep_dir, basedate, executor=executor)
+    executor.launch(sweep_dir + "/workers", workers=4)
+
+
 def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
     """
-    update a dict using a nested list of keys. 
-    Ex: 
+    update a dict using a nested list of keys.
+    Ex:
         x = {'a': {'b': {'c': 2}}}
         set_dict(x, ['a', 'b'], 4) == {'a': {'b': 4}}
     """
@@ -359,32 +423,34 @@ def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
 @click.argument("module")
 @click.option("-validate-only", type=click.BOOL, default=False)
 @click.option("-remote", is_flag=True)
-@click.option("-array-parallelism", type=click.INT, default=50)
+@click.option("-array-parallelism", type=click.INT, default=20)
 @click.option("-max-jobs", type=click.INT, default=200)
 @click.option("-basedir", default=None, help="Path to sweep base directory")
 @click.option("-basedate", type=click.DateTime(), help="Date to treat as last date")
 def cv(
-    config_pth,
-    module,
-    validate_only,
-    remote,
-    array_parallelism,
-    max_jobs,
-    basedir,
-    basedate,
+    config_pth: str,
+    module: str,
+    validate_only: bool,
+    remote: bool,
+    array_parallelism: int,
+    max_jobs: int,
+    basedir: str,
+    basedate: Optional[datetime] = None,
+    executor=None,
 ):
     """
     Run cross validation pipeline for a given module.
     """
-    now = datetime.now().strftime("%Y_%m_%d_%H_%M")
+    now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     user = os.environ["USER"]
 
     cfg = load_config(config_pth)
     region = cfg["region"]
+    cfg["this_module"] = module
 
     if basedir is None:
         if remote:
-            basedir = f"/checkpoint/{user}/covid19/forecasts/{region}/{now}"
+            basedir = f"{cluster.FS}/{user}/covid19/forecasts/{region}/{now}"
         else:
             basedir = f"/tmp/{user}/covid19/forecasts/{region}/{now}"
 
@@ -424,12 +490,13 @@ def cv(
 
     if remote:
         extra = cfg[module].get("resources", {})
-        executor = mk_executor(f"cv_{region}", basedir + "/%j", extra)
+        if executor is None:
+            executor = mk_executor(f"cv_{region}", basedir + "/%j", extra)
         launcher = executor.map_array
         basedirs = [f"{basedir}/%j" for _ in cfgs]
     else:
-        basedirs = [os.path.join(basedir, f"job_{i}") for i in range(len(cfgs))]
         launcher = map
+        basedirs = [os.path.join(basedir, f"job_{i}") for i in range(len(cfgs))]
 
     with snapshot.SnapshotManager(
         snapshot_dir=basedir + "/snapshot",
@@ -441,20 +508,25 @@ def cv(
         )
 
         # Find the best model and retrain on the full dataset
-        launcher = run_best
-        if remote:
-            executor = submitit.AutoExecutor(folder=basedir)
-            executor.update_parameters(
-                name="model_selection", cpus_per_task=1, mem_gb=2, timeout_min=20
+        launcher = (
+            partial(
+                executor.submit_dependent,
+                jobs,
+                run_best,
+                executor=copy.deepcopy(executor),
             )
-            # Launch the model selection job *after* the sweep finishs
-            sweep_job = jobs[0].job_id.split("_")[0]
-            executor.update_parameters(
-                additional_parameters={"dependency": f"afterany:{sweep_job}"}
-            )
-            launcher = partial(executor.submit, run_best) if remote else run_best
+            if remote
+            else run_best
+        )
+
         if not validate_only:
-            launcher(cfg, module, remote, basedir, basedate=basedate)
+            job = launcher(cfg, module, remote, basedir, basedate=basedate)
+            jobs.append(job)
+
+        if remote:
+            if not executor.nested:
+                executor.submit_final_job(attach_notebook, cfg, "cv", module, basedir)
+            executor.launch(basedir + "/workers", array_parallelism)
 
     print(basedir)
     return basedir, jobs
@@ -470,7 +542,7 @@ def cv(
 @click.option("-dates", default=None, multiple=True, type=click.DateTime())
 @click.option("-validate-only", type=click.BOOL, default=False, is_flag=True)
 @click.option("-remote", is_flag=True)
-@click.option("-array-parallelism", type=click.INT, default=50)
+@click.option("-array-parallelism", type=click.INT, default=20)
 @click.option("-max-jobs", type=click.INT, default=200)
 @click.pass_context
 def backfill(
@@ -482,7 +554,7 @@ def backfill(
     dates: Optional[List[datetime.date]] = None,
     validate_only: bool = False,
     remote: bool = False,
-    array_parallelism: int = 50,
+    array_parallelism: int = 20,
     max_jobs: int = 200,
 ):
     """
@@ -497,26 +569,72 @@ def backfill(
     ), "Must specify either dates or period"
     gt = metrics.load_ground_truth(config[module]["data"])
     if not dates:
+        assert period is not None
         dates = pd.date_range(
             start=start_date, end=gt.index.max(), freq=f"{period}D", closed="left"
         )
-
-    now = datetime.now().strftime("%Y_%m_%d_%H_%M")
-    basedir = (
-        f'/checkpoint/{os.environ["USER"]}/covid19/forecasts/{config["region"]}/{now}'
+    print(
+        "Running backfill for "
+        + ", ".join(map(lambda x: x.strftime("%Y-%m-%d"), dates))
     )
+
+    # setup experiment environment
+    now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    experiment_id = f'{config["region"]}/{now}'
+    basedir = f'{cluster.FS}/{os.environ["USER"]}/covid19/forecasts/{experiment_id}'
+
+    # setup executor
+    extra_params = config[module].get("resources", {})
+    executor = mk_executor(f'backfill_{config["region"]}', basedir, extra_params)
     print(f"Backfilling in {basedir}")
     for date in dates:
         print(f"Running CV for {date.date()}")
         cv_params = {
             k: v for k, v in ctx.params.items() if k in {p.name for p in cv.params}
         }
-        ctx.invoke(
-            cv,
-            basedir=os.path.join(basedir, f"sweep_{date.date()}"),
-            basedate=date,
-            **cv_params,
-        )
+
+        with executor.nest(), executor.set_folder(
+            os.path.join(basedir, f"sweep_{date.date()}/%j")
+        ):
+            _, jobs = ctx.invoke(
+                cv,
+                basedir=os.path.join(basedir, f"sweep_{date.date()}"),
+                basedate=date,
+                executor=executor,
+                **cv_params,
+            )
+
+    if remote:
+        executor.submit_final_job(attach_notebook, config, "backfill", module, basedir)
+        executor.launch(basedir + "/workers", array_parallelism)
+
+
+@cli.command()
+@click.argument("sweep_dir")
+def progress(sweep_dir):
+    sweep_dir = os.path.realpath(sweep_dir)
+    DB = glob(f"{sweep_dir}/**/.job.db", recursive=True)[0]
+    conn = sqlite3.connect(DB)
+    conn.execute("PRAGMA read_uncommitted = true;")
+    df = pd.read_sql("SELECT status, worker_id FROM jobs", conn)
+    msg = {
+        "success": int((df["status"] == JobStatus.success.value).sum()),
+        "failed": int((df["status"] == JobStatus.failure.value).sum()),
+        "pending": int((df["status"] == JobStatus.pending.value).sum()),
+        "running": int((df["status"] > len(JobStatus)).sum()),
+    }
+    print(json.dumps(msg, indent=4))
+
+
+@cli.command()
+@click.argument("sweep_dir")
+@click.argument("workers", type=click.INT)
+def add_workers(sweep_dir, workers):
+    DB = os.path.realpath(glob(f"{sweep_dir}/**/.job.db", recursive=True)[0])
+    cfg = load_config(glob(f"{sweep_dir}/**/cfg.yml", recursive=True)[0])
+    extra_params = cfg[cfg["this_module"]].get("resources", {})
+    executor = mk_executor("add_workers", os.path.dirname(DB), extra_params)
+    executor.launch(f"{sweep_dir}/workers", workers)
 
 
 if __name__ == "__main__":

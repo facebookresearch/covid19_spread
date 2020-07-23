@@ -59,7 +59,7 @@ def main(args):
     opt = parser.parse_args()
 
     df = fetch_data(opt.metric)
-    df.transpose().to_csv(f"data_{opt.metric}.csv", index_label="region")
+    df.transpose().cummax(axis=1).to_csv(f"data_{opt.metric}.csv", index_label="region")
 
     counter = itertools.count()
     loc_map = ddict(counter.__next__)

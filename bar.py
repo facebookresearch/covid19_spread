@@ -1,0 +1,612 @@
+import argparse
+import copy
+import numpy as np
+import pandas as pd
+from datetime import timedelta
+
+import torch as th
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.distributions import NegativeBinomial, Normal, Poisson
+import load
+import cv
+from cv import rebase_forecast_deltas
+import yaml
+import metrics
+import click
+import sys
+from wavenet import Wavenet
+from functools import partial
+
+
+class BetaRNN(nn.Module):
+    def __init__(self, M, layers, dim, input_dim):
+        # initialize parameters
+        super(BetaRNN, self).__init__()
+        self.h0 = nn.Parameter(th.zeros(layers, M, dim))
+        self.rnn = nn.RNN(input_dim, dim, layers)
+        self.v = nn.Linear(dim, 1, bias=False)
+        self.fpos = th.sigmoid
+
+        # initialize weights
+        nn.init.xavier_normal_(self.v.weight)
+        for p in self.rnn.parameters():
+            if p.dim() == 2:
+                nn.init.xavier_normal_(p)
+
+    def forward(self, x):
+        ht, hn = self.rnn(x, self.h0)
+        beta = self.fpos(self.v(ht))
+        return beta
+
+    def __repr__(self):
+        return str(self.rnn)
+
+
+class SelfAttention(nn.Module):
+    def __init__(self, embed_dim, dropout):
+        super().__init__()
+        self.in_proj = nn.Linear(embed_dim, 3 * embed_dim, bias=True)
+        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=True)
+        nn.init.xavier_normal_(self.in_proj.weight)
+        nn.init.xavier_normal_(self.out_proj.weight)
+
+        nn.init.constant_(self.in_proj.bias, 0)
+        nn.init.constant_(self.out_proj.bias, 0)
+        self.dropout = dropout
+        self.embed_dim = embed_dim
+
+    def forward(self, x, attn_mask):
+        """
+        Args:
+            x (Tensor[Seq, Bsz, Emb])
+            attn_mask (Tensor[Seq, Seq]) - mask that gets added to the attention weights
+                Use -inf to mask out
+        """
+        query, key, val = self.in_proj(x).chunk(3, dim=-1)
+        scaling = float(self.embed_dim) ** -0.5
+
+        query *= scaling
+
+        query = query.transpose(0, 1)  # Bsz x Seq x Emb
+        key = key.transpose(0, 1)
+        val = val.transpose(0, 1)
+
+        attn_output_weights = query.bmm(key.transpose(1, 2)) + attn_mask.unsqueeze(
+            0
+        )  # Bsx x Seq x Seq
+        attn_output_weights = F.softmax(attn_output_weights, dim=-1)
+        attn_output_weights = F.dropout(
+            attn_output_weights, p=self.dropout, training=self.training
+        )
+
+        attn_output = attn_output_weights.bmm(val)  # Bsz x Seq x Emb
+        attn_output = attn_output.transpose(0, 1)  # Seq x Bsz x Emb
+
+        attn_output = self.out_proj(attn_output)  # Seq x Bsz x Emb
+        return attn_output, attn_output_weights
+
+
+class BetaAttn(nn.Module):
+    def __init__(self, M, input_dim, dropout=0.0):
+        super().__init__()
+        self.attn = SelfAttention(input_dim, dropout)
+        self.v = nn.Linear(input_dim, 1, bias=False)
+        nn.init.xavier_normal_(self.v.weight.data)
+
+    def forward(self, x):
+        seq_len = x.size(0)
+        # This gets added to the attention weights, fill with -inf to zero out the softmax weights
+        mask = th.triu(
+            th.full((seq_len, seq_len), -float("inf"), device=x.device), diagonal=1
+        )
+        attn_output, attn_weights = self.attn(x, attn_mask=mask)
+        return th.sigmoid(self.v(attn_output))
+
+    def __repr__(self):
+        return "attn"
+
+
+class BetaWavenet(nn.Module):
+    def __init__(self, M, blocks, layers, channels, kernel):
+        super(BetaWavenet, self).__init__()
+        self.embeddings = nn.Parameter(th.randn(M, channels))
+        self.blocks = blocks
+        self.layers = layers
+        self.kernel = kernel
+        self.wv = Wavenet(
+            blocks,
+            layers,
+            channels,
+            kernel,
+            embeddings=self.embeddings,
+            groups=channels,
+        )
+        self.v = nn.Linear(channels, 1, bias=True)
+        self.fpos = th.sigmoid
+
+    def forward(self, x):
+        hs = self.wv(x.permute(0, 2, 1))
+        hs = hs.permute(0, 2, 1)
+        # beta = self.fpos(self.v(hs))
+        beta = self.fpos(hs)
+        return beta
+
+    def __repr__(self):
+        return f"Wave ({self.blocks},{self.layers},{self.kernel})"
+
+
+class BetaLatent(nn.Module):
+    def __init__(self, fbeta, regions, tmax, time_features):
+        """
+        Params
+        ======
+        - regions: names of regions (list)
+        - dim: dimensionality of hidden vector (int)
+        - layer: number of RNN layers (int)
+        - tmax: maximum observation time (float)
+        - time_features: tensor of temporal features (time x region x features)
+        """
+        super(BetaLatent, self).__init__()
+        self.M = len(regions)
+        self.tmax = tmax
+        self.time_features = time_features
+        input_dim = 2
+
+        if time_features is not None:
+            input_dim += time_features.size(2)
+
+        self.fbeta = fbeta(self.M, input_dim)
+
+    def forward(self, t, ys):
+        _ys = th.zeros_like(ys)
+        # _ys.narrow(1, 1, ys.size(1) - 1).copy_(ys[:, 1:] - ys[:, :-1])
+        _ys.narrow(1, 1, ys.size(1) - 1).copy_(
+            th.log(ys[:, 1:] + 1) - th.log(ys[:, :-1] + 1)
+        )
+        # _ys.narrow(1, 1, ys.size(1) - 1).copy_(ys[:, 1:] / ys[:, :-1].clamp(min=1))
+        t = t.unsqueeze(-1).unsqueeze(-1).float()  # .div_(self.tmax)
+        t = t.expand(t.size(0), self.M, 1)
+        x = [t, _ys.t().unsqueeze(-1)]
+        if self.time_features is not None:
+            f = th.zeros(t.size(0), self.M, self.time_features.size(2)).to(t.device)
+            # f.copy_(self.time_features.narrow(0, -1, 1))
+            f.narrow(0, 0, self.time_features.size(0)).copy_(self.time_features)
+            x.append(f)
+        x = th.cat(x, dim=2)
+        beta = self.fbeta(x)
+        # beta = beta.permute(2, 1, 0)
+        # beta = beta.expand(beta.size(0), self.M, 1)
+        return beta.squeeze().t()
+        # return beta[0].squeeze(), beta[1].squeeze()
+
+    def apply(self, x):
+        ht, hn = self.rnn(x, self.h0)
+        return self.fpos(self.v(ht))
+
+    def __repr__(self):
+        return str(self.fbeta)
+
+
+class BAR(nn.Module):
+    def __init__(
+        self, regions, beta, window, dist, graph, features, self_correlation=True
+    ):
+        super(BAR, self).__init__()
+        self.regions = regions
+        self.M = len(regions)
+        self.beta = beta
+        self.features = features
+        self.self_correlation = self_correlation
+        self.window = window
+        self.z = nn.Parameter(th.zeros((1, window)).fill_(1))
+        # self.z = nn.Parameter(th.ones((self.M, window)).fill_(1))
+        # self.z = nn.Parameter(th.ones((self.M, 2)).fill_(1))
+        self._alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(0))
+        self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(8))
+        self._dist = dist
+        self.graph = graph
+        if graph is not None:
+            assert graph.size(0) == self.M, graph.size()
+            assert graph.size(1) == self.M, graph.size()
+        if features is not None:
+            self.w_feat = nn.Linear(features.size(1), 1)
+            nn.init.xavier_normal_(self.w_feat.weight)
+
+    # nn.init.xavier_normal_(self.z)
+    # nn.init.xavier_normal_(self._alphas)
+
+    def dist(self, scores):
+        nu = th.zeros_like(scores)
+        if self._dist == "poisson":
+            return Poisson(scores)
+        elif self._dist == "nb":
+            return NegativeBinomial(scores, logits=self.nu)
+            # return NegativeBinomial(scores, logits=self.nu * self.nu_scale)
+        elif self._dist == "normal":
+            return Normal(scores, th.exp(self.nu))
+            # return Normal(scores, 1)
+        else:
+            raise RuntimeError(f"Unknown loss")
+
+    def alphas(self):
+        alphas = self._alphas
+        if self.self_correlation:
+            with th.no_grad():
+                alphas.fill_diagonal_(-1e10)
+        return alphas
+
+    def metapopulation_weights(self):
+        alphas = self.alphas()
+        W = th.sigmoid(alphas)
+        # W = F.softplus(self.alphas)
+        if self.graph is not None:
+            W = W * self.graph
+        return W
+
+    def score(self, t, ys):
+        assert t.size(-1) == ys.size(-1), (t.size(), ys.size())
+        offset = self.window - 1
+        length = ys.size(1) - self.window + 1
+
+        Z = th.zeros(0).sum()
+        if self.self_correlation:
+            ws = F.softplus(self.z)
+            ws = ws.expand(self.M, self.z.size(1))
+            # self-correlation
+            Z = F.conv1d(
+                F.pad(ys.unsqueeze(0), (self.z.size(1) - 1, 0)),
+                ws.unsqueeze(1),
+                groups=self.M,
+            )
+            Z = Z.squeeze(0)
+            Z = Z.div(float(self.window))
+
+        # cross-correlation
+        W = self.metapopulation_weights()
+        Ys = th.stack(
+            [
+                F.pad(ys.narrow(1, i, length), (self.window - 1, 0))
+                for i in range(self.window)
+            ]
+        )
+        Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(dim=0)
+        # Ys = th.bmm(W, Ys).mean(dim=0)
+        with th.no_grad():
+            self.train_stats = (Z.sum().item(), Ys.sum().item())
+            # self.train_stats = (Ys.sum().item(), Ys.sum().item())
+
+        # beta evolution
+        beta = self.beta(t, ys)
+        # ys = ys.narrow(1, offset, ys.size(1) - offset)
+        # beta = beta.narrow(-1, -ys.size(1), ys.size(1))
+        # nu_scale = nu.narrow(-1, -ys.size(1), ys.size(1))
+        if self.features is not None:
+            Ys = Ys + F.softplus(self.w_feat(self.features))
+
+        # Ys = F.softplus(self.out_proj(th.stack([beta, Z, Ys], dim=-1)).squeeze())
+        Ys = beta * (Z + Ys)
+        # Ys = beta * Ys
+
+        # assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
+        # self.nu_scale = nu_scale
+        return Ys, beta, W
+
+    def simulate(self, tobs, ys, days, deterministic=True):
+        preds = ys.clone()
+        self.eval()
+        assert tobs == preds.size(1), (tobs, preds.size())
+        for d in range(days):
+            t = th.arange(tobs + d).to(ys.device) + 1
+            s, _, _ = self.score(t, preds)
+            assert (s >= 0).all(), s.squeeze()
+            assert s.dim() == 2, s.size()
+            if deterministic:
+                y = self.dist(s).mean
+            else:
+                y = self.dist(s).sample()
+            assert y.dim() == 2, y.size()
+            assert (y >= 0).all(), y.squeeze()
+            y = y.narrow(1, -1, 1).clamp(min=1e-8)
+            preds = th.cat([preds, y], dim=1)
+        preds = preds.narrow(1, -days, days)
+        self.train()
+        return preds
+
+    def __repr__(self):
+        return f"bAR({self.window}) | {self.beta} | EX ({self.train_stats[0]:.1e}, {self.train_stats[1]:.1e})"
+
+
+def train(model, new_cases, regions, optimizer, checkpoint, args):
+    print(args)
+    M = len(regions)
+    device = new_cases.device
+    tmax = new_cases.size(1)
+    t = th.arange(tmax).to(device) + 1
+    # size_pred = tmax - args.window
+    size_pred = tmax - 1
+    reg = th.tensor([0]).to(device)
+    # target = new_cases.narrow(1, args.window, size_pred)
+    target = new_cases.narrow(1, 1, size_pred)
+
+    for itr in range(1, args.niters + 1):
+        optimizer.zero_grad()
+        scores, beta, W = model.score(t, new_cases)
+        scores = scores.clamp(min=1e-8)
+        assert scores.dim() == 2, scores.size()
+        assert scores.size(1) == size_pred + 1
+        # assert size_pred + args.window == new_cases.size(1)
+        assert beta.size(0) == M
+
+        # compute loss
+        # model.nu_scale = model.nu_scale.narrow(1, 0, size_pred)
+        dist = model.dist(scores.narrow(1, 0, size_pred))
+        _loss = -dist.log_prob(target)
+        loss = _loss.sum()
+
+        # temporal smoothness
+        if args.temporal > 0:
+            reg = th.pow(beta[:, 1:] - beta[:, :-1], 2).sum()
+
+        # back prop
+        (loss + args.temporal * reg).backward()
+
+        # do AdamW-like update for Granger regularization
+        if args.granger > 0:
+            with th.no_grad():
+                mu = np.log(args.granger / (1 - args.granger))
+                r = args.lr * args.eta
+                err = model.alphas() - mu
+                err.fill_diagonal_(0)
+                model._alphas.copy_(model._alphas - r * err)
+
+        # make sure we have no NaNs
+        assert loss == loss, (loss, scores, _loss)
+
+        # nn.utils.clip_grad_norm_(model.beta.parameters(), 5)
+        # take gradient step
+        optimizer.step()
+
+        # control
+        if itr % 100 == 0:
+            with th.no_grad(), np.printoptions(precision=3, suppress=True):
+                length = scores.size(1) - 1
+                maes = th.abs(dist.mean - new_cases.narrow(1, 1, length))
+                z = F.softplus(model.z)
+                nu = th.sigmoid(model.nu)
+                print(
+                    f"[{itr:04d}] Loss {loss.item():.2f} | "
+                    f"Temporal {reg.item():.5f} | "
+                    f"MAE {maes.mean():.2f} | "
+                    f"{model} | "
+                    f"{args.loss} ({scores[:, -1].min().item():.2f}, {scores[:, -1].max().item():.2f}) | "
+                    f"z ({z.min().item():.2f}, {z.mean().item():.2f}, {z.max().item():.2f}) | "
+                    f"alpha ({W.min().item():.2f}, {W.mean().item():.2f}, {W.max().item():.2f}) | "
+                    f"nu ({nu.min().item():.2f}, {nu.mean().item():.2f}, {nu.max().item():.2f})"
+                )
+            th.save(model.state_dict(), checkpoint)
+    print(f"Train MAE,{maes.mean():.2f}")
+    return model
+
+
+def _get_arg(args, v, device, regions):
+    if hasattr(args, v):
+        fs = []
+        for _file in getattr(args, v):
+            d = th.load(_file)
+            _fs = th.cat([d[r].unsqueeze(0) for r in regions], dim=0)
+            fs.append(_fs)
+        return th.cat(fs, dim=1).float().to(device)
+    else:
+        return None
+
+
+def _get_dict(args, v, device, regions):
+    if hasattr(args, v):
+        _feats = []
+        for _file in getattr(args, v):
+            print(f"Loading {_file}")
+            d = th.load(_file)
+            feats = None
+            for i, r in enumerate(regions):
+                if r not in d:
+                    print(r)
+                    continue
+                _f = d[r]
+                if feats is None:
+                    feats = th.zeros(len(regions), d[r].size(0), _f.size(1))
+                feats[i, :, : _f.size(1)] = _f
+            # feats.div_(feats.abs().max())
+            _feats.append(feats.to(device).float())
+        return th.cat(_feats, dim=2)
+    else:
+        return None
+
+
+from glob import glob
+from typing import List
+from cv import BestRun
+import os
+
+
+class BARCV(cv.CV):
+    # def model_selection(self, basedir: str) -> List[BestRun]:
+    #     """
+    #     Evaluate a sweep returning a list of models to retrain on the full dataset.
+    #     """
+    #     runs = []
+    #     for metrics_pth in glob(os.path.join(basedir, "*/metrics.csv")):
+    #         metrics = pd.read_csv(metrics_pth, index_col="Measure")
+    #         runs.append(
+    #             {
+    #                 "pth": os.path.dirname(metrics_pth),
+    #                 "mae": metrics.loc["MAE"][-1]
+    #             }
+    #         )
+    #     df = pd.DataFrame(runs)
+    #     return [
+    #         BestRun(row.pth, f"best_mae_{i}") for i, (_, row) in enumerate(df.iterrows())
+    #     ]
+
+    def initialize(self, args):
+        device = th.device("cuda" if th.cuda.is_available() else "cpu")
+        cases, regions, basedate = load.load_confirmed_csv(args.fdat)
+        assert (cases == cases).all(), th.where(cases != cases)
+        new_cases = cases[:, 1:] - cases[:, :-1]
+        assert (new_cases >= 0).all(), th.where(new_cases < 0)
+        new_cases = new_cases.float().to(device)[:, args.t0 :]
+
+        # prepare population
+        # populations = load.load_populations_by_region(args.fpop, regions=regions)
+        # populations = th.from_numpy(populations["population"].values).to(device)
+
+        print("Number of Regions =", new_cases.size(0))
+        print("Timeseries length =", new_cases.size(1))
+        print("Max increase =", new_cases.max().item())
+        tmax = new_cases.size(1) + 1
+
+        # adjust max window size to available data
+        args.window = min(args.window, new_cases.size(1) - 4)
+
+        # setup optional features
+        graph = _get_arg(args, "graph", device, regions)
+        features = _get_arg(args, "features", device, regions)
+        time_features = _get_dict(args, "time_features", device, regions)
+        if time_features is not None:
+            time_features = time_features.transpose(0, 1)
+            time_features = time_features.narrow(0, args.t0, new_cases.size(1))
+            print("Feature size = {} x {} x {}".format(*time_features.size()))
+
+        self.weight_decay = 0
+        # setup beta function
+        if args.decay == "const":
+            beta_net = decay.BetaConst(regions)
+        elif args.decay == "exp":
+            beta_net = decay.BetaExpDecay(regions)
+        elif args.decay == "logistic":
+            beta_net = decay.BetaLogistic(regions)
+        elif args.decay == "powerlaw":
+            beta_net = decay.BetaPowerLawDecay(regions)
+        elif args.decay.startswith("poly"):
+            degree = int(args.decay[4:])
+            beta_net = decay.BetaPolynomial(regions, degree, tmax)
+        elif args.decay.startswith("rbf"):
+            dim = int(args.decay[3:])
+            beta_net = decay.BetaRBF(regions, dim, "gaussian", tmax)
+        elif args.decay.startswith("latent"):
+            dim, layers = args.decay[6:].split("_")
+            fbeta = lambda M, input_dim: BetaRNN(M, int(layers), int(dim), input_dim)
+            beta_net = BetaLatent(fbeta, regions, tmax, time_features)
+            self.weight_decay = args.weight_decay
+        elif args.decay.startswith("wave"):
+            blocks, layers, kernel = args.decay[4:].split("_")
+            fbeta = lambda M, input_dim: BetaWavenet(
+                M, int(blocks), int(layers), input_dim, int(kernel)
+            )
+            beta_net = BetaLatent(fbeta, regions, tmax, time_features)
+            self.weight_decay = args.weight_decay
+        elif args.decay.startswith("attn"):
+            fbeta = partial(BetaAttn, dropout=getattr(args, "dropout", 0))
+            beta_net = BetaLatent(fbeta, regions, tmax, time_features)
+            self.weight_decay = args.weight_decay
+        else:
+            raise ValueError("Unknown beta function")
+
+        self.func = BAR(
+            regions,
+            beta_net,
+            args.window,
+            args.loss,
+            graph,
+            features,
+            self_correlation=getattr(args, "self_correlation", True),
+        ).to(device)
+
+        return new_cases, regions, basedate, device
+
+    def run_train(self, dset, args, checkpoint):
+        args.fdat = dset
+        new_cases, regions, _, device = self.initialize(args)
+
+        params = []
+        # exclude = {"nu", "beta.w_feat.weight", "beta.w_feat.bias"}
+        exclude = {"nu", "_alphas", "beta.fbeta.h0"}
+        for name, p in dict(self.func.named_parameters()).items():
+            wd = 0 if name in exclude else args.weight_decay
+            if wd != 0:
+                print(f"Regularizing {name} = {wd}")
+            params.append({"params": p, "weight_decay": wd})
+        optimizer = optim.AdamW(
+            params,
+            lr=args.lr,
+            betas=[args.momentum, 0.999],
+            weight_decay=args.weight_decay,
+            amsgrad=False,
+        )
+
+        model = train(self.func, new_cases, regions, optimizer, checkpoint, args)
+        return model
+
+
+CV_CLS = BARCV
+
+
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+@click.argument("pth")
+def simulate(pth):
+    chkpnt = th.load(pth)
+    cv = BARCV()
+    if "final_model" in pth:
+        prefix = "final_model_"
+    cfg = yaml.safe_load(open(f"{os.path.dirname(pth)}/{prefix}bar.yml"))
+    args = argparse.Namespace(**cfg["train"])
+    new_cases, regions, basedate, device = cv.initialize(args)
+    cv.func.load_state_dict(chkpnt)
+    res = cv.func.simulate(new_cases.size(1), new_cases, args.test_on)
+    df = pd.DataFrame(res.cpu().data.numpy().transpose(), columns=regions)
+    df.index = pd.date_range(
+        start=pd.to_datetime(basedate) + timedelta(days=1), periods=len(df)
+    )
+    df = rebase_forecast_deltas(cfg["data"], df)
+    gt = pd.read_csv(cfg["data"], index_col="region").transpose()
+    gt.index = pd.to_datetime(gt.index)
+    print(metrics._compute_metrics(gt, df))
+
+
+def main(args):
+    parser = argparse.ArgumentParser("beta-AR")
+    parser.add_argument("-fdat", help="Path to confirmed cases", required=True)
+    parser.add_argument("-fpop", help="Path to population data", required=True)
+    parser.add_argument("-lr", type=float, default=5e-2)
+    parser.add_argument("-weight-decay", type=float, default=0)
+    parser.add_argument("-niters", type=int, default=2000)
+    parser.add_argument("-amsgrad", default=False, action="store_true")
+    parser.add_argument("-loss", default="lsq", choices=["nb", "poisson"])
+    parser.add_argument("-decay", default="exp")
+    parser.add_argument("-t0", default=10, type=int)
+    parser.add_argument("-fit-on", default=5, type=int)
+    parser.add_argument("-test-on", default=5, type=int)
+    parser.add_argument("-checkpoint", type=str, default="/tmp/bar_model.bin")
+    parser.add_argument("-window", type=int, default=25)
+    parser.add_argument("-momentum", type=float, default=0.99)
+    args = parser.parse_args()
+
+    cv = BARCV()
+
+    model = cv.run_train(args.fdat, args, args.checkpoint)
+
+    with th.no_grad():
+        forecast = cv.run_simulate(args, model)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] in cli.commands:
+        cli()
+    else:
+        main(sys.argv[1:])

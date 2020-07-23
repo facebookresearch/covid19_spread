@@ -29,7 +29,16 @@ def mk_db():
             module text NOT NULL,
             slurm_job text,
             id text
+        );
+        """
         )
+        conn.execute(
+            """
+        CREATE TABLE submitted(
+            sweep_path text UNIQUE,
+            submitted_at real NOT NULL,
+            FOREIGN KEY(sweep_path) REFERENCES sweeps(path)
+        );
         """
         )
 
@@ -93,6 +102,14 @@ class Recurring:
                 "Cron job already installed, cleanup crontab"
                 " with `crontab -e` before installing again"
             )
+        envs = (
+            check_output(["conda", "env", "list"]).decode("utf-8").strip().split("\n")
+        )
+        active = [e for e in envs if "*" in e]
+        conda_env = None
+        if len(active) == 1:
+            conda_env = f"source activate {active[0].split()[0]}"
+
         with tempfile.NamedTemporaryFile() as tfile:
             with open(tfile.name, "w") as fout:
                 print(crontab, file=fout)
@@ -100,20 +117,27 @@ class Recurring:
                 user = os.environ["USER"]
                 script = os.path.realpath(__file__)
                 schedule = self.schedule()
-                logfile = os.path.join(self.script_dir, f".{self.get_id()}.log")
+                stdoutfile = os.path.join(self.script_dir, f".{self.get_id()}.log")
+                stderrfile = os.path.join(self.script_dir, f".{self.get_id()}.err")
                 home = os.path.expanduser("~")
                 cmd = [
                     "source /etc/profile.d/modules.sh",
                     f"source {home}/.profile",
                     f"source {home}/.bash_profile",
                     f"source {home}/.bashrc",
-                    "source activate covid19_spread",
+                    conda_env,
                     f"cd {self.script_dir}",
-                    self.command(),
+                    "slack-on-fail " + self.command(),
                 ]
-                envs = ['PATH="/usr/local/bin:$PATH"', f"USER={user}"]
+                cmd = [c for c in cmd if c is not None]
+                subject = f"ERROR in recurring sweep: {self.get_id()}"
+                envs = [
+                    f'PATH="/usr/local/bin:/private/home/{user}/bin:/usr/sbin:$PATH"',
+                    "__PROD__=1",
+                    f"USER={user}",
+                ]
                 print(
-                    f'{schedule} {" ".join(envs)} bash -c "{" && ".join(cmd)}" >> {logfile} 2>&1',
+                    f'{schedule} {" ".join(envs)} bash -c "{" && ".join(cmd)} >> {stdoutfile} 2>> {stderrfile}"',
                     file=fout,
                 )
             check_call(["crontab", tfile.name])
@@ -128,7 +152,9 @@ class Recurring:
             (str(latest_date), self.get_id()),
         )
         for pth, launch_time in res:
+            launch_time = datetime.datetime.fromtimestamp(launch_time)
             if os.path.exists(pth):
+
                 print(f"Already launched {pth} at {launch_time}, exiting...")
                 return
             # This directory got deleted, remove it from the database...

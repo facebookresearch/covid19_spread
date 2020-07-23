@@ -1,0 +1,320 @@
+#+MACRO: NEWLINE @@latex:\\@@ @@html:<br>@@
+#+Title: Inducing Granger Causality {{{NEWLINE}}} for High-Resolution COVID-19 Forecasting
+#+Author: Maximilian Nickel, Matt Le, Mark Ibrahim, Levent Sagun, Timothee Lacroix {{{NEWLINE}}} Facebook AI Research
+#+Publisher: Facebook AI Research
+
+#+OPTIONS: toc:nil date:nil
+
+#+LATEX_CLASS: tufte
+#+LATEX_CLASS_OPTIONS: [nobib]
+#+LATEX_HEADER: \usepackage[svgnames]{xcolor}
+#+LATEX_HEADER: \usepackage{times}
+#+LATEX_HEADER: \usepackage{hyperref}
+#+LATEX_HEADER: \usepackage{url}
+
+
+#+LATEX_HEADER: \makeatletter
+#+LATEX_HEADER: \renewcommand{\maketitle}{%
+#+LATEX_HEADER:   \newpage
+#+LATEX_HEADER:   \global\@topnum\z@% prevent floats from being placed at the top of the page
+#+LATEX_HEADER:   \begingroup
+#+LATEX_HEADER:     \setlength{\parindent}{0pt}%
+#+LATEX_HEADER:     \setlength{\parskip}{4pt}%
+#+LATEX_HEADER:     {\Large\bf\@title}\par
+#+LATEX_HEADER:     {\normalfont\normalsize\@author}\par
+#+LATEX_HEADER:   \endgroup
+#+LATEX_HEADER:   \thispagestyle{plain}% suppress the running head
+#+LATEX_HEADER:   \tuftebreak% add some space before the text begins
+#+LATEX_HEADER:   \@afterindentfalse\@afterheading% suppress indentation of the next paragraph
+#+LATEX_HEADER: }
+
+#+LATEX_HEADER: % Paragraph indentation and separation for normal text
+#+LATEX_HEADER: \renewcommand{\@tufte@reset@par}{%
+#+LATEX_HEADER:   \setlength{\RaggedRightParindent}{0pt}%
+#+LATEX_HEADER:   \setlength{\JustifyingParindent}{0pt}%
+#+LATEX_HEADER:   \setlength{\parindent}{0pt}%
+#+LATEX_HEADER:   \setlength{\parskip}{0.5pc}%
+#+LATEX_HEADER: }
+#+LATEX_HEADER: \@tufte@reset@par
+#+LATEX_HEADER: \makeatother
+#+LATEX_HEADER: \fancyhead[RE,RO]{\newlinetospace{\color{gray}\plaintitle}\quad\thepage}
+
+#+LATEX_HEADER: \usepackage{amsmath}
+#+LATEX_HEADER: \usepackage{amssymb}
+#+LATEX_HEADER: \usepackage{mathtools}
+#+LATEX_HEADER: \usepackage{cleveref}
+#+LATEX_HEADER: \usepackage{svg}
+#+LATEX_HEADER: \usepackage{bm}
+#+LATEX_HEADER: \usepackage{booktabs}
+#+LATEX_HEADER: \usepackage{multirow}
+#+LATEX_HEADER: \usepackage{grffile}
+#+LATEX_HEADER: \usepackage{pgfplots}
+#+LATEX_HEADER: \usepackage[caption=false]{subfig}
+#+LATEX_HEADER: \usepackage{wrapfig}
+#+LATEX_HEADER: \usepackage{microtype}
+#+LATEX_HEADER: \usepackage{xspace}
+
+#+LATEX_HEADER: \pgfplotsset{compat=newest}
+#+LATEX_HEADER: \usepackage{tikz}
+#+LATEX_HEADER: \usetikzlibrary{positioning,quotes}
+
+#+LATEX_HEADER: \usepackage[style=authoryear,backend=bibtex,natbib,maxcitenames=2,doi=false]{biblatex}
+#+LATEX_HEADER: \addbibresource{./references.bib}
+
+#+LATEX_HEADER: \hypersetup{
+#+LATEX_HEADER:     colorlinks = true,
+#+LATEX_HEADER:     allcolors = {DarkBlue}
+#+LATEX_HEADER: }
+
+#+LATEX_HEADER: \renewcommand{\vec}[1]{\bm{#1}}
+#+LATEX_HEADER: \newcommand{\AR}{\text{AR}}
+#+LATEX_HEADER: \newcommand{\bAR}{\ensuremath{\beta}\text{-AR}\xspace}
+#+LATEX_HEADER: \newcommand{\Set}[1]{\mathcal{#1}}
+#+LATEX_HEADER: \newcommand{\risk}{\mathcal{R}}
+#+LATEX_HEADER: \newcommand{\foi}{\underline{\lambda}}
+#+LATEX_HEADER: \newcommand{\E}{\mathbb{E}}
+#+LATEX_HEADER: \newcommand{\todo}[1]{{\color{red} #1}}
+
+#+LATEX_HEADER: %\author{Maximilian Nickel\\Facebook AI Research\\New York, NY\\\texttt{maxn@fb.com}}
+
+#+BEGIN_abstract
+Forecasting COVID-19 poses unique challenges due to the novelty of the disease,
+its unknown characteristics, and substantial but varying interventions to reduce
+its spread. To improve the quality and robustness of forecasts, we propose a new
+method which employs Granger causality as an inductive bias and aims to
+disentangle region-specific aspects -- such as demographics, enacted policies,
+and testing methods -- from disease-inherent aspects that influence its spread.
+This allows us to train high-resolution models by borrowing statistical strength
+across regions. In our experiments, we demonstrate that this approach achieves
+strong performance in predicting the spread of COVID-19.
+#+END_abstract
+
+* Introduction
+Modeling the spread of COVID-19 at a high spatial and temporal resolution has
+become an important task in the public health response to the disease. For
+instance, it is not only central to monitor the state of the pandemic but is
+also important to efficiently allocate scarce resources such as ventilators,
+personal protective equipment, and ICU beds.
+
+#+ATTR_LATEX: :float margin :width \columnwidth :offset 20em
+#+CAPTION: Variability of new cases per region and over time
+[[file:img/cases_italy.png]]
+
+However, forecasting COVID-19 poses unique challenges as it is still largely
+unknown to what extent certain factors influence its spread. This is only
+exacerbated by the little data that exists about the disease and how it spreads.
+Even several months after the initial outbreak there exists substantially less
+data than for infectious diseases like influenza and measles which have been
+monitored for decades. Due to the global nature of COVID-19, the available data
+is also distributed among regions with very different properties, many of which
+may affect its spread. This includes, for instance, demographics and population
+densities, enacted policies, adherence to those policies, mobility patterns, and
+geographic features such as temperature. In addition, testing and reporting can
+change considerably across regions and time what adds another source of
+variability and uncertainty. All these factors make reliable forecasts
+difficult, especially at high spatial resolution. While flexible models are
+needed to account for all these a possible influencing factors there is little data
+to estimate such models reliably and without overfitting.
+
+To alleviate this issue, we propose to employ /Granger
+causality/ as an inductive bias to improve forecast quality. Although there
+exists considerable variability across locations and time, the spread of the disease is
+also governed by common, disease-inherent properties. Once a model has correctly
+accounted for region-specific dynamics, information about the spread of the
+disease in region $j$ should therefore also help to improve predictions
+for a related region $i$. Based on this assumption, our method then aims to
+learn models that increase Granger causality between regions.
+For this purpose, we use standard autoregressive models and a
+specific regularization scheme that increases the coupling between regions.
+Notably, this approach optimizes the opposite objective as often used in causal
+discovery where coupling between regions is penalized, e.g., via $\ell_1$
+regularization.
+
+* Method
+We consider forecasting of time series that are different realizations of
+the same underlying disease process. Let \(\foi_i^{t}\) denote the /force of
+infection/ at time \(t\) in location \(i\).[fn::Given $y^t_i$ infected
+individuals, the force of infection (or hazard) models the probability that a
+susceptible individual at time $t$ will become infected by time $t+1$. Classic
+epidemological models (e.g., SIR, AR) and quantities ($R_0$) can be expressed in terms
+of $\foi_i^t$. See citet:bauer2018stratified for a detailed discussion.]
+We then assume that $\foi_i^t$ can be decomposed into a time-dependent
+component $\beta_i^t$ and a time-independent component $\foi$ such that
+\begin{align*}
+\foi_i^t = \beta_i^t \foi \quad\text{where}\quad \beta_i^t \in [0, 1],\, \foi > 0
+\end{align*}
+
+Hence, $\beta_i^t$ can be understood as a dampening factor of the underlying
+force of infection that depends on time and location. While
+some influencing factors for the evolution of $\beta_i^t$ might be know (e.g.,
+mobility, population density, etc.), we assume that the full set of influencing
+factors is unknown. We will therefore regard $\beta_i^t$ as a latent variable whose state
+can depend on observed variables $\vec{x}_i^t$. There exist many possible ways
+to model the evolution of $\beta_i^t$ in this scenario. In the following, we will
+simply use a /Elman RNN/ where
+\begin{align}
+    \beta_i^t & = \sigma(\vec{w}^\top \vec{z}_t)
+    & \vec{z}_t & = \psi(W_z\vec{h}^t_i + \vec{b}_z) \label{eq:rnn} \\
+    && \vec{h}_t & = \psi(W_h\vec{x}_i^t + U\vec{h}^{t-1}_i + \vec{b}_h)\notag
+\end{align}
+and where $\sigma$ and $\psi$ denote sigmoid and tanh non-linearities.
+
+** Granger Causality as an Inductive Bias
+Although an RNN as in ref:eq:rnn should provide enough capacity to model the
+evolution of $\beta_i^t$, there exists currently not enough data about the
+spread of COVID-19 to estimate its parameters without overfitting. We seek
+therefore inductive biases which allows us to estimate $\beta_i^t$ from few
+observations. Since all regions are affected by the same underlying disease
+process, we assume that information about the spread in region $j$ should also
+help to predict the spread in region $i$ -- once we have accounted for time- and
+location-dependent dynamics. A good model of $\beta_i^t$ should therefore help
+to improve the predictions of $y_i^{t+1} / \beta_i^t$ from cases in other
+regions $y_j^t$. We interpret this inductive bias in terms of Granger causality,
+which is defined as follows: Let $X^t=\{X_t\}_{i=1}^t$, $Y^t=\{Y_t\}_{i=1}^t$,
+$Z^t=\{Z_t\}_{i=1}^t$ denote stochastic processes and let $L$ denote a loss
+function. Furthermore, let $\risk(Y^{t+1} | Y^t, Z^t) = \E(L(Y_{t+1}, f(Y^t,
+Z^t)))$ denote the expected loss (risk) of a predictor $f$. We then say $X$
+Granger-causes $Y$ if its inclusion in the predictor significantly improves the
+forecast, i.e., if
+\begin{equation}
+    \risk(Y^{t+1} | Y^t, X^t, Z^t) \ll \risk(Y^{t+1} | Y^t, Z^t)
+\end{equation}
+
+For a /multivariate autoregressive/ model, it is known that Granger causality is
+directly linked to its coefficients. In particular, let
+\begin{equation} \AR(p): \quad y_i^{t+1} =
+\sum_{\ell=0}^{p-1} \sum_{j=1}^m \lambda_{ij}^\ell y_j^{t - \ell}
+\end{equation}
+be a multivariate autoregressive model of order $p$. /A time series $y_j$ is
+then Granger causing $y_i$ if and only if $\lambda_{ij} \neq 0$/
+citep:Seth2007granger. For causal discovery, coefficients $\lambda_{ij}$ are
+therefore often \(\ell_1\)-regularized. Here, we take the opposite approach and
+seek solutions in which as many time-series as possible are Granger-causal
+related. However, we do not force /all/ time series to be related since this is
+likely an unrealistic constraint. Instead, we assume $\lambda_{ij}$ are drawn
+from a logit-normal distribution citep:atchison1980logistic, what allows us to
+specify a prior on the ratio of related-to-unrelated time series.
+
+#+LATEX: \begin{marginfigure}[5em]
+#+ATTR_LATEX: :width \columnwidth :float nil
+[[file:img/logit_normal_0.png]]
+#+ATTR_LATEX: :width \columnwidth :float nil
+[[file:img/logit_normal_-1.png]]
+#+ATTR_LATEX: :width \columnwidth :float nil
+[[file:img/logit_normal_1.png]]
+#+LATEX: \caption{Logit-Normal distribution for different location ($\mu$) and scale parameters $(\sigma)$.}
+#+LATEX: \end{marginfigure}
+
+In particular, let \(\Set{Y} = \{(y_i^1, \ldots, y_i^T)\}_{i=1}^m\) denote the
+observed realizations where $i$ indexes locations and where $T$ denotes the
+maximum observation time. Furthermore, let $\sigma(\cdot)$ denote the
+logistic function and let $\lambda_{ij} = \sigma(\alpha_{ij})$. We then
+model the spread of the disease via the time-varying and location-dependent model
+\begin{equation}
+\bAR(p): \quad y_i^{t+1} = &
+\sum_{\ell=0}^{p-1} \sum_{j=1}^m \beta_i^t\lambda_{ij}^\ell y_j^{t - \ell} \label{eq:beta-ar}
+\end{equation}
+To incorporate Granger causality as an inductive bias, we regularize the
+model log-likelihood such that $\alpha_{ij}$ is drawn from a logit-normal
+distribution with location $\mu$ and scale $\gamma$. Let $\theta$ denote
+the model parameters (i.e., $\alpha_{ij}$ as well as parameters of the RNN).
+and let $p_\theta(y)$ denote the likelihood function of the $\bAR$
+model. Furthermore, let $q$ denote the PDF of the logit-normal
+distribution. We then maximize the regularized objective
+\begin{equation}
+\max_{\theta}\sum_y\log p_\theta(y) + \eta \sum_{ij} \log q(\alpha_{ij}\,|\,\mu,\gamma). \label{eq:objective}
+\end{equation}
+We regard $\eta, \mu, \gamma > 0$ as hyperparameters which allow us to control
+the ratio of related and unrelated time series in terms of Granger causality.
+
+** Accounting for Overdispersion
+Count data such as confirmed cases is naturally modeled using Poisson
+distributions. However, COVID-19 case counts exhibit substantial overdispersion,
+i.e., the variance of the observed counts can significantly exceed their mean
+(e.g., see cref:fig:dispersion). For this
+reason, we will model case counts with Negative Binomial distributions what
+allows us to account for varying degrees of overdispersion. Specifically, we set
+\begin{align*}
+    y^{t+1}_{i} & \sim \text{NB}(\mu_i^{t}, \nu_i) \\
+    \mu^t_i & = \sum_{\ell=0}^{p-1} \sum_{j=1}^m \beta_i^t \lambda_{ij}^\ell y_j^{t - \ell}
+\end{align*}
+where \(\mu_i\) and \(\nu_i\) are mean and dispersion parameter of the
+distribution and $\mu_i$ is modeled  using the \bAR model of
+cref:eq:beta-ar.
+The likelihood function in cref:eq:objective is then of the form
+\begin{equation*}
+p_\theta(y) = \frac{\Gamma(y + \nu)}{y!\Gamma(\nu)}\left(\frac{\mu}{\mu +\nu}\right)^{y}\left(1 + \frac{\mu}{\nu}\right)^{-\nu}
+\quad \mu > 0, \nu > 0
+\end{equation*}
+
+#+LATEX: \begin{marginfigure}[1em]
+#+LATEX: \hspace{2.1em}%
+#+ATTR_LATEX: :float nil :width .8\columnwidth
+file:img/overdispersion_states.png
+
+#+LATEX:\vspace{1em}
+
+#+ATTR_LATEX: :float nil :width \columnwidth
+file:img/overdispersion_counties.png
+#+LATEX: \caption{Overdispersion of daily case counts in US states and counties with most number of cases.}
+#+LATEX: \label{fig:dispersion}
+#+LATEX: \end{marginfigure}
+
+
+
+** COMMENT Transfer Entropy and Granger Causality
+Transfer entropy measures the directed, time-asymmetric transfer of information
+between two random processes $Y_i$ and $Y_j$. Intuitively, it captures the amount of
+uncertainty reduced in future values of $Y_i$ by knowing the past values of $Y_j$ given
+past values of Y. Formally, \[ T_{j \to i} = p_\theta(y^{t+1}_i, \Set{Y}^t) \log
+\frac{p_\theta(y^{t+1} | \Set{Y}^t)}{p_\theta(y^{t+1} | \Set{Y}^t \textbackslash
+y^t_j)} \]
+
+* Related Work
+We build on prior work that has proposed to use autoregressive models
+for spatially and temporally aggregated surveillance data of endemic-epidemic
+processes citep:held2005statistical,meyer2014powerlaw,meyer2016socialcontact.
+Such autoregressive models are, for instance, used to monitor infectious
+diseases by public health agencies like the Robert Koch Institute
+citep:salmon2016surveillance.
+
+Moreover, the negative binomial distribution has become a popular way to model
+infectious diseases, largely to its ability to model count data with varying degrees
+of overdispersion citep:lloyd_smith2007negativebinomial. Autoregressive models
+in combination with negative binomial distributions have, for instance, been
+used by citet:bauer2018stratified,wakefield2019spatio,held2005statistical to
+model infectious disease count data.
+
+citet:valdes2005estimating proposed a combination of VAR(1) models and $\ell_1$
+regularization to for the discovery of Granger-causal relations to understand
+brain connectivity. citet:haufe2010sparse proposed an improved estimator which
+can be applied for VAR models of order $p > 1$.
+
+* Experiments
+We compare predictions of the proposed \bAR model to cite:forecasts/lanl (LANL)
+and cite:forecasts/yyg (YYG). Both LANL and YYG forecast on state-level while we
+performed our forecasts on county-level. For comparison, we therefore aggregate
+our forecasts to state-level. The YYG model is based on an extended SEIR model
+which models the dynamics of the disease through explicit parameters for disease
+and other mitigation effects.[fn::This includes, for instance, social
+distancing, lockdown fatigue etc.] YYG is trained on confirmed deaths and
+population data. For the \beta-\AR model, we only use confirmed deaths as
+training and the only hyper parameters are model order $p$,
+
+#+LATEX: \begin{figure*}
+#+LATEX: \begin{minipage}{.33\linewidth}
+#+ATTR_LATEX: :float nil :width \columnwidth
+[[file:img/us_mae/png/us_mae.png]]
+#+LATEX: \end{minipage}%
+#+LATEX: \begin{minipage}{.33\linewidth}
+#+ATTR_LATEX: :float nil :width \columnwidth
+[[file:img/us_mae/png/us_mae_1.png]]
+#+LATEX: \end{minipage}%
+#+LATEX: \begin{minipage}{.33\linewidth}
+#+ATTR_LATEX: :float nil :width \columnwidth
+[[file:img/us_mae/png/us_mae_1_2.png]]
+#+LATEX: \end{minipage}%
+#+LATEX: \end{figure*}
+
+#+LATEX: \newpage
+#+LATEX: \printbibliography
