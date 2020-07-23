@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import pandas as pd
 import sys
 from datetime import timedelta
@@ -17,6 +18,12 @@ current_date = base_date
 while current_date < end_date:
     current_date = current_date + timedelta(1)
     date_str = current_date.strftime("%Y%m%d")
+    fout = f"{geo_value}/{signal}-{date_str}.csv"
+
+    # d/l only if we don't have the file already
+    if os.path.exists(fout):
+        continue
+
     res = Epidata.covidcast("fb-survey", signal, "day", geo_value, [date_str], "*")
     print(date_str, res["result"], res["message"])
     assert res["result"] == 1, ("CLI", res["message"])
@@ -32,7 +39,7 @@ while current_date < end_date:
         },
         inplace=True,
     )
-    df.to_csv(f"{geo_value}/{signal}-{date_str}.csv", index=False)
+    df.to_csv(fout, index=False)
 
 
 print(df)
