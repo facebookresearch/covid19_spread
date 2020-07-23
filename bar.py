@@ -18,6 +18,7 @@ import click
 import sys
 from wavenet import Wavenet
 from functools import partial
+import math
 
 
 class BetaRNN(nn.Module):
@@ -44,8 +45,48 @@ class BetaRNN(nn.Module):
         return str(self.rnn)
 
 
+class SinusoidalPositionalEmbedding(nn.Module):
+    def __init__(self, embedding_dim, init_size):
+        super().__init__()
+        self.embedding_dim = embedding_dim
+        self.weights = nn.Parameter(
+            SinusoidalPositionalEmbedding.get_embedding(init_size, embedding_dim),
+            requires_grad=False,
+        )
+
+    @staticmethod
+    def get_embedding(num_embeddings: int, embedding_dim: int):
+        """
+        Stolen from fairseq
+        https://github.com/pytorch/fairseq/blob/master/fairseq/modules/sinusoidal_positional_embedding.py
+        """
+        half_dim = embedding_dim // 2
+        emb = math.log(10000) / (half_dim - 1)
+        emb = th.exp(th.arange(half_dim, dtype=th.float) * -emb)
+        emb = th.arange(num_embeddings, dtype=th.float).unsqueeze(1) * emb.unsqueeze(0)
+        emb = th.cat([th.sin(emb), th.cos(emb)], dim=1).view(num_embeddings, -1)
+        if embedding_dim % 2 == 1:
+            # zero pad
+            emb = th.cat([emb, th.zeros(num_embeddings, 1)], dim=1)
+        return emb
+
+    def forward(self, input):
+        """Input is expected to be of size [bsz x seqlen]."""
+        with th.no_grad():
+            max_pos = input.size(0) + 1
+            if self.weights is None or max_pos > self.weights.size(0):
+                # recompute/expand embeddings if needed
+                self.weights = nn.Parameter(
+                    SinusoidalPositionalEmbedding.get_embedding(
+                        max_pos, self.embedding_dim
+                    ),
+                    requires_grad=True,
+                )
+            return self.weights.index_select(0, input).detach()
+
+
 class SelfAttention(nn.Module):
-    def __init__(self, embed_dim, dropout):
+    def __init__(self, embed_dim, dropout, tmax):
         super().__init__()
         self.in_proj = nn.Linear(embed_dim, 3 * embed_dim, bias=True)
         self.out_proj = nn.Linear(embed_dim, embed_dim, bias=True)
@@ -56,6 +97,7 @@ class SelfAttention(nn.Module):
         nn.init.constant_(self.out_proj.bias, 0)
         self.dropout = dropout
         self.embed_dim = embed_dim
+        self.positional_embeddings = SinusoidalPositionalEmbedding(embed_dim, tmax + 21)
 
     def forward(self, x, attn_mask):
         """
@@ -64,19 +106,27 @@ class SelfAttention(nn.Module):
             attn_mask (Tensor[Seq, Seq]) - mask that gets added to the attention weights
                 Use -inf to mask out
         """
-        query, key, val = self.in_proj(x).chunk(3, dim=-1)
-        scaling = float(self.embed_dim) ** -0.5
+        pos_idxs = th.arange(x.size(0), device=x.device)
+        # pos = self.positional_embeddings(pos_idxs)
+        seq, bsz, emb = x.shape
+        proj = self.in_proj(x).view(
+            seq, bsz, emb, 3
+        )  # + pos.unsqueeze(1).unsqueeze(-1)
+        query, key, val = map(lambda x: x.squeeze(), proj.chunk(3, -1))
 
+        scaling = float(self.embed_dim) ** -0.5
         query *= scaling
 
         query = query.transpose(0, 1)  # Bsz x Seq x Emb
         key = key.transpose(0, 1)
         val = val.transpose(0, 1)
 
-        attn_output_weights = query.bmm(key.transpose(1, 2)) + attn_mask.unsqueeze(
-            0
-        )  # Bsx x Seq x Seq
-        attn_output_weights = F.softmax(attn_output_weights, dim=-1)
+        attn_output_weights = query.bmm(key.transpose(1, 2))  # Bsx x Seq x Seq
+        attn_output_weights += attn_mask.unsqueeze(0)
+
+        time_decay = (x.size(0) - 1 - pos_idxs.float()).neg()
+
+        attn_output_weights = F.softmax(attn_output_weights + time_decay, dim=-1)
         attn_output_weights = F.dropout(
             attn_output_weights, p=self.dropout, training=self.training
         )
@@ -89,9 +139,9 @@ class SelfAttention(nn.Module):
 
 
 class BetaAttn(nn.Module):
-    def __init__(self, M, input_dim, dropout=0.0):
+    def __init__(self, M, input_dim, tmax, dropout=0.0):
         super().__init__()
-        self.attn = SelfAttention(input_dim, dropout)
+        self.attn = SelfAttention(input_dim, dropout, tmax)
         self.v = nn.Linear(input_dim, 1, bias=False)
         nn.init.xavier_normal_(self.v.weight.data)
 
@@ -517,7 +567,7 @@ class BARCV(cv.CV):
             beta_net = BetaLatent(fbeta, regions, tmax, time_features)
             self.weight_decay = args.weight_decay
         elif args.decay.startswith("attn"):
-            fbeta = partial(BetaAttn, dropout=getattr(args, "dropout", 0))
+            fbeta = partial(BetaAttn, tmax=tmax, dropout=getattr(args, "dropout", 0))
             beta_net = BetaLatent(fbeta, regions, tmax, time_features)
             self.weight_decay = args.weight_decay
         else:
