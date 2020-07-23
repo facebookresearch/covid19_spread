@@ -169,7 +169,6 @@ if __name__ == "__main__":
     df.index = pd.to_datetime(df.index)
     print(df.tail())
 
-    # df_feat = pd.read_csv("features.csv", index_col="region")
     # state_policies = pd.read_csv("policy_features.csv")
 
     # HACK: for deaths we do not have borough-level information
