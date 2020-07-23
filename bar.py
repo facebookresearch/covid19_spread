@@ -65,6 +65,7 @@ class BetaWavenet(nn.Module):
         self.blocks = blocks
         self.layers = layers
         self.kernel = kernel
+        self.nlin = th.tanh
         self.wv = Wavenet(
             blocks,
             layers,
@@ -72,15 +73,21 @@ class BetaWavenet(nn.Module):
             kernel,
             embeddings=self.embeddings,
             groups=channels,
+            nlin=self.nlin,
         )
+        self.W1 = nn.Linear(channels, channels)
+        self.W2 = nn.Linear(channels, channels)
         self.v = nn.Linear(channels, 1, bias=True)
         self.fpos = th.sigmoid
 
     def forward(self, x):
         hs = self.wv(x.permute(0, 2, 1))
         hs = hs.permute(0, 2, 1)
-        # beta = self.fpos(self.v(hs))
-        beta = self.fpos(hs)
+        hs = self.nlin(self.W1(hs))
+        hs = self.nlin(self.W2(hs))
+        beta = self.fpos(self.v(hs))
+
+        # beta = self.fpos(hs)
         return beta
 
     def __repr__(self):
@@ -102,7 +109,7 @@ class BetaLatent(nn.Module):
         self.M = len(regions)
         self.tmax = tmax
         self.time_features = time_features
-        input_dim = 2
+        input_dim = 1
 
         if time_features is not None:
             input_dim += time_features.size(2)
@@ -115,14 +122,17 @@ class BetaLatent(nn.Module):
         _ys.narrow(1, 1, ys.size(1) - 1).copy_(
             th.log(ys[:, 1:] + 1) - th.log(ys[:, :-1] + 1)
         )
-        # _ys.narrow(1, 1, ys.size(1) - 1).copy_(ys[:, 1:] / ys[:, :-1].clamp(min=1))
         t = t.unsqueeze(-1).unsqueeze(-1).float()  # .div_(self.tmax)
         t = t.expand(t.size(0), self.M, 1)
-        x = [t, _ys.t().unsqueeze(-1)]
+        # x = [t, _ys.t().unsqueeze(-1)]
+        x = [_ys.t().unsqueeze(-1)]
         if self.time_features is not None:
-            f = th.zeros(t.size(0), self.M, self.time_features.size(2)).to(t.device)
-            # f.copy_(self.time_features.narrow(0, -1, 1))
-            f.narrow(0, 0, self.time_features.size(0)).copy_(self.time_features)
+            if self.time_features.size(0) > t.size(0):
+                tf = time_features.narrow(0, 0, t.size(0))
+            else:
+                f = th.zeros(t.size(0), self.M, self.time_features.size(2)).to(t.device)
+                # f.copy_(self.time_features.narrow(0, -1, 1))
+                f.narrow(0, 0, self.time_features.size(0)).copy_(self.time_features)
             x.append(f)
         x = th.cat(x, dim=2)
         beta = self.fbeta(x)
