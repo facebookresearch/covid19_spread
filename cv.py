@@ -23,7 +23,7 @@ from functools import partial
 from glob import glob
 from typing import Dict, Any, List, Optional, Tuple
 from tensorboardX import SummaryWriter
-from contextlib import nullcontext
+from contextlib import nullcontext, ExitStack
 import common
 import metrics
 from lib import cluster
@@ -199,6 +199,8 @@ def _run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=
     except Exception:
         pass  # running locally, basedir is fine...
     os.makedirs(basedir, exist_ok=True)
+
+    print(f"CWD = {os.getcwd()}")
 
     def _path(path):
         return os.path.join(basedir, path)
@@ -441,6 +443,8 @@ def cv(
     """
     Run cross validation pipeline for a given module.
     """
+    # FIXME: This is a hack...
+    in_backfill = executor is not None
     now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     user = os.environ["USER"]
 
@@ -498,11 +502,15 @@ def cv(
         launcher = map
         basedirs = [os.path.join(basedir, f"job_{i}") for i in range(len(cfgs))]
 
-    with snapshot.SnapshotManager(
-        snapshot_dir=basedir + "/snapshot",
-        with_submodules=True,
-        exclude=["data/*", "notebooks/*", "tests/*"],
-    ):
+    with ExitStack() as stack:
+        if not in_backfill:
+            stack.enter_context(
+                snapshot.SnapshotManager(
+                    snapshot_dir=basedir + "/snapshot",
+                    with_submodules=True,
+                    exclude=["data/*", "notebooks/*", "tests/*"],
+                )
+            )
         jobs = list(
             launcher(partial(run_cv, module, basedate=basedate), basedirs, cfgs)
         )
@@ -560,7 +568,7 @@ def backfill(
     """
     Run the cross validation pipeline over multiple time points.
     """
-    config = load_config(config_pth)
+    config = mk_absolute_paths(load_config(config_pth))
     # allow to set backfill dates in config (function argument overrides)
     if not dates and "backfill" in config:
         dates = list(pd.to_datetime(config["backfill"]))
@@ -587,26 +595,37 @@ def backfill(
     extra_params = config[module].get("resources", {})
     executor = mk_executor(f'backfill_{config["region"]}', basedir, extra_params)
     print(f"Backfilling in {basedir}")
-    for date in dates:
-        print(f"Running CV for {date.date()}")
-        cv_params = {
-            k: v for k, v in ctx.params.items() if k in {p.name for p in cv.params}
-        }
+    with snapshot.SnapshotManager(
+        snapshot_dir=basedir + "/snapshot",
+        with_submodules=True,
+        exclude=["data/*", "notebooks/*", "tests/*"],
+    ), tempfile.NamedTemporaryFile() as tfile:
+        # Make sure that we use the CFG with absolute paths since we are now inside the snapshot directory
+        with open(tfile.name, "w") as fout:
+            yaml.dump(config, fout)
+        for date in dates:
+            print(f"Running CV for {date.date()}")
+            cv_params = {
+                k: v for k, v in ctx.params.items() if k in {p.name for p in cv.params}
+            }
+            cv_params["config_pth"] = tfile.name
 
-        with executor.nest(), executor.set_folder(
-            os.path.join(basedir, f"sweep_{date.date()}/%j")
-        ):
-            _, jobs = ctx.invoke(
-                cv,
-                basedir=os.path.join(basedir, f"sweep_{date.date()}"),
-                basedate=date,
-                executor=executor,
-                **cv_params,
+            with executor.nest(), executor.set_folder(
+                os.path.join(basedir, f"sweep_{date.date()}/%j")
+            ):
+                _, jobs = ctx.invoke(
+                    cv,
+                    basedir=os.path.join(basedir, f"sweep_{date.date()}"),
+                    basedate=date,
+                    executor=executor,
+                    **cv_params,
+                )
+
+        if remote:
+            executor.submit_final_job(
+                attach_notebook, config, "backfill", module, basedir
             )
-
-    if remote:
-        executor.submit_final_job(attach_notebook, config, "backfill", module, basedir)
-        executor.launch(basedir + "/workers", array_parallelism)
+            executor.launch(basedir + "/workers", array_parallelism)
 
 
 @cli.command()
