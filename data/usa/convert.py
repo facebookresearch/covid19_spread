@@ -60,7 +60,7 @@ def read_population():
     return population
 
 
-def process_mobility(df, prefix, shift=0):
+def process_mobility(df, prefix, shift=0, merge_nyc=False):
     mobility = pd.read_csv(f"{prefix}/mobility_features.csv")
     dates = pd.to_datetime(mobility.columns[2:])
     dates = dates[np.where(dates >= df.columns.min())[0]]
@@ -71,7 +71,8 @@ def process_mobility(df, prefix, shift=0):
 
     n_mobility_types = len(np.unique(mobility["type"]))
     mobility_types = {r: v for (r, v) in mobility.groupby("region")}
-    mobility = merge_nyc_boroughs(mobility, n_mobility_types)
+    if merge_nyc:
+        mobility = merge_nyc_boroughs(mobility, n_mobility_types)
     print(mobility.head(), len(mobility))
 
     mob = {}
@@ -120,6 +121,19 @@ def process_symptom_survey(df, shift=1):
     print(skipped, df.shape[0])
 
 
+def process_county_features(df):
+    df_feat = pd.read_csv("features.csv", index_col="region")
+    feat = {}
+    for region in df.index:
+        _v = df_feat.loc[region]
+        inc = _v["median_income"]
+        inc = inc - inc.min()
+        # _v["median_income"] = inc / min(1, inc.max()) * 100
+        _v = (_v - _v.mean()) / _v.std()
+        feat[region] = th.from_numpy(_v.values)
+    th.save(feat, "county_features.pt")
+
+
 def process_testing(df):
     tests = pd.read_csv("testing/testing_features.csv", index_col="region")
     ts = {}
@@ -163,8 +177,8 @@ if __name__ == "__main__":
         population["New York City, New York"] = sum(
             [population[b] for b in nyc_boroughs]
         )
-        nyc_boroughs[1] = "Kings, New York"
-        nyc_boroughs[3] = "New York, New York"
+        # nyc_boroughs[1] = "Kings, New York"
+        # nyc_boroughs[3] = "New York, New York"
         # df_feat.loc["New York City, New York"] = np.mean([df_feat.loc[b] for b in boroughs])
 
     dates = df.index
@@ -208,21 +222,14 @@ if __name__ == "__main__":
     print(adj)
     th.save(th.from_numpy(adj), "state_graph.pt")
 
+    # process_county_features(df)
     if opt.with_features:
+        merge_nyc = opt.metric == "deaths"
         process_testing(df)
         process_symptom_survey(df, 5)
-        process_mobility(df, "google", 10)
-        process_mobility(df, "fb", 10)
+        process_mobility(df, "google", 10, merge_nyc)
+        process_mobility(df, "fb", 10, merge_nyc)
 
-# for region in df.index:
-#     df_feat.loc[region]
-# df_feat = df_feat.loc[df.index]
-# inc = df_feat["median_income"]
-# inc = inc - inc.min()
-# df_feat["median_income"] = inc / inc.max() * 100
-# df_feat = (df_feat - df_feat.mean(axis=0)) / df_feat.std(axis=0)
-# print(df_feat)
-# th.save(th.from_numpy(df_feat.values), "county_features.pt")
 
 # n_policies = len(np.unique(state_policies["policy"]))
 # state_policies = {s: v for (s, v) in state_policies.groupby("state")}
