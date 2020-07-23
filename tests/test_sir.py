@@ -66,15 +66,3 @@ class TestSIRCrossValidation:
         # model is doubling_times
         predictions_df = sir_cv.run_simulate(train_params.fdat, train_params, model, {})
         assert predictions_df.shape[0] == train_params.keep
-
-    def test_estimate_doubling_times(self):
-        """Verifies doubling times are correctly estimated for corner cases"""
-        cap = 50.0
-
-        doubling_all_zeros = sir.estimate_doubling_times(np.array([0, 0, 0]), cap=cap)
-        assert doubling_all_zeros == np.array(np.array([cap]))
-
-        doubling_case_last_day = sir.estimate_doubling_times(
-            np.array([0, 0, 1]), cap=cap
-        )
-        assert doubling_case_last_day == np.array(np.array([cap]))
