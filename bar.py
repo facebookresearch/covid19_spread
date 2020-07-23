@@ -17,6 +17,7 @@ import metrics
 import click
 import sys
 from wavenet import Wavenet
+from functools import partial
 
 
 class BetaRNN(nn.Module):
@@ -43,15 +44,64 @@ class BetaRNN(nn.Module):
         return str(self.rnn)
 
 
-class BetaAttn(nn.Module):
-    def __init__(self, M, input_dim):
+class SelfAttention(nn.Module):
+    def __init__(self, embed_dim, dropout):
         super().__init__()
-        self.attn = nn.MultiheadAttention(input_dim, 1)
+        self.in_proj = nn.Linear(embed_dim, 3 * embed_dim, bias=True)
+        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=True)
+        nn.init.xavier_normal_(self.in_proj.weight)
+        nn.init.xavier_normal_(self.out_proj.weight)
+
+        nn.init.constant_(self.in_proj.bias, 0)
+        nn.init.constant_(self.out_proj.bias, 0)
+        self.dropout = dropout
+        self.embed_dim = embed_dim
+
+    def forward(self, x, attn_mask):
+        """
+        Args:
+            x (Tensor[Seq, Bsz, Emb])
+            attn_mask (Tensor[Seq, Seq]) - mask that gets added to the attention weights
+                Use -inf to mask out
+        """
+        query, key, val = self.in_proj(x).chunk(3, dim=-1)
+        scaling = float(self.embed_dim) ** -0.5
+
+        query *= scaling
+
+        query = query.transpose(0, 1)  # Bsz x Seq x Emb
+        key = key.transpose(0, 1)
+        val = val.transpose(0, 1)
+
+        attn_output_weights = query.bmm(key.transpose(1, 2)) + attn_mask.unsqueeze(
+            0
+        )  # Bsx x Seq x Seq
+        attn_output_weights = F.softmax(attn_output_weights, dim=-1)
+        attn_output_weights = F.dropout(
+            attn_output_weights, p=self.dropout, training=self.training
+        )
+
+        attn_output = attn_output_weights.bmm(val)  # Bsz x Seq x Emb
+        attn_output = attn_output.transpose(0, 1)  # Seq x Bsz x Emb
+
+        attn_output = self.out_proj(attn_output)  # Seq x Bsz x Emb
+        return attn_output, attn_output_weights
+
+
+class BetaAttn(nn.Module):
+    def __init__(self, M, input_dim, dropout=0.0):
+        super().__init__()
+        self.attn = SelfAttention(input_dim, dropout)
         self.v = nn.Linear(input_dim, 1, bias=False)
         nn.init.xavier_normal_(self.v.weight.data)
 
     def forward(self, x):
-        attn_output, _ = self.attn(x, x, x)
+        seq_len = x.size(0)
+        # This gets added to the attention weights, fill with -inf to zero out the softmax weights
+        mask = th.triu(
+            th.full((seq_len, seq_len), -float("inf"), device=x.device), diagonal=1
+        )
+        attn_output, attn_weights = self.attn(x, attn_mask=mask)
         return th.sigmoid(self.v(attn_output))
 
     def __repr__(self):
@@ -457,7 +507,8 @@ class BARCV(cv.CV):
             beta_net = BetaLatent(fbeta, regions, tmax, time_features)
             self.weight_decay = args.weight_decay
         elif args.decay.startswith("attn"):
-            beta_net = BetaLatent(BetaAttn, regions, tmax, time_features)
+            fbeta = partial(BetaAttn, dropout=getattr(args, "dropout", 0))
+            beta_net = BetaLatent(fbeta, regions, tmax, time_features)
             self.weight_decay = args.weight_decay
         else:
             raise ValueError("Unknown beta function")
