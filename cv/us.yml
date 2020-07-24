@@ -103,6 +103,18 @@ sir:
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
+seir:
+  module: seir
+  output: seir_model.npy
+  data: data/usa/data_cases.csv
+  train:
+    fpop: *fpop
+    window: [8, 10, 12, 14]
+    recovery_days: [8, 10, 12, 14, 16]
+    distancing_reduction: [0.4, 0.6, 0.8, 0.9]
+    cases_to_infections_scale: [1.0, 2.0, 5.0, 10.0, 15.0, 20.0]
+    # rate of progression
+    sigma: [0.1, 0.15, 0.2, 0.3, 0.4]
 sir_adaptive_beta:
   module: sir_adaptive_beta
   output: sir_adaptive_beta_model.npy
