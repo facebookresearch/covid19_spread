@@ -96,5 +96,4 @@ for _state, group in df_agg:
 df = pd.DataFrame(cols)
 df["region"] = df["region"].apply(expand_state)
 df.set_index("region", inplace=True)
-df = df.diff(axis=1)
 df.round(3).to_csv(f"data-{signal}-state.csv")

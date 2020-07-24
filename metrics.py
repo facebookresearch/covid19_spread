@@ -79,13 +79,13 @@ def mape(pred, gt):
     return ((pred - gt).abs() / gt.clip(1)).mean(axis=1)
 
 
-def compute_metrics(f_ground_truth, f_predictions, mincount=10):
+def compute_metrics(f_ground_truth, f_predictions, mincount=0):
     df_true = load_ground_truth(f_ground_truth)
     df_pred = pd.read_csv(f_predictions, parse_dates=["date"], index_col="date")
     return _compute_metrics(df_true, df_pred, mincount)
 
 
-def _compute_metrics(df_true, df_pred, mincount=10, nanfill=False):
+def _compute_metrics(df_true, df_pred, mincount=0, nanfill=False):
     if nanfill:
         cols = sorted(set(df_true.columns).difference(set(df_pred.columns)))
         zeros = pd.DataFrame(np.zeros((len(df_pred), len(cols))), columns=cols)
