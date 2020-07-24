@@ -63,9 +63,10 @@ for (name, _df) in df.groupby("region"):
     assert len(dates) == len(np.unique(dates)), _df
     _df = _df.loc[:, ~_df.columns.duplicated()]
     _df = _df.drop(columns=["region", "date"]).transpose()
-    _df.loc["all_day_ratio_single_tile_users"] = (
-        _df.loc["all_day_ratio_single_tile_users"].diff().fillna(0)
-    )
+    # convert relative change into absolute numbers
+    _df.loc["all_day_bing_tiles_visited_relative_change"] += 1
+    # take 7 day average
+    _df = _df.rolling(7, axis=1).mean()
     _df["region"] = [name] * len(_df)
     _df.columns = list(map(lambda x: x.strftime("%Y-%m-%d"), dates)) + ["region"]
     regions.append(_df.reset_index())
@@ -78,4 +79,4 @@ df = df[cols]
 df = df.rename(columns={"index": "type"})
 print(df.head(), df.shape)
 
-df.to_csv("mobility_features.csv", index=False)
+df.round(4).to_csv("mobility_features.csv", index=False)

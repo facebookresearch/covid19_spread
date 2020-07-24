@@ -77,7 +77,11 @@ def process_mobility(df, prefix, shift=0, merge_nyc=False):
 
     mob = {}
     skipped = 0
-    start_ix = np.where(dates.min() == df.columns)[0][0] + shift
+    print(dates.min(), dates.max(), df.columns)
+    start_ix = np.where(dates.min() == df.columns)[0][0]
+    print(start_ix)
+    start_ix += shift
+    print(start_ix)
     # FIXME: check via dates between google and fb are not aligned
     # end_ix = np.where(dates.max() == df.columns)[0][0]
     end_ix = start_ix + len(dates)
@@ -98,7 +102,7 @@ def process_mobility(df, prefix, shift=0, merge_nyc=False):
 
 def process_symptom_survey(df, shift=1):
     symptoms = pd.read_csv(
-        "symptom-survey/data-smoothed_cli-state.csv", index_col="region"
+        "symptom-survey/data-smoothed_wcli-state.csv", index_col="region"
     )
     sym = {}
     skipped = 0
@@ -149,10 +153,8 @@ def process_testing(df):
             continue
         _m = th.zeros(df.shape[1])
         _v = tests.loc[state]  # .rolling(7).mean()
-        _v = np.diff(np.log(_v.values[1:] + 1))
-        _m[start_ix : end_ix - 1] = th.from_numpy(
-            _v
-        )  # make last zero (i.e., testing doesn't change)
+        _v = np.diff(_v.values)
+        _m[start_ix:end_ix] = th.from_numpy(_v)
         ts[region] = _m.unsqueeze(1)
     th.save(ts, "testing/features.pt")
     print(skipped, df.shape[0])
@@ -226,8 +228,8 @@ if __name__ == "__main__":
         merge_nyc = opt.metric == "deaths"
         process_testing(df)
         process_symptom_survey(df, 5)
-        process_mobility(df, "google", 10, merge_nyc)
         process_mobility(df, "fb", 10, merge_nyc)
+        process_mobility(df, "google", 10, merge_nyc)
 
 
 # n_policies = len(np.unique(state_policies["policy"]))
