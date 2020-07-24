@@ -23,5 +23,11 @@ data-$(signal)-state.csv: state/$(signal).csv
 
 data-$(signal)-fips.csv: county/$(signal).csv
 	python3 convert-fips.py $(signal)
+
+clean:
+	-rm state/$(signal).csv
+	-rm county/$(signal).csv
+	-rm data-$(signal)-state.csv
+	-rm data-$(signal)-fips.csv
 # end
 # end

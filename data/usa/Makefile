@@ -18,11 +18,11 @@ symptom-survey/data-smoothed_cli-fips.csv:
 symptom-survey/data-smoothed_cli-state.csv:
 	cd symptom-survey && make data-smoothed_cli-state.csv
 
-data.csv:
-	python3 convert.py
+data.csv: google/mobility_features.csv fb/mobility_features.csv symptom-survey/data-smoothed_cli-state.csv
+	python3 convert.py -with-features
 
-data_deaths.csv: google/mobility_features.csv fb/mobility_features.csv symptom-survey/data-smoothed_cli-state.csv
-	python3 convert.py -metric deaths -with-features
+data_deaths.csv:
+	python3 convert.py -metric deaths
 
 clean:
 	cd google && make clean

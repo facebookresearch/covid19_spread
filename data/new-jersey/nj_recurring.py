@@ -20,7 +20,7 @@ import sqlite3
 import pandas
 import sweep
 
-MAIL_TO = ["mattle@fb.com", "lematt1991@gmail.com"]
+MAIL_TO = ["mattle@fb.com"]
 if os.environ.get("__PROD__") == "1":
     MAIL_TO.append("maxn@fb.com")
 
@@ -52,7 +52,7 @@ class NJRecurring(recurring.Recurring):
         df = pandas.read_csv("data_cases.csv", index_col="region")
         return pandas.to_datetime(df.columns).max().date()
 
-    def launch_job(self, cv_config="nj", module="mhp", **kwargs):
+    def launch_job(self, cv_config="nj_prod", module="mhp", **kwargs):
         return super().launch_job(cv_config=cv_config, module=module, **kwargs)
 
 
@@ -64,7 +64,7 @@ class NJARRecurring(NJRecurring):
         return super().command() + f" --kind ar"
 
     def launch_job(self, **kwargs):
-        return super().launch_job(cv_config="nj", module="ar", **kwargs)
+        return super().launch_job(cv_config="nj_prod", module="ar", **kwargs)
 
     def module(self):
         return "ar"

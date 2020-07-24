@@ -1,7 +1,9 @@
 region: it
 population: &fpop data/italy/population.csv
 notebooks:
-  backfill: notebooks/Italy.ipynb
+  backfill:
+    - notebooks/Italy.ipynb
+    - "notebooks/Model Analysis.ipynb"
 validation:
   days: 14
   output: validation.csv

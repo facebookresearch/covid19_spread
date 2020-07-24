@@ -35,15 +35,18 @@ class CausalConv1d(nn.Conv1d):
 
 
 class WavenetBlock(nn.Module):
-    def __init__(self, layers, channels, kernel_size, groups=1):
+    def __init__(
+        self, layers, channels, kernel_size, groups=1, embeddings=None, nlin=th.tanh
+    ):
         super(WavenetBlock, self).__init__()
         self.layers = layers
+        self.nlin = nlin
+        self.embeddings = embeddings
         self.filters = nn.ModuleList(
             [
                 CausalConv1d(
                     channels, channels, kernel_size, dilation=2 ** i, groups=groups
                 )
-                # CausalConv1d(channels, channels, kernel_size, dilation=1)
                 for i in range(layers)
             ]
         )
@@ -52,44 +55,66 @@ class WavenetBlock(nn.Module):
                 CausalConv1d(
                     channels, channels, kernel_size, dilation=2 ** i, groups=groups
                 )
-                # CausalConv1d(channels, channels, kernel_size, dilation=1)
                 for i in range(layers)
             ]
         )
-        # self.biases = nn.Parameter(th.randn(self.layers))
+        if embeddings is not None:
+            dim = embeddings.size(1)
+            self.weights_f = nn.ModuleList([nn.Linear(dim, dim) for _ in range(layers)])
+            self.weights_g = nn.ModuleList([nn.Linear(dim, dim) for _ in range(layers)])
 
     def forward(self, ys):
-        Zs = [ys]
+        Zs = ys
+        Zout = th.zeros_like(ys)
         for l in range(self.layers):
-            # _F = F.relu(self.filters[l](Zs[-1]) + self.biases[l])
-            _F = th.tanh(self.filters[l](Zs[-1]))
-            # _G = th.sigmoid(self.gates[l](Zs[-1]))
-            # _F = _F * _G
+            _F = self.filters[l](Zs)
+            _G = self.gates[l](Zs)
+            if self.embeddings is not None:
+                v_f = self.weights_f[l](self.embeddings)
+                v_g = self.weights_g[l](self.embeddings)
+                _F = _F + v_f.t().unsqueeze(0)
+                _G = _G + v_g.t().unsqueeze(0)
+            _F = self.nlin(_F)
+            _G = th.sigmoid(_G)
+            _F = _F * _G
             assert _F.size(-1) == ys.size(-1), (_F.size(), ys.size())
-            # Zs.append(_F + Zs[-1])
-            Zs.append(_F)
-        # Z = sum(Zs).squeeze(1)
-        # FIXME: make end to end multichannel work
-        Z = Zs[-1]
-        return Z
+            Zout.add_(_F)
+            Zs = _F  # + Zs
+        return Zout
 
 
 class Wavenet(nn.Module):
-    def __init__(self, blocks, layers, channels, kernel_size, groups=1):
+    def __init__(
+        self,
+        blocks,
+        layers,
+        channels,
+        kernel_size,
+        groups=1,
+        embeddings=None,
+        nlin=th.tanh,
+    ):
         super(Wavenet, self).__init__()
         self.first = CausalConv1d(1, channels, 1)
         self.last = CausalConv1d(channels, 1, 1)
         self.blocks = nn.ModuleList(
             [
-                WavenetBlock(layers, channels, kernel_size, groups=groups)
+                WavenetBlock(
+                    layers,
+                    channels,
+                    kernel_size,
+                    groups=groups,
+                    embeddings=embeddings,
+                    nlin=nlin,
+                )
                 for i in range(blocks)
             ]
         )
 
     def forward(self, ys):
-        # Z = self.first(ys.unsqueeze(1))
+        # Z = self.first(ys)
         Z = ys
         for block in self.blocks:
             Z = block(Z)
-        # Z = self.last(Z).squeeze(1)
+        # Z = self.last(Z)
         return Z

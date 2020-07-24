@@ -13,4 +13,5 @@ mobility_features.csv: mobility_raw.csv
 clean:
 	-rm mobility_raw.csv
 	-rm mobility_features.csv
+	-rm mobility_features.pt
 # end

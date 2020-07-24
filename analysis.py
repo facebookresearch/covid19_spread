@@ -50,7 +50,7 @@ def load_backfill(
     configs = []
     for path in Path(jobdir).rglob(indicator):
         date = str(path).split("/")[-2]
-        assert date.startswith("sweep_"), date
+        assert date.startswith("sweep_"), str(path)
         jobs = [m["pth"] for m in json.load(open(path)) if m["name"] == forecast]
         assert len(jobs) == 1, jobs
         job = jobs[0]
@@ -88,6 +88,8 @@ def export_notebook(nb_path, fout="notebook.html", no_input=False, no_prompt=Fal
 
 def show(plot, path=None):
     if path is not None and os.environ.get("BOKEH_STATIC", 0) == "1":
+        basedir = os.environ.get("CV_BASE_DIR", ".")
+        path = os.path.join(basedir, path)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         export_png(plot, filename=path)
         return Image(path)

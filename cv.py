@@ -23,7 +23,7 @@ from functools import partial
 from glob import glob
 from typing import Dict, Any, List, Optional, Tuple
 from tensorboardX import SummaryWriter
-from contextlib import nullcontext
+from contextlib import nullcontext, ExitStack
 import common
 import metrics
 from lib import cluster
@@ -42,16 +42,16 @@ pi_multipliers = {0.99: 2.58, 0.95: 1.96, 0.80: 1.28}
 
 
 def mk_executor(
-    name: str, folder: str, extra_params: Dict[str, Any], ex=SlurmPoolExecutor
+    name: str, folder: str, extra_params: Dict[str, Any], ex=SlurmPoolExecutor, **kwargs
 ):
-    executor = (ex or submitit.AutoExecutor)(folder=folder)
+    executor = (ex or submitit.AutoExecutor)(folder=folder, **kwargs)
     executor.update_parameters(
         job_name=name,
         partition=cluster.PARTITION,
         gpus_per_node=extra_params.get("gpus", 0),
         cpus_per_task=extra_params.get("cpus", 3),
         mem=f'{cluster.MEM_GB(extra_params.get("memgb", 20))}GB',
-        array_parallelism=extra_params.get("array_parallelism", 50),
+        array_parallelism=extra_params.get("array_parallelism", 100),
         time=extra_params.get("timeout", 12 * 60),
     )
     return executor
@@ -154,10 +154,10 @@ class CV:
             runs.append(
                 {
                     "pth": os.path.dirname(metrics_pth),
-                    "mae": metrics.loc["MAE"].mean(),
-                    "rmse": metrics.loc["RMSE"].mean(),
+                    "mae": metrics.loc["MAE"][-1],
+                    "rmse": metrics.loc["RMSE"][-1],
                     "mae_deltas": metrics.loc["MAE_DELTAS"].mean(),
-                    "state_mae": metrics.loc["STATE_MAE"].mean(),
+                    "state_mae": metrics.loc["STATE_MAE"][-1],
                 }
             )
         df = pd.DataFrame(runs)
@@ -181,8 +181,11 @@ class CV:
 
 
 def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=None):
+    return _run_cv(module, basedir, cfg, prefix, basedate)
     try:
         _run_cv(module, basedir, cfg, prefix, basedate)
+    except KeyboardInterrupt as e:
+        raise e
     except Exception as e:
         print(f"Job {basedir} failed")
         print(e)
@@ -197,6 +200,8 @@ def _run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=
         pass  # running locally, basedir is fine...
     os.makedirs(basedir, exist_ok=True)
 
+    print(f"CWD = {os.getcwd()}")
+
     def _path(path):
         return os.path.join(basedir, path)
 
@@ -209,7 +214,7 @@ def _run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=
     mod = importlib.import_module(module).CV_CLS()
 
     # -- store configs to reproduce results --
-    log_configs(cfg, module, _path(f"{module}.yml"))
+    log_configs(cfg, module, _path(prefix + f"{module}.yml"))
 
     ndays = cfg["validation"]["days"]
     if basedate is not None:
@@ -398,7 +403,7 @@ def model_selection(sweep_dir, module, remote, basedate):
         "model_selection", sweep_dir, cfg[module].get("resources", {})
     )
     run_best(cfg, module, remote, sweep_dir, basedate, executor=executor)
-    executor.launch(sweep_dir, workers=4)
+    executor.launch(sweep_dir + "/workers", workers=4)
 
 
 def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
@@ -424,7 +429,6 @@ def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
 @click.option("-max-jobs", type=click.INT, default=200)
 @click.option("-basedir", default=None, help="Path to sweep base directory")
 @click.option("-basedate", type=click.DateTime(), help="Date to treat as last date")
-@click.option("-mail-to", help="Send email when jobs finish")
 def cv(
     config_pth: str,
     module: str,
@@ -434,12 +438,13 @@ def cv(
     max_jobs: int,
     basedir: str,
     basedate: Optional[datetime] = None,
-    mail_to: Optional[str] = None,
     executor=None,
 ):
     """
     Run cross validation pipeline for a given module.
     """
+    # FIXME: This is a hack...
+    in_backfill = executor is not None
     now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     user = os.environ["USER"]
 
@@ -497,18 +502,27 @@ def cv(
         launcher = map
         basedirs = [os.path.join(basedir, f"job_{i}") for i in range(len(cfgs))]
 
-    with snapshot.SnapshotManager(
-        snapshot_dir=basedir + "/snapshot",
-        with_submodules=True,
-        exclude=["data/*", "notebooks/*", "tests/*"],
-    ):
+    with ExitStack() as stack:
+        if not in_backfill:
+            stack.enter_context(
+                snapshot.SnapshotManager(
+                    snapshot_dir=basedir + "/snapshot",
+                    with_submodules=True,
+                    exclude=["data/*", "notebooks/*", "tests/*"],
+                )
+            )
         jobs = list(
             launcher(partial(run_cv, module, basedate=basedate), basedirs, cfgs)
         )
 
         # Find the best model and retrain on the full dataset
         launcher = (
-            partial(executor.submit_dependent, jobs, run_best, executor=executor)
+            partial(
+                executor.submit_dependent,
+                jobs,
+                run_best,
+                executor=copy.deepcopy(executor),
+            )
             if remote
             else run_best
         )
@@ -554,7 +568,7 @@ def backfill(
     """
     Run the cross validation pipeline over multiple time points.
     """
-    config = load_config(config_pth)
+    config = mk_absolute_paths(load_config(config_pth))
     # allow to set backfill dates in config (function argument overrides)
     if not dates and "backfill" in config:
         dates = list(pd.to_datetime(config["backfill"]))
@@ -581,26 +595,37 @@ def backfill(
     extra_params = config[module].get("resources", {})
     executor = mk_executor(f'backfill_{config["region"]}', basedir, extra_params)
     print(f"Backfilling in {basedir}")
-    for date in dates:
-        print(f"Running CV for {date.date()}")
-        cv_params = {
-            k: v for k, v in ctx.params.items() if k in {p.name for p in cv.params}
-        }
+    with snapshot.SnapshotManager(
+        snapshot_dir=basedir + "/snapshot",
+        with_submodules=True,
+        exclude=["data/*", "notebooks/*", "tests/*"],
+    ), tempfile.NamedTemporaryFile() as tfile:
+        # Make sure that we use the CFG with absolute paths since we are now inside the snapshot directory
+        with open(tfile.name, "w") as fout:
+            yaml.dump(config, fout)
+        for date in dates:
+            print(f"Running CV for {date.date()}")
+            cv_params = {
+                k: v for k, v in ctx.params.items() if k in {p.name for p in cv.params}
+            }
+            cv_params["config_pth"] = tfile.name
 
-        with executor.nest(), executor.set_folder(
-            os.path.join(basedir, f"sweep_{date.date()}/%j")
-        ):
-            _, jobs = ctx.invoke(
-                cv,
-                basedir=os.path.join(basedir, f"sweep_{date.date()}"),
-                basedate=date,
-                executor=executor,
-                **cv_params,
+            with executor.nest(), executor.set_folder(
+                os.path.join(basedir, f"sweep_{date.date()}/%j")
+            ):
+                _, jobs = ctx.invoke(
+                    cv,
+                    basedir=os.path.join(basedir, f"sweep_{date.date()}"),
+                    basedate=date,
+                    executor=executor,
+                    **cv_params,
+                )
+
+        if remote:
+            executor.submit_final_job(
+                attach_notebook, config, "backfill", module, basedir
             )
-
-    if remote:
-        executor.submit_final_job(attach_notebook, config, "backfill", module, basedir)
-        executor.launch(basedir + "/workers", array_parallelism)
+            executor.launch(basedir + "/workers", array_parallelism)
 
 
 @cli.command()
@@ -609,6 +634,7 @@ def progress(sweep_dir):
     sweep_dir = os.path.realpath(sweep_dir)
     DB = glob(f"{sweep_dir}/**/.job.db", recursive=True)[0]
     conn = sqlite3.connect(DB)
+    conn.execute("PRAGMA read_uncommitted = true;")
     df = pd.read_sql("SELECT status, worker_id FROM jobs", conn)
     msg = {
         "success": int((df["status"] == JobStatus.success.value).sum()),
@@ -623,10 +649,12 @@ def progress(sweep_dir):
 @click.argument("sweep_dir")
 @click.argument("workers", type=click.INT)
 def add_workers(sweep_dir, workers):
-    DB = os.path.realpath(glob(f"{sweep_dir}/**/.job.db", recursive=True)[0])
-    cfg = load_config(glob(f"{sweep_dir}/**/cfg.yml")[0])
+    DB = os.path.abspath(glob(f"{sweep_dir}/**/.job.db", recursive=True)[0])
+    cfg = load_config(glob(f"{sweep_dir}/**/cfg.yml", recursive=True)[0])
     extra_params = cfg[cfg["this_module"]].get("resources", {})
-    executor = mk_executor("add_workers", os.path.dirname(DB), extra_params)
+    executor = mk_executor(
+        "add_workers", os.path.dirname(DB), extra_params, db_pth=os.path.realpath(DB)
+    )
     executor.launch(f"{sweep_dir}/workers", workers)
 
 

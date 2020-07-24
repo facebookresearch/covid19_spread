@@ -1,5 +1,9 @@
 region: at
 population: &fpop data/austria/population.csv
+notebooks:
+  cv:
+    - notebooks/Austria.ipynb
+    - "notebooks/Model Analysis.ipynb"
 validation:
   days: 7
   output: validation.csv
@@ -25,7 +29,8 @@ ar:
     activation: sigmoid
     no_cross_correlation: false
     decay: [latent2_1]
-    window: [15, 20, 25]
+    #window: [15, 20, 25]
+    window: [10, 15]
     momentum: [0.99]
     lr: [0.001]
     weight_decay: [0.2, 0.3]
@@ -49,14 +54,14 @@ bar:
     activation: sigmoid
     no_cross_correlation: false
     decay: [latent2_2]
-    window: [20, 25]
+    window: [10, 15]
     lr: [0.001]
     momentum: [0.99]
-    weight_decay: [0.1, 0.2, 0.3]
+    weight_decay: [0.2, 0.3]
     niters: [30000]
     granger: [0.5]
     temporal: [0.5, 1, 2]
-    eta: [0.1, 0.2, 0.3]
+    eta: [0.2, 0.3]
     loss: nb
     t0: 5
     test_on: *fdays

@@ -20,7 +20,7 @@ import pandas
 from lib.slack import get_client as get_slack_client
 
 
-MAIL_TO = ["mattle@fb.com", "lematt1991@gmail.com"]
+MAIL_TO = ["mattle@fb.com"]
 if os.environ.get("__PROD__") == "1":
     MAIL_TO.append("maxn@fb.com")
 
@@ -56,7 +56,7 @@ class NYARRecurring(recurring.Recurring):
         client = get_slack_client()
         msg = f"*New Data Available for New York: {self.latest_date()}*"
         client.chat_postMessage(channel="#new-data", text=msg)
-        return super().launch_job(module="ar", cv_config="ny", **kwargs)
+        return super().launch_job(module="ar", cv_config="ny_prod", **kwargs)
 
 
 class NYSweepRecurring(NYARRecurring):
