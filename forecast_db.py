@@ -19,6 +19,9 @@ from xml.etree import ElementTree
 import yaml
 from lib import cluster
 from data.recurring import DB as RECURRING_DB
+from sqlalchemy import create_engine
+import psycopg2
+from datetime import timedelta
 
 
 DB = os.path.join(os.path.dirname(os.path.realpath(__file__)), "forecasts/forecast.db")
@@ -30,38 +33,10 @@ CLUSTERS = {
 }
 
 
-class MaxBy:
-    def __init__(self):
-        self.max_key = None
-        self.max_val = None
-
-    def step(self, key, value):
-        if self.max_val is None or value > self.max_val:
-            self.max_val = value
-            self.max_key = key
-
-    def finalize(self):
-        return self.max_key
-
-
-def adapt_date(x):
-    if isinstance(x, datetime.datetime):
-        x = x.date()
-    return str(x)
-
-
-def convert_date(s):
-    return datetime.datetime.strptime(s.decode("utf-8"), "%Y-%m-%d").date()
-
-
-sqlite3.register_adapter(datetime.date, adapt_date)
-sqlite3.register_adapter(datetime.datetime, adapt_date)
-sqlite3.register_converter("date", convert_date)
-
-
 def mk_db():
     os.makedirs(os.path.dirname(DB), exist_ok=True)
     conn = sqlite3.connect(DB)
+
     # forecast_date is the last date that we have ground truth data for.
     # i.e. the last date the model sees during training
     res = conn.execute(
@@ -78,7 +53,7 @@ def mk_db():
     """
     )
     conn.execute(
-        "CREATE UNIQUE INDEX unique_infections ON infections(id, ifnull(forecast_date, 0), date, ifnull(loc1, 0), ifnull(loc2, 0), ifnull(loc3, 0))"
+        "CREATE UNIQUE INDEX unique_infections ON infections(id, date, COALESCE(forecast_date, '1970-01-01'), COALESCE(loc1, ''), COALESCE(loc2, ''), COALESCE(loc3, ''))"
     )
     conn.execute("CREATE INDEX date_idx ON infections(date);")
     conn.execute("CREATE INDEX loc_idx ON infections(loc1, loc2, loc3);")
@@ -98,13 +73,14 @@ def mk_db():
     """
     )
     conn.execute(
-        "CREATE UNIQUE INDEX unique_deaths ON deaths(id, ifnull(forecast_date, 0), date, ifnull(loc1, 0), ifnull(loc2, 0), ifnull(loc3, 0))"
+        "CREATE UNIQUE INDEX unique_deaths ON deaths(id, date, COALESCE(forecast_date, '1970-01-01'), COALESCE(loc1, ''), COALESCE(loc2, ''), COALESCE(loc3, ''))"
     )
     conn.execute("CREATE INDEX date_deaths_idx ON deaths(date);")
     conn.execute("CREATE INDEX loc_deaths_idx ON deaths(loc1, loc2, loc3);")
     conn.execute("CREATE INDEX id_deaths_idx ON deaths(id);")
     conn.execute("CREATE INDEX forecast_date_deaths_idx ON deaths(forecast_date);")
-    conn.execute("CREATE TABLE gt_mapping (id text, gt text);")
+    conn.execute("CREATE TABLE gt_mapping (id text, gt text, UNIQUE(id, gt));")
+    # conn_.commit()
 
 
 def update_repo(repo):
@@ -129,10 +105,11 @@ LOC_MAP = {"new-jersey": "New Jersey", "nystate": "New York"}
 def to_sql(conn, df, table):
     cols = ["date", "loc1", "loc2", "loc3", "forecast_date", "counts", "id"]
     df = df[[c for c in cols if c in df.columns]]
-    df.to_sql("temp____", conn, if_exists="replace", index=False)
+    df.to_sql(
+        "temp____", conn, if_exists="replace", index=False
+    )  # , method='multi', chunksize=1024)
     cols = ", ".join(df.columns)
     conn.execute(f"INSERT OR REPLACE INTO {table}({cols}) SELECT {cols} FROM temp____")
-    conn.commit()
 
 
 def create_gt_mapping(conn):
@@ -163,22 +140,17 @@ def sync_max_forecasts(conn):
         files = glob(f"{base}/{state}/maxn/forecast-*_{ty}.csv")
         for f in files:
             df = pandas.read_csv(f)
-            df = df[df["date"].str.match("\d{2}/\d{2}")]
+            df = df[df["date"].str.match(r"\d{2}/\d{2}")]
             df["date"] = pandas.to_datetime(df["date"] + "/2020")
             forecast_date = df["date"].min().date()
-            res = conn.execute(
-                f"SELECT COUNT(1) FROM infections WHERE forecast_date=? AND id=?",
-                (forecast_date, f"{state}_{ty}"),
-            )
-            if res.fetchone()[0] == 0:
-                df = df.melt(id_vars=["date"], value_name="counts", var_name="location")
-                df = df.rename(columns={"location": "loc3"})
-                df["forecast_date"] = forecast_date
-                df["id"] = f"{state}_{ty}"
-                df["loc2"] = LOC_MAP[state]
-                df["loc1"] = "United States"
-                df = df[df["loc3"] != "ALL REGIONS"]
-                to_sql(conn, df, "infections")
+            df = df.melt(id_vars=["date"], value_name="counts", var_name="location")
+            df = df.rename(columns={"location": "loc3"})
+            df["forecast_date"] = forecast_date
+            df["id"] = f"{state}_{ty}"
+            df["loc2"] = LOC_MAP[state]
+            df["loc1"] = "United States"
+            df = df[df["loc3"] != "ALL REGIONS"]
+            to_sql(conn, df, "infections")
 
 
 def sync_nyt(conn):
@@ -256,6 +228,7 @@ def sync_ihme(conn):
                 df = states.merge(stats, left_on="loc2", right_on="location_name")[
                     ["loc2", "date", "totdea_mean"]
                 ]
+                df["date"] = pandas.to_datetime(df["date"])
                 df = df[~df["totdea_mean"].isnull()].rename(
                     columns={"totdea_mean": "counts"}
                 )
@@ -284,7 +257,7 @@ def sync_ihme(conn):
                     ].max()
                 print(forecast_date)
                 df["loc1"] = "United States"
-                df["forecast_date"] = forecast_date
+                df["forecast_date"] = pandas.to_datetime(forecast_date)
                 df["id"] = "IHME"
                 to_sql(conn, df, "deaths")
         marker = tree.find("NextMarker").text
@@ -316,6 +289,8 @@ def sync_reich_forecast(conn, name, mdl_id):
         )
         value["loc1"] = "United States"
         value["id"] = mdl_id
+        value["forecast_date"] = pandas.to_datetime(value["forecast_date"])
+        value["date"] = pandas.to_datetime(value["date"])
         value = value.drop(columns=["target", "location", "type", "quantile"])
         value = value[["date", "loc1", "loc2", "counts", "id", "forecast_date"]]
         to_sql(conn, value, "deaths")
@@ -339,7 +314,8 @@ def sync_los_alamos(conn):
             columns={"dates": "date", "q.50": "counts", "state": "loc2"}
         )
         df["loc1"] = "United States"
-        df["forecast_date"] = df_["fcst_date"].unique().item()
+        df["forecast_date"] = pandas.to_datetime(df_["fcst_date"].unique().item())
+        df["date"] = pandas.to_datetime(df["date"])
         df["id"] = "los_alamos"
         return df
 
@@ -397,8 +373,8 @@ def dump_to_csv(conn, distribute):
             os.makedirs(os.path.dirname(outfile), exist_ok=True)
             group.to_csv(outfile)
 
-    f("deaths", True)
-    f("infections", True)
+    # f("deaths", True)
+    # f("infections", True)
     f("deaths", False)
     f("infections", False)
 
@@ -447,7 +423,7 @@ def sync_matts_forecasts(conn):
             df[k] = v
         df = df.rename(columns={"location": f"loc{len(loc) + 1}"})
         df["id"] = f"cv_{module_map[module]}"
-        df["forecast_date"] = basedate
+        df["forecast_date"] = pandas.to_datetime(basedate)
         to_sql(conn, df, "infections")
 
 
@@ -509,11 +485,21 @@ def sync_columbia(conn):
         f"{fips_dir}/county_fips_master.csv", encoding="latin1", dtype={"fips": str}
     )
     fips["fips"] = fips["fips"].apply(lambda x: x.zfill(5))
+    fips = fips.drop_duplicates(["fips"])
+    usa_facts = pandas.read_sql(
+        "SELECT * FROM infections WHERE id='usafacts_ground_truth'",
+        conn,
+        parse_dates=["date"],
+    )
     for file in glob(f"{data_dir}/Projection_*/Projection_*.csv"):
         print(file)
         df = pandas.read_csv(
             file, encoding="latin1", dtype={"fips": str}, parse_dates=["Date"]
         )
+        # Convert to cumulative counts
+        df = df.pivot(index="Date", columns="fips", values="report_50").cumsum()
+        df = df.reset_index().melt(id_vars=["Date"], value_name="report_50")
+
         merged = df.merge(fips[["fips", "county_name", "state_name"]], on="fips")
         merged = merged.rename(
             columns={
@@ -525,13 +511,62 @@ def sync_columbia(conn):
         )
         merged = merged[["counts", "loc2", "loc3", "date"]]
         merged["loc1"] = "United States"
-        name = re.search("Projection_(.*).csv", os.path.basename(file)).group(1)
-        merged["id"] = f"columbia_{name}"
         merged["loc3"] = merged["loc3"].str.replace(" (County|Municipality|Parish)", "")
         merged["forecast_date"] = merged["date"].min()
-        to_sql(
-            conn, merged, "infections",
+
+        first_day = merged["date"].min()
+        prev_day = usa_facts[usa_facts["date"] == first_day - timedelta(days=1)]
+
+        with_base = merged.merge(prev_day, on=["loc2", "loc3"], suffixes=("", "_y"))
+        with_base["counts"] += with_base["counts_y"]
+        with_base = with_base[
+            ["loc1", "loc2", "loc3", "date", "forecast_date", "id", "counts"]
+        ]
+        with_base = pandas.concat([with_base, prev_day])
+        with_base["forecast_date"] = first_day
+        name = re.search("Projection_(.*).csv", os.path.basename(file)).group(1)
+        with_base["id"] = f"columbia_{name}"
+        to_sql(conn, with_base, "infections")
+        conn.execute(
+            f"INSERT INTO gt_mapping(id, gt) VALUES ('columbia_{name}','infections') ON CONFLICT DO NOTHING"
         )
+        # conn.execute(f"INSERT OR REPLACE INTO gt_mapping(id, gt) VALUES (?,?)", vals)
+
+
+def sync_usa_facts(conn):
+    fips_dir = update_repo("git@github.com:kjhealy/fips-codes.git")
+    fips = pandas.read_csv(
+        f"{fips_dir}/county_fips_master.csv", encoding="latin1", dtype={"fips": str}
+    )
+    fips["fips"] = fips["fips"].str.zfill(5)
+    for table, url in [
+        (
+            "infections",
+            "https://usafactsstatic.blob.core.windows.net/public/data/covid-19/covid_confirmed_usafacts.csv",
+        ),
+        (
+            "deaths",
+            "https://usafactsstatic.blob.core.windows.net/public/data/covid-19/covid_deaths_usafacts.csv",
+        ),
+    ]:
+        df = pandas.read_csv(url, dtype={"countyFIPS": str})
+        df["countyFIPS"] = df["countyFIPS"].str.zfill(5)
+        df = df.set_index("countyFIPS")
+        df = df[[c for c in df.columns if re.match(r"\d+\/\d+\/\d+", c)]].transpose()
+        df = (
+            df.reset_index()
+            .melt(id_vars=["index"])
+            .rename(columns={"index": "date", "countyFIPS": "fips", "value": "counts"})
+        )
+        df["date"] = pandas.to_datetime(df["date"])
+        df = df.merge(fips, on=["fips"])[
+            ["date", "counts", "state_name", "county_name"]
+        ]
+        df = df.rename(columns={"state_name": "loc2", "county_name": "loc3"})
+        df["loc1"] = "United States"
+        df["loc3"] = df["loc3"].str.replace(" (County|Municipality|Parish)", "")
+        df["id"] = "usafacts_ground_truth"
+        to_sql(conn, df, table)
 
 
 @click.command()
@@ -542,6 +577,7 @@ def sync_forecasts(distribute=False):
     if not os.path.exists(DB):
         mk_db()
     conn = sqlite3.connect(DB)
+    sync_usa_facts(conn)
     sync_columbia(conn)
     sync_jhu(conn)
     sync_austria_gt(conn)
@@ -552,7 +588,8 @@ def sync_forecasts(distribute=False):
     sync_los_alamos(conn)
     sync_mit(conn)
     sync_yyg(conn)
-    conn.execute("REINDEX;")
+    # print('Reindexing...')
+    # conn.execute("REINDEX;")
     if distribute:
         ssh_alias = CLUSTERS[cluster.FAIR_CLUSTER]
         DEST_DB = f"{ssh_alias}:/private/home/{os.environ['USER']}/covid19_spread/forecasts/forecast.db"
