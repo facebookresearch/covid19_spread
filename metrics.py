@@ -85,7 +85,13 @@ def compute_metrics(f_ground_truth, f_predictions, mincount=10):
     return _compute_metrics(df_true, df_pred, mincount)
 
 
-def _compute_metrics(df_true, df_pred, mincount=10):
+def _compute_metrics(df_true, df_pred, mincount=10, nanfill=False):
+    if nanfill:
+        cols = sorted(set(df_true.columns).difference(set(df_pred.columns)))
+        zeros = pd.DataFrame(np.zeros((len(df_pred), len(cols))), columns=cols)
+        zeros.index = df_pred.index
+        df_pred = pd.concat([df_pred, zeros], axis=1)
+
     common_cols = list(set(df_true.columns).intersection(set(df_pred.columns)))
     df_pred = df_pred[common_cols]
     df_true = df_true[common_cols]
