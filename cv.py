@@ -42,9 +42,9 @@ pi_multipliers = {0.99: 2.58, 0.95: 1.96, 0.80: 1.28}
 
 
 def mk_executor(
-    name: str, folder: str, extra_params: Dict[str, Any], ex=SlurmPoolExecutor
+    name: str, folder: str, extra_params: Dict[str, Any], ex=SlurmPoolExecutor, **kwargs
 ):
-    executor = (ex or submitit.AutoExecutor)(folder=folder)
+    executor = (ex or submitit.AutoExecutor)(folder=folder, **kwargs)
     executor.update_parameters(
         job_name=name,
         partition=cluster.PARTITION,
@@ -649,10 +649,12 @@ def progress(sweep_dir):
 @click.argument("sweep_dir")
 @click.argument("workers", type=click.INT)
 def add_workers(sweep_dir, workers):
-    DB = os.path.realpath(glob(f"{sweep_dir}/**/.job.db", recursive=True)[0])
+    DB = os.path.abspath(glob(f"{sweep_dir}/**/.job.db", recursive=True)[0])
     cfg = load_config(glob(f"{sweep_dir}/**/cfg.yml", recursive=True)[0])
     extra_params = cfg[cfg["this_module"]].get("resources", {})
-    executor = mk_executor("add_workers", os.path.dirname(DB), extra_params)
+    executor = mk_executor(
+        "add_workers", os.path.dirname(DB), extra_params, db_pth=os.path.realpath(DB)
+    )
     executor.launch(f"{sweep_dir}/workers", workers)
 
 
