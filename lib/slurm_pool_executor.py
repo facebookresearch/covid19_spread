@@ -66,12 +66,10 @@ class TransactionManager(AbstractContextManager):
     def __getstate__(self):
         state = self.__dict__.copy()
         del state["conn"]
-        print(f"get State! nesting={self.nesting}")
         return state
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        print(f"set State! nesting={self.nesting}")
         self.conn = None
 
     def __enter__(self):
@@ -80,7 +78,6 @@ class TransactionManager(AbstractContextManager):
             # If there's a lot of contention, we may need to handle a timeout exception
             for _ in range(25):
                 try:
-                    print(f"Beginning transaction, nesting={self.nesting}")
                     self.conn = sqlite3.connect(
                         self.db_url, timeout=random.randint(20, 30)
                     )
@@ -105,12 +102,9 @@ class TransactionManager(AbstractContextManager):
     def __exit__(self, *args, **kwargs):
         self.nesting -= 1
         if self.nesting == 0:
-            print("Committing transaction")
             self.conn.commit()
             self.conn.close()
             self.conn = None
-        else:
-            print(f"Decreasing nesting to {self.nesting}")
 
 
 class JobStatus(enum.IntEnum):
