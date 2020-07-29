@@ -22,11 +22,11 @@ import math
 
 
 class BetaRNN(nn.Module):
-    def __init__(self, M, layers, dim, input_dim):
+    def __init__(self, M, layers, dim, input_dim, dropout=0.0):
         # initialize parameters
         super(BetaRNN, self).__init__()
         self.h0 = nn.Parameter(th.zeros(layers, M, dim))
-        self.rnn = nn.RNN(input_dim, dim, layers)
+        self.rnn = nn.RNN(input_dim, dim, layers, dropout=dropout)
         self.v = nn.Linear(dim, 1, bias=False)
         self.fpos = th.sigmoid
 
@@ -43,6 +43,28 @@ class BetaRNN(nn.Module):
 
     def __repr__(self):
         return str(self.rnn)
+
+
+class BetaGRU(BetaRNN):
+    def __init__(self, M, layers, dim, input_dim, dropout=0.0):
+        super().__init__(M, layers, dim, input_dim, dropout)
+        self.rnn = nn.GRU(input_dim, dim, layers, dropout=dropout)
+        self.rnn.reset_parameters()
+        self.h0 = nn.Parameter(th.randn(layers, M, dim))
+
+
+class BetaLSTM(BetaRNN):
+    def __init__(self, M, layers, dim, input_dim, dropout=0.0):
+        super().__init__(M, layers, dim, input_dim, dropout)
+        self.rnn = nn.LSTM(input_dim, dim, layers, dropout=dropout)
+        self.rnn.reset_parameters()
+        self.h0 = nn.Parameter(th.randn(layers, M, dim))
+        self.c0 = nn.Parameter(th.randn(layers, M, dim))
+
+    def forward(self, x):
+        ht, (hn, cn) = self.rnn(x, (self.h0, self.c0))
+        beta = self.fpos(self.v(ht))
+        return beta
 
 
 class SinusoidalPositionalEmbedding(nn.Module):
@@ -138,6 +160,22 @@ class SelfAttention(nn.Module):
         return attn_output, attn_output_weights
 
 
+class BetaTransformer(nn.Module):
+    def __init__(self, M, layers, dim, input_dim, dropout):
+        super().__init__()
+        encoder_layer = nn.TransformerEncoderLayer(input_dim, 1, dim, dropout, "relu")
+        encoder_norm = nn.LayerNorm(input_dim)
+        self.encoder = nn.TransformerEncoder(encoder_layer, layers, encoder_norm)
+        self.rep = f"Transformer(layers={layers}, input_dim={input_dim}, dim={input_dim}, dropout={dropout})"
+        self.v = nn.Linear(input_dim, 1)
+
+    def forward(self, x):
+        return th.sigmoid(self.v(self.encoder(x)))
+
+    def __repr__(self):
+        return self.rep
+
+
 class BetaAttn(nn.Module):
     def __init__(self, M, input_dim, tmax, dropout=0.0):
         super().__init__()
@@ -209,7 +247,7 @@ class BetaLatent(nn.Module):
         self.M = len(regions)
         self.tmax = tmax
         self.time_features = time_features
-        input_dim = 1
+        input_dim = 2
 
         if time_features is not None:
             input_dim += time_features.size(2)
@@ -224,8 +262,8 @@ class BetaLatent(nn.Module):
         )
         t = t.unsqueeze(-1).unsqueeze(-1).float()  # .div_(self.tmax)
         t = t.expand(t.size(0), self.M, 1)
-        # x = [t, _ys.t().unsqueeze(-1)]
-        x = [_ys.t().unsqueeze(-1)]
+        x = [t, _ys.t().unsqueeze(-1)]
+        # x = [_ys.t().unsqueeze(-1)]
         if self.time_features is not None:
             if self.time_features.size(0) > t.size(0):
                 tf = time_features.narrow(0, 0, t.size(0))
@@ -556,7 +594,13 @@ class BARCV(cv.CV):
             beta_net = decay.BetaRBF(regions, dim, "gaussian", tmax)
         elif args.decay.startswith("latent"):
             dim, layers = args.decay[6:].split("_")
-            fbeta = lambda M, input_dim: BetaRNN(M, int(layers), int(dim), input_dim)
+            fbeta = lambda M, input_dim: BetaRNN(
+                M,
+                int(layers),
+                int(dim),
+                input_dim,
+                dropout=getattr(args, "dropout", 0.0),
+            )
             beta_net = BetaLatent(fbeta, regions, tmax, time_features)
             self.weight_decay = args.weight_decay
         elif args.decay.startswith("wave"):
@@ -568,6 +612,39 @@ class BARCV(cv.CV):
             self.weight_decay = args.weight_decay
         elif args.decay.startswith("attn"):
             fbeta = partial(BetaAttn, tmax=tmax, dropout=getattr(args, "dropout", 0))
+            beta_net = BetaLatent(fbeta, regions, tmax, time_features)
+            self.weight_decay = args.weight_decay
+        elif args.decay.startswith("lstm"):
+            dim, layers = args.decay[len("lstm") :].split("_")
+            fbeta = lambda M, input_dim: BetaLSTM(
+                M,
+                int(layers),
+                int(dim),
+                input_dim,
+                dropout=getattr(args, "dropout", 0.0),
+            )
+            beta_net = BetaLatent(fbeta, regions, tmax, time_features)
+            self.weight_decay = args.weight_decay
+        elif args.decay.startswith("gru"):
+            dim, layers = args.decay[len("gru") :].split("_")
+            fbeta = lambda M, input_dim: BetaGRU(
+                M,
+                int(layers),
+                int(dim),
+                input_dim,
+                dropout=getattr(args, "dropout", 0.0),
+            )
+            beta_net = BetaLatent(fbeta, regions, tmax, time_features)
+            self.weight_decay = args.weight_decay
+        elif args.decay.startswith("transformer"):
+            dim, layers = args.decay[len("transformer") :].split("_")
+            fbeta = lambda M, input_dim: BetaTransformer(
+                M,
+                int(layers),
+                int(dim),
+                input_dim,
+                dropout=getattr(args, "dropout", 0.0),
+            )
             beta_net = BetaLatent(fbeta, regions, tmax, time_features)
             self.weight_decay = args.weight_decay
         else:
