@@ -6,14 +6,14 @@ sir:  # SIR parameters
   days: 60
   keep: 7
   window: 5
-  doubling_times: [10, 11, 12, 13]
+  doubling_times: [360]
 grid:  # parameter grid for training
   #data: ["data/nystate/timeseries-nyc_smooth.h5", "data/nystate/timeseries-nyc.h5"]
   data: ["data/nystate/timeseries-nyc_smooth.h5"]
   dim: [3, 4, 5]
   base_intensity: [True, False]
-  const_beta: [-1, 10, 15]
-  alpha_scale: [-10, -15]
+  const_beta: [-1, 8, 10]
+  alpha_scale: [-5, -10]
   weight_decay: [0] 
   max_events: [1000000]
   maxcor: [100]
