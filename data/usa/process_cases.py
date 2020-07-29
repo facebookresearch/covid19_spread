@@ -18,6 +18,7 @@ import itertools
 import shutil
 import argparse
 import datetime
+from glob import glob
 
 
 def get_nyt(metric="cases"):
@@ -61,9 +62,88 @@ def get_nyt(metric="cases"):
     ).fillna(0)
 
 
+def get_google(metric="cases"):
+    index = pandas.read_csv(
+        "https://storage.googleapis.com/covid19-open-data/v2/index.csv"
+    )
+    index = index[index["country_code"] == "US"]
+    df = pandas.read_csv(
+        "https://storage.googleapis.com/covid19-open-data/v2/epidemiology.csv",
+        parse_dates=["date"],
+    )
+    fips = pandas.read_csv(
+        "https://raw.githubusercontent.com/kjhealy/fips-codes/master/state_and_county_fips_master.csv"
+    )
+    fips["fips"] = fips["fips"].astype(str).str.zfill(5)
+    index = index.merge(fips, left_on="subregion2_code", right_on="fips")
+    merged = df.merge(index, on="key")
+    merged = merged[~merged["subregion2_name"].isnull()]
+    merged["loc"] = (
+        merged["subregion1_name"]
+        + "_"
+        + merged["name"].str.replace(" (County|Municipality|Parish)", "")
+    )
+    value_col = "total_confirmed" if metric == "cases" else "total_deceased"
+    pivot = merged.pivot(values=value_col, index="date", columns="loc").fillna(0)
+    return pivot
+
+
+def get_jhu(metric="cases"):
+    repo = "https://github.com/CSSEGISandData/COVID-19.git"
+    user = os.environ["USER"]
+    data_pth = f"/checkpoint/{user}/covid19/data/jhu_data"
+    os.makedirs(os.path.dirname(data_pth), exist_ok=True)
+    if not os.path.exists(data_pth):
+        check_call(["git", "clone", repo, data_pth])
+    check_call(["git", "pull"], cwd=data_pth)
+    col_map = {
+        "Country/Region": "loc1",
+        "Province/State": "loc2",
+        "Last Update": "date",
+        "Last_Update": "date",
+        "Admin2": "loc3",
+        "Province_State": "loc2",
+        "Country_Region": "loc1",
+    }
+    fips = pandas.read_csv(
+        "https://raw.githubusercontent.com/kjhealy/fips-codes/master/state_and_county_fips_master.csv"
+    )
+    fips["fips"] = fips["fips"].astype(str).str.zfill(5)
+    value_col = "Confirmed" if metric == "cases" else "Deaths"
+    dfs = []
+    for file in glob(
+        f"{data_pth}/csse_covid_19_data/csse_covid_19_daily_reports/*.csv"
+    ):
+        df = pandas.read_csv(file)
+        df = df.rename(columns=col_map)
+        if "loc3" not in df.columns:
+            continue
+        df = df[(df["loc1"] == "US") & (~df["loc3"].isnull()) & (~df["FIPS"].isnull())]
+        date = pandas.to_datetime(os.path.splitext(os.path.basename(file))[0])
+        df["FIPS"] = df["FIPS"].astype(int).astype(str).str.zfill(5)
+        df = df.merge(fips, left_on="FIPS", right_on="fips")
+        df["date"] = date
+        df["loc"] = df["loc2"] + "_" + df["loc3"]
+        dfs.append(df.drop_duplicates(["loc", "date"]))
+    df = pandas.concat(dfs)
+    pivot = df.pivot(index="date", values=value_col, columns="loc")
+    pivot.iloc[0] = pivot.iloc[0].fillna(0)
+    pivot = pivot.fillna(method="ffill")
+    pivot.to_csv("jhu.csv", index_label="date")
+    return pivot
+
+
+SOURCES = {
+    "nyt": get_nyt,
+    "google": get_google,
+    "jhu": get_jhu,
+}
+
+
 def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--smooth", type=int, default=1)
+    parser.add_argument("--source", choices=list(SOURCES.keys()), default="nyt")
     parser.add_argument(
         "--mode",
         choices=["adjacent_states", "no_interaction", "deaths"],
@@ -94,7 +174,7 @@ def main(args):
         state_map[k]: [state_map[v] for v in vs] for k, vs in neighbors.items()
     }
 
-    df = get_nyt(metric="deaths" if opt.mode == "deaths" else "cases")
+    df = SOURCES[opt.source](metric="deaths" if opt.mode == "deaths" else "cases")
     print(f"Latest date = {df.index.max()}")
 
     # Remove any unknowns
