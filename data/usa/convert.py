@@ -8,7 +8,9 @@ import torch as th
 from datetime import timedelta
 from os import listdir
 from os.path import isfile, join
-from process_cases import get_nyt
+from process_cases import SOURCES
+
+# from process_cases import get_nyt
 
 sys.path.append("../../")
 from common import standardize_county_name
@@ -164,10 +166,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser("US data")
     parser.add_argument("-metric", default="cases", choices=["cases", "deaths"])
     parser.add_argument("-with-features", default=False, action="store_true")
+    parser.add_argument("-source", choices=SOURCES.keys(), default="nyt")
     opt = parser.parse_args()
 
     population = read_population()
-    df = get_nyt(opt.metric)
+    df = SOURCES[opt.source](opt.metric)
     df.index = pd.to_datetime(df.index)
     print(df.tail())
 
