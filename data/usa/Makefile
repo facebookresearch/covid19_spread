@@ -21,7 +21,7 @@ symptom-survey/data-smoothed_cli-fips.csv:
 symptom-survey/data-smoothed_cli-state.csv:
 	cd symptom-survey && make data-smoothed_cli-state.csv
 
-data.csv: google/mobility_features.csv fb/mobility_features.csv symptom-survey/data-smoothed_cli-state.csv
+data.csv: google/mobility_features.csv fb/mobility_features.csv symptom-survey/data-smoothed_cli-state.csv google/weather_features.csv
 	python3 convert.py -with-features
 
 data_deaths.csv:
