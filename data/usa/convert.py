@@ -102,9 +102,9 @@ def process_mobility(df, prefix, shift=0, merge_nyc=False):
     print(skipped, df.shape[0])
 
 
-def process_symptom_survey(df, shift=1):
+def process_symptom_survey(df, signal, geo_type, shift=1):
     symptoms = pd.read_csv(
-        "symptom-survey/data-smoothed_wcli-state.csv", index_col="region"
+        f"symptom-survey/data-{signal}-{geo_type}.csv", index_col="region"
     )
     sym = {}
     skipped = 0
@@ -113,17 +113,20 @@ def process_symptom_survey(df, shift=1):
     end_ix = start_ix + len(dates)
     end_ix = min(end_ix, df.shape[1])
     for region in df.index:
-        _, state = region.split(", ")
-        if state not in symptoms.index:
-            print("Skipping {region}")
-            skipped += 1
-            continue
+        if geo_type == "state":
+            _, query = region.split(", ")
+        else:
+            query = region
         _m = th.zeros(df.shape[1])
-        _v = symptoms.loc[state]  # .rolling(7).mean()
-        _v = _v[: end_ix - start_ix + 1]
-        _m[start_ix:end_ix] = th.from_numpy(_v.values[1:])
+        if query not in symptoms.index:
+            print(f"Skipping {region}")
+            skipped += 1
+        else:
+            _v = symptoms.loc[query]  # .rolling(7).mean()
+            _v = _v[: end_ix - start_ix + 1]
+            _m[start_ix:end_ix] = th.from_numpy(_v.values[1:])
         sym[region] = _m.unsqueeze(1)
-    th.save(sym, "symptom-survey/features.pt")
+    th.save(sym, f"symptom-survey/features_{geo_type}.pt")
     print(skipped, df.shape[0])
 
 
@@ -230,9 +233,10 @@ if __name__ == "__main__":
     if opt.with_features:
         merge_nyc = opt.metric == "deaths"
         process_testing(df)
-        process_symptom_survey(df, 5)
-        process_mobility(df, "fb", 10, merge_nyc)
-        process_mobility(df, "google", 10, merge_nyc)
+        process_symptom_survey(df, "smoothed_hh_cmnty_cli", "state", 0)
+        process_symptom_survey(df, "smoothed_hh_cmnty_cli", "county", 0)
+        process_mobility(df, "fb", 7, merge_nyc)
+        process_mobility(df, "google", 7, merge_nyc)
 
 
 # n_policies = len(np.unique(state_policies["policy"]))
