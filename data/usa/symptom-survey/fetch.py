@@ -5,14 +5,25 @@ import pandas as pd
 import sys
 from datetime import timedelta
 from delphi_epidata import Epidata
+import covidcast
 
 # Fetch data
 
 geo_value = sys.argv[1]
 signal = sys.argv[2]
-base_date = pd.to_datetime("2020-04-05")
-end_date = pd.to_datetime("now")
-print(end_date)
+
+
+# grab start and end date from metadata
+df = covidcast.metadata().drop(columns=["time_type", "min_lag", "max_lag"])
+df.min_time = pd.to_datetime(df.min_time)
+df.max_time = pd.to_datetime(df.max_time)
+df = df.query(
+    f"data_source == 'fb-survey' and signal == '{signal}' and geo_type == '{geo_value}'"
+)
+assert len(df) == 1
+base_date = df.iloc[0].min_time - timedelta(1)
+end_date = df.iloc[0].max_time
+print(base_date, end_date)
 
 current_date = base_date
 while current_date < end_date:
@@ -25,8 +36,9 @@ while current_date < end_date:
         continue
 
     res = Epidata.covidcast("fb-survey", signal, "day", geo_value, [date_str], "*")
+    # res = covidcast.signal("fb-survey", signal, "day", geo_value, [date_str], "*")
     print(date_str, res["result"], res["message"])
-    assert res["result"] == 1, ("CLI", res["message"])
+    assert res["result"] == 1, ("CLI", res["message"], res)
     df = pd.DataFrame(res["epidata"])
     df.rename(
         columns={

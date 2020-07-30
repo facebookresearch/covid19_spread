@@ -4,18 +4,20 @@
 # @file
 # @version 0.1
 
-signal=smoothed_cli
+signal=smoothed_hh_cmnty_cli
+#startdate=20200406
+startdate=20200415
 
 state/$(signal).csv:
 	mkdir -p state
 	-python3 fetch.py state $(signal)
-	head -1 state/$(signal)-20200406.csv > $@
+	head -1 state/$(signal)-$(startdate).csv > $@
 	tail -n +2 state/$(signal)-*.csv >> $@
 
 county/$(signal).csv:
 	mkdir -p county
 	-python3 fetch.py county $(signal)
-	head -1 county/$(signal)-20200406.csv > $@
+	head -1 county/$(signal)-$(startdate).csv > $@
 	tail -n +2 county/$(signal)-*.csv >> $@
 
 data-$(signal)-state.csv: state/$(signal).csv
@@ -29,5 +31,4 @@ clean:
 	-rm county/$(signal).csv
 	-rm data-$(signal)-state.csv
 	-rm data-$(signal)-fips.csv
-# end
 # end

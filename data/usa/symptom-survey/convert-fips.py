@@ -55,4 +55,4 @@ for _fips, group in df_agg:
 
 df = pd.DataFrame(cols)
 df.set_index("region", inplace=True)
-df.to_csv(f"data-{signal}-fips.csv")
+df.to_csv(f"data-{signal}-county.csv")
