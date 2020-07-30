@@ -9,6 +9,9 @@
 google/mobility_features.csv:
 	cd google && make mobility_features.csv
 
+google/weather_features.csv:
+	cd google && make weather_features.csv
+
 fb/mobility_features.csv:
 	cd fb && make mobility_features.csv
 
@@ -18,8 +21,8 @@ symptom-survey/data-smoothed_cli-fips.csv:
 symptom-survey/data-smoothed_cli-state.csv:
 	cd symptom-survey && make data-smoothed_cli-state.csv
 
-data_cases.csv: google/mobility_features.csv fb/mobility_features.csv symptom-survey/data-smoothed_cli-state.csv
-	python3 convert.py -with-features -source nyt -metric cases
+data_cases.csv: google/mobility_features.csv fb/mobility_features.csv symptom-survey/data-smoothed_cli-state.csv google/weather_features.csv
+	python3 convert.py -with-features -source google -metric cases
 	head -1 $@ > data_cases_ny.csv
 	grep "New York" $@ >> data_cases_ny.csv
 

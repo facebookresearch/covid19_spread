@@ -10,6 +10,9 @@ mobility_raw.csv:
 mobility_features.csv: mobility_raw.csv
 	python3 process_mobility.py mobility_raw.csv
 
+weather_features.csv:
+	python3 process_open_data.py
+
 clean:
 	-rm mobility_raw.csv
 	-rm mobility_features.csv
