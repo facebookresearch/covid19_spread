@@ -9,6 +9,9 @@
 google/mobility_features.csv:
 	cd google && make mobility_features.csv
 
+google/weather_features.csv:
+	cd google && make weather_features.csv
+
 fb/mobility_features.csv:
 	cd fb && make mobility_features.csv
 

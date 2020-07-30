@@ -62,8 +62,8 @@ def read_population():
     return population
 
 
-def process_mobility(df, prefix, shift=0, merge_nyc=False):
-    mobility = pd.read_csv(f"{prefix}/mobility_features.csv")
+def process_mobility(df, pth, shift=0, merge_nyc=False):
+    mobility = pd.read_csv(pth)
     dates = pd.to_datetime(mobility.columns[2:])
     dates = dates[np.where(dates >= df.columns.min())[0]]
     mobility = mobility[
@@ -98,7 +98,7 @@ def process_mobility(df, prefix, shift=0, merge_nyc=False):
         _v = _v[: end_ix - start_ix]
         _m[start_ix:end_ix] = th.from_numpy(_v.values)
         mob[region] = _m
-    th.save(mob, f"{prefix}/mobility_features.pt")
+    th.save(mob, pth.replace(".csv", ".pt"))
     print(skipped, df.shape[0])
 
 
@@ -229,10 +229,11 @@ if __name__ == "__main__":
     # process_county_features(df)
     if opt.with_features:
         merge_nyc = opt.metric == "deaths"
+        process_mobility(df, "google/weather_features.csv", 10, merge_nyc)
         process_testing(df)
         process_symptom_survey(df, 5)
-        process_mobility(df, "fb", 10, merge_nyc)
-        process_mobility(df, "google", 10, merge_nyc)
+        process_mobility(df, "fb/mobility_features.csv", 10, merge_nyc)
+        process_mobility(df, "google/mobility_features.csv", 10, merge_nyc)
 
 
 # n_policies = len(np.unique(state_policies["policy"]))
