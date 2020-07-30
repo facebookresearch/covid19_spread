@@ -140,7 +140,7 @@ data-ny:
 
 # -- United States --
 data-usa:
-	cd data/usa && make data.csv data_deaths.csv
+	cd data/usa && make data_cases.csv data_deaths.csv
 
 select: fout = forecasts/$(REGION)/forecast-$(DATE)$(SUFFIX).csv
 select: fout_sir = forecasts/$(REGION)/SIR-forecast-$(DATE).csv
@@ -160,7 +160,11 @@ log: metric=MAE
 log: days=22
 log:
 	find /checkpoint/$(USER)/covid19/forecasts/$(job) -name "$(file)" -exec grep -H "^$(metric)," {} \; | cut -d, -f1,$(days) | sort -k2,2 -t, -n -r
+	python3 cv.py progress /checkpoint/$(USER)/covid19/forecasts/$(job)
 
 notebook:
 	cd notebooks && jupyter notebook --no-browser --port 8899 --log-level 0 &
+
+collect:
+	find $(sweepdir) -name "forecast_best_$(metric).csv" -exec sh -c 'x="{}"; cp -v "$$x" "/tmp/forecast_$$(echo \"$$x\" | cut -d/ -f8 | cut -d_ -f2).csv"' \;
 # end
