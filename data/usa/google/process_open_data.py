@@ -21,9 +21,15 @@ weather["loc"] = (
     + weather["subregion1_name"]
 )
 cols = ["average_temperature", "minimum_temperature", "maximum_temperature", "rainfall"]
+
 weather_piv = weather.pivot(index="date", values=cols, columns="loc")
+
+# Transform into z-scores
+weather_piv = (weather_piv - weather_piv.mean()) / weather_piv.std(skipna=True)
+weather_piv.iloc[0] = weather_piv.iloc[0].fillna(0)
+weather_piv = weather_piv.fillna(method="ffill")
+
 weather_piv = weather_piv.transpose().unstack(0).transpose()
 weather_piv = weather_piv.stack().unstack(0).reset_index(0)
 weather_piv = weather_piv.rename(columns={"level_0": "type"})
-weather_piv = weather_piv.fillna(method="ffill")
 weather_piv.to_csv("weather_features.csv", index_label="region")
