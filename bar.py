@@ -166,7 +166,7 @@ class BetaTransformer(nn.Module):
         encoder_layer = nn.TransformerEncoderLayer(input_dim, 1, dim, dropout, "relu")
         encoder_norm = nn.LayerNorm(input_dim)
         self.encoder = nn.TransformerEncoder(encoder_layer, layers, encoder_norm)
-        self.rep = f"Transformer(layers={layers}, input_dim={input_dim}, dim={input_dim}, dropout={dropout})"
+        self.rep = f"Transformer(layers={layers}, input_dim={input_dim}, dim={dim}, dropout={dropout})"
         self.v = nn.Linear(input_dim, 1)
 
     def forward(self, x):
@@ -269,7 +269,7 @@ class BetaLatent(nn.Module):
                 tf = time_features.narrow(0, 0, t.size(0))
             else:
                 f = th.zeros(t.size(0), self.M, self.time_features.size(2)).to(t.device)
-                # f.copy_(self.time_features.narrow(0, -1, 1))
+                f.copy_(self.time_features.narrow(0, -1, 1))
                 f.narrow(0, 0, self.time_features.size(0)).copy_(self.time_features)
             x.append(f)
         x = th.cat(x, dim=2)
@@ -443,6 +443,9 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
         _loss = -dist.log_prob(target)
         loss = _loss.sum()
 
+        stddev = model.dist(scores).stddev.mean()
+        loss += stddev * args.weight_decay
+
         # temporal smoothness
         if args.temporal > 0:
             reg = th.pow(beta[:, 1:] - beta[:, :-1], 2).sum()
@@ -481,7 +484,8 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                     f"{args.loss} ({scores[:, -1].min().item():.2f}, {scores[:, -1].max().item():.2f}) | "
                     f"z ({z.min().item():.2f}, {z.mean().item():.2f}, {z.max().item():.2f}) | "
                     f"alpha ({W.min().item():.2f}, {W.mean().item():.2f}, {W.max().item():.2f}) | "
-                    f"nu ({nu.min().item():.2f}, {nu.mean().item():.2f}, {nu.max().item():.2f})"
+                    f"nu ({nu.min().item():.2f}, {nu.mean().item():.2f}, {nu.max().item():.2f}) | "
+                    f"nb_stddev ({stddev.data.mean().item()})"
                 )
             th.save(model.state_dict(), checkpoint)
     print(f"Train MAE,{maes.mean():.2f}")
@@ -699,6 +703,7 @@ def cli():
 def simulate(pth):
     chkpnt = th.load(pth)
     cv = BARCV()
+    prefix = ""
     if "final_model" in pth:
         prefix = "final_model_"
     cfg = yaml.safe_load(open(f"{os.path.dirname(pth)}/{prefix}bar.yml"))
@@ -713,7 +718,7 @@ def simulate(pth):
     df = rebase_forecast_deltas(cfg["data"], df)
     gt = pd.read_csv(cfg["data"], index_col="region").transpose()
     gt.index = pd.to_datetime(gt.index)
-    print(metrics._compute_metrics(gt, df))
+    print(metrics._compute_metrics(gt, df, nanfill=True))
 
 
 def main(args):
