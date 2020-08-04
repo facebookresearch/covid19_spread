@@ -72,10 +72,15 @@ for (name, _df) in df.groupby("region"):
     regions.append(_df.reset_index())
 
 df = pd.concat(regions, axis=0, ignore_index=True)
-df = df.fillna(0)
 cols = ["region"] + [x for x in df.columns if x != "region"]
 df = df[cols]
 
+# z-scores
+# df.iloc[:, 2:] = (
+#    df.iloc[:, 2:].values - df.iloc[:, 2:].mean(axis=1, skipna=True).values[:, None]
+# ) / df.iloc[:, 2:].std(axis=1, skipna=True).values[:, None]
+
+df = df.fillna(0)
 df = df.rename(columns={"index": "type"})
 print(df.head(), df.shape)
 
