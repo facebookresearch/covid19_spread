@@ -3,9 +3,26 @@
 import sys
 import numpy as np
 import pandas as pd
+from hdx.hdx_configuration import Configuration
+from hdx.data.dataset import Dataset
 
 sys.path.append("../../../")
+import shutil
 from common import standardize_county_name
+from glob import glob
+import os
+
+
+Configuration.create(hdx_site="prod", user_agent="A_Quick_Example", hdx_read_only=True)
+dataset = Dataset.read_from_hdx("movement-range-maps")
+resources = dataset.get_resources()
+resource = [x for x in resources if x.get_file_type() == "ZIP"]
+assert len(resource) == 1
+resource = resource[0]
+url, path = resource.download()
+if os.path.exists("fb_mobility"):
+    shutil.rmtree("fb_mobility")
+shutil.unpack_archive(path, "fb_mobility", "zip")
 
 fips_map = pd.read_csv(
     "../county_fips_master.csv", index_col=["fips"], encoding="ISO-8859-1"
@@ -43,7 +60,10 @@ def get_county_mobility_fb(fin):
     return df_mobility_usa
 
 
-fin = sys.argv[1] if len(sys.argv) == 2 else None
+# fin = sys.argv[1] if len(sys.argv) == 2 else None
+txt_files = glob("fb_mobility/movement-range*.txt")
+assert len(txt_files) == 1
+fin = txt_files[0]
 df = get_county_mobility_fb(fin)
 df = df.rename(columns={"ds": "date", "polygon_id": "region"})
 print(df.columns)
