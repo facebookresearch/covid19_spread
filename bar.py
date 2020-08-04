@@ -9,6 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import NegativeBinomial, Normal, Poisson
+from torchcontrib.optim import SWA
+
 import load
 import cv
 from cv import rebase_forecast_deltas
@@ -19,6 +21,27 @@ import sys
 from wavenet import Wavenet
 from functools import partial
 import math
+
+
+class MLP(nn.Module):
+    def __init__(self, layers, dim, input_dim, nlin=th.tanh):
+        super(MLP, self).__init__()
+        self.fc = nn.ModuleList(
+            [nn.Linear(input_dim, dim)]
+            + [nn.Linear(dim, dim) for _ in range(layers - 1)]
+        )
+        self.nlin = nlin
+        for fc in self.fc:
+            nn.init.xavier_uniform_(fc.weight)
+
+    def forward(self, x):
+        tmp = x
+        for i in range(len(self.fc)):
+            tmp = self.nlin(self.fc[i](tmp))
+        return tmp
+
+    def __repr__(self):
+        return f"MLP {len(self.fc)}"
 
 
 class BetaRNN(nn.Module):
@@ -57,11 +80,17 @@ class BetaLSTM(BetaRNN):
     def __init__(self, M, layers, dim, input_dim, dropout=0.0):
         super().__init__(M, layers, dim, input_dim, dropout)
         self.rnn = nn.LSTM(input_dim, dim, layers, dropout=dropout)
+        # self.rnn = nn.LSTM(4 * dim, dim, layers, dropout=dropout)
         self.rnn.reset_parameters()
         self.h0 = nn.Parameter(th.randn(layers, M, dim))
         self.c0 = nn.Parameter(th.randn(layers, M, dim))
+        # self.mlp = MLP(3, 4 * dim, input_dim)
 
     def forward(self, x):
+        # print(x.max())
+        # x = self.emb(x.long()).reshape(x.size(0), x.size(1), self.input_dim)
+        # print(x.size())
+        # x = self.mlp(x)
         ht, (hn, cn) = self.rnn(x, (self.h0, self.c0))
         beta = self.fpos(self.v(ht))
         return beta
@@ -146,7 +175,8 @@ class SelfAttention(nn.Module):
         attn_output_weights = query.bmm(key.transpose(1, 2))  # Bsx x Seq x Seq
         attn_output_weights += attn_mask.unsqueeze(0)
 
-        time_decay = (x.size(0) - 1 - pos_idxs.float()).neg()
+        # time_decay = (x.size(0) - 1 - pos_idxs.float()).neg()
+        time_decay = (pos_idxs.unsqueeze(0) - pos_idxs.unsqueeze(1)).float() / x.size(0)
 
         attn_output_weights = F.softmax(attn_output_weights + time_decay, dim=-1)
         attn_output_weights = F.dropout(
@@ -197,9 +227,9 @@ class BetaAttn(nn.Module):
 
 
 class BetaWavenet(nn.Module):
-    def __init__(self, M, blocks, layers, channels, kernel):
+    def __init__(self, M, blocks, layers, channels, kernel, nfilters):
         super(BetaWavenet, self).__init__()
-        self.embeddings = nn.Parameter(th.randn(M, channels))
+        self.embeddings = nn.Parameter(th.randn(M, channels * nfilters))
         self.blocks = blocks
         self.layers = layers
         self.kernel = kernel
@@ -212,9 +242,9 @@ class BetaWavenet(nn.Module):
             embeddings=self.embeddings,
             groups=channels,
             nlin=self.nlin,
+            nfilters=nfilters,
         )
         self.W1 = nn.Linear(channels, channels)
-        self.W2 = nn.Linear(channels, channels)
         self.v = nn.Linear(channels, 1, bias=True)
         self.fpos = th.sigmoid
 
@@ -222,7 +252,6 @@ class BetaWavenet(nn.Module):
         hs = self.wv(x.permute(0, 2, 1))
         hs = hs.permute(0, 2, 1)
         hs = self.nlin(self.W1(hs))
-        hs = self.nlin(self.W2(hs))
         beta = self.fpos(self.v(hs))
 
         # beta = self.fpos(hs)
@@ -263,13 +292,15 @@ class BetaLatent(nn.Module):
         t = t.unsqueeze(-1).unsqueeze(-1).float()  # .div_(self.tmax)
         t = t.expand(t.size(0), self.M, 1)
         x = [t, _ys.t().unsqueeze(-1)]
+        # x = [t]
         # x = [_ys.t().unsqueeze(-1)]
+        # x = []
         if self.time_features is not None:
             if self.time_features.size(0) > t.size(0):
-                tf = time_features.narrow(0, 0, t.size(0))
+                f = self.time_features.narrow(0, 0, t.size(0))
             else:
                 f = th.zeros(t.size(0), self.M, self.time_features.size(2)).to(t.device)
-                # f.copy_(self.time_features.narrow(0, -1, 1))
+                f.copy_(self.time_features.narrow(0, -1, 1))
                 f.narrow(0, 0, self.time_features.size(0)).copy_(self.time_features)
             x.append(f)
         x = th.cat(x, dim=2)
@@ -373,7 +404,6 @@ class BAR(nn.Module):
         # Ys = th.bmm(W, Ys).mean(dim=0)
         with th.no_grad():
             self.train_stats = (Z.sum().item(), Ys.sum().item())
-            # self.train_stats = (Ys.sum().item(), Ys.sum().item())
 
         # beta evolution
         beta = self.beta(t, ys)
@@ -446,6 +476,7 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
         # temporal smoothness
         if args.temporal > 0:
             reg = th.pow(beta[:, 1:] - beta[:, :-1], 2).sum()
+            # reg += th.abs(M - W.sum(axis=1)).sum()
 
         # back prop
         (loss + args.temporal * reg).backward()
@@ -462,7 +493,7 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
         # make sure we have no NaNs
         assert loss == loss, (loss, scores, _loss)
 
-        # nn.utils.clip_grad_norm_(model.beta.parameters(), 5)
+        nn.utils.clip_grad_norm_(model.parameters(), 5)
         # take gradient step
         optimizer.step()
 
@@ -483,7 +514,10 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                     f"alpha ({W.min().item():.2f}, {W.mean().item():.2f}, {W.max().item():.2f}) | "
                     f"nu ({nu.min().item():.2f}, {nu.mean().item():.2f}, {nu.max().item():.2f})"
                 )
-            th.save(model.state_dict(), checkpoint)
+                optimizer.swap_swa_sgd()
+                th.save(model.state_dict(), checkpoint)
+                optimizer.swap_swa_sgd()
+    optimizer.swap_swa_sgd()
     print(f"Train MAE,{maes.mean():.2f}")
     return model
 
@@ -528,6 +562,22 @@ from cv import BestRun
 import os
 
 
+def to_one_hot(feats, nbins):
+    disc = KBinsDiscretizer(nbins, encode="onehot", strategy="uniform")
+    out = th.zeros(feats.size(0), feats.size(1), feats.size(2))
+    feats = feats.permute(2, 0, 1)
+    for i in range(1, feats.size(0)):
+        _f = feats[i].cpu().numpy().flatten().reshape(-1, 1)
+        print(_f.min(), _f.max(), _f.mean())
+        if _f.min() == _f.max():
+            continue
+        est = disc.fit(_f)
+        _f = disc.transform(_f).nonzero()[1]
+        _f = _f.reshape(feats.size(1), feats.size(2))
+        out[:, :, i] = th.from_numpy(_f)
+    return out.to(feats.device).long()
+
+
 class BARCV(cv.CV):
     # def model_selection(self, basedir: str) -> List[BestRun]:
     #     """
@@ -546,6 +596,8 @@ class BARCV(cv.CV):
     #     return [
     #         BestRun(row.pth, f"best_mae_{i}") for i, (_, row) in enumerate(df.iterrows())
     #     ]
+    #
+    model_cls = BAR
 
     def initialize(self, args):
         device = th.device("cuda" if th.cuda.is_available() else "cpu")
@@ -573,8 +625,11 @@ class BARCV(cv.CV):
         time_features = _get_dict(args, "time_features", device, regions)
         if time_features is not None:
             time_features = time_features.transpose(0, 1)
-            time_features = time_features.narrow(0, args.t0, new_cases.size(1))
+            # TODO/FIXME: uncomment for rigorous test setting
+            # time_features = time_features.narrow(0, args.t0, new_cases.size(1))
             print("Feature size = {} x {} x {}".format(*time_features.size()))
+            print(time_features.min(), time_features.max())
+            # time_features = to_one_hot(time_features, 15)
 
         self.weight_decay = 0
         # setup beta function
@@ -604,9 +659,9 @@ class BARCV(cv.CV):
             beta_net = BetaLatent(fbeta, regions, tmax, time_features)
             self.weight_decay = args.weight_decay
         elif args.decay.startswith("wave"):
-            blocks, layers, kernel = args.decay[4:].split("_")
+            blocks, layers, kernel, nfilters = args.decay[4:].split("_")
             fbeta = lambda M, input_dim: BetaWavenet(
-                M, int(blocks), int(layers), input_dim, int(kernel)
+                M, int(blocks), int(layers), input_dim, int(kernel), int(nfilters)
             )
             beta_net = BetaLatent(fbeta, regions, tmax, time_features)
             self.weight_decay = args.weight_decay
@@ -621,6 +676,7 @@ class BARCV(cv.CV):
                 int(layers),
                 int(dim),
                 input_dim,
+                # 15 - 1,
                 dropout=getattr(args, "dropout", 0.0),
             )
             beta_net = BetaLatent(fbeta, regions, tmax, time_features)
@@ -674,19 +730,29 @@ class BARCV(cv.CV):
             if wd != 0:
                 print(f"Regularizing {name} = {wd}")
             params.append({"params": p, "weight_decay": wd})
-        optimizer = optim.AdamW(
+
+        base_opt = optim.AdamW(
             params,
             lr=args.lr,
             betas=[args.momentum, 0.999],
             weight_decay=args.weight_decay,
-            amsgrad=False,
         )
+        # base_opt = optim.SGD(
+        #    params,
+        #    lr=args.lr,
+        #    momentum=args.momentum,
+        #    weight_decay=args.weight_decay,
+        #    nesterov=True,
+        # )
+        optimizer = SWA(base_opt, swa_start=50, swa_freq=5, swa_lr=0.005)
+        # optimizer = base_opt
 
         model = train(self.func, new_cases, regions, optimizer, checkpoint, args)
         return model
 
 
 CV_CLS = BARCV
+MODEL_CLS = BAR
 
 
 @click.group()
