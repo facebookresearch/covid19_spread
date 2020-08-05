@@ -97,6 +97,7 @@ def process_mobility(df, pth, shift=0, merge_nyc=False):
         _v = mobility_types[region].iloc[:, 2:].transpose()
         _v = _v[: end_ix - start_ix]
         _m[start_ix:end_ix] = th.from_numpy(_v.values)
+        assert (_m == _m).all()
         mob[region] = _m
     th.save(mob, pth.replace(".csv", ".pt"))
     print(skipped, df.shape[0])
@@ -125,6 +126,7 @@ def process_symptom_survey(df, signal, geo_type, shift=1):
             _v = symptoms.loc[query]  # .rolling(7).mean()
             _v = _v[: end_ix - start_ix + 1]
             _m[start_ix:end_ix] = th.from_numpy(_v.values[1:])
+        assert (_m == _m).all()
         sym[region] = _m.unsqueeze(1)
     th.save(sym, f"symptom-survey/features_{geo_type}.pt")
     print(skipped, df.shape[0])
@@ -147,19 +149,29 @@ def process_testing(df):
     tests = pd.read_csv("testing/testing_features.csv", index_col="region")
     ts = {}
     skipped = 0
-    dates = pd.to_datetime(tests.columns[1:])
-    start_ix = np.where(dates.min() == df.columns)[0][0]
-    end_ix = start_ix + len(dates)
     for region in df.index:
         _, state = region.split(", ")
         if state not in tests.index:
             print("Skipping {region}")
             skipped += 1
             continue
-        _m = th.zeros(df.shape[1])
-        _v = tests.loc[state]  # .rolling(7).mean()
-        _v = np.diff(_v.values)
-        _m[start_ix:end_ix] = th.from_numpy(_v)
+        merge = (
+            df.loc[region]
+            .to_frame()
+            .merge(
+                tests.loc[state].to_frame(),
+                left_index=True,
+                right_index=True,
+                how="outer",
+            )
+        )
+        if merge[state].isnull().iloc[0]:
+            merge[state].iloc[0] = 0
+        _m = th.from_numpy(
+            merge.loc[df.columns][state].fillna(method="ffill").diff().values
+        )
+        _m[0] = 0
+        assert (_m == _m).all()
         ts[region] = _m.unsqueeze(1)
     th.save(ts, "testing/features.pt")
     print(skipped, df.shape[0])
@@ -191,7 +203,7 @@ if __name__ == "__main__":
     dates = df.index
     df.columns = [c.split("_")[1] + ", " + c.split("_")[0] for c in df.columns]
     print(df.columns)
-    df = df[[c for c in df.columns if c in population]]
+    # df = df[[c for c in df.columns if c in population]]
 
     # drop all zero columns
     df = df[df.columns[(df.sum(axis=0) != 0).values]]
