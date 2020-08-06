@@ -122,12 +122,15 @@ def get_jhu(metric="cases"):
         df = df.rename(columns=col_map)
         if "loc3" not in df.columns:
             continue
-        df = df[(df["loc1"] == "US") & (~df["loc3"].isnull()) & (~df["FIPS"].isnull())]
-        date = pandas.to_datetime(os.path.splitext(os.path.basename(file))[0])
-        df["FIPS"] = df["FIPS"].astype(int).astype(str).str.zfill(5)
-        df = df.merge(fips, left_on="FIPS", right_on="fips")
-        df["date"] = date
+
+        # df = df[(df["loc1"] == "US") & (~df["loc3"].isnull()) & (~df["FIPS"].isnull())]
+        # df["FIPS"] = df["FIPS"].astype(int).astype(str).str.zfill(5)
+        # df = df.merge(fips, left_on="FIPS", right_on="fips")
+        df = df[(df["loc1"] == "US") & (~df["loc3"].isnull())]
+
         df["loc"] = df["loc2"] + "_" + df["loc3"]
+        date = pandas.to_datetime(os.path.splitext(os.path.basename(file))[0])
+        df["date"] = date
         dfs.append(df.drop_duplicates(["loc", "date"]))
     df = pandas.concat(dfs)
     pivot = df.pivot(index="date", values=value_col, columns="loc")
