@@ -71,11 +71,12 @@ def process_mobility(df, pth, shift=0, merge_nyc=False):
         + list(map(lambda d: d.strftime("%Y-%m-%d"), dates))
     ]
 
+    print(np.unique(mobility["type"]))
     n_mobility_types = len(np.unique(mobility["type"]))
     mobility_types = {r: v for (r, v) in mobility.groupby("region")}
     if merge_nyc:
         mobility = merge_nyc_boroughs(mobility, n_mobility_types)
-    print(mobility.head(), len(mobility))
+    print(mobility.head(), len(mobility), n_mobility_types)
 
     mob = {}
     skipped = 0
@@ -122,7 +123,7 @@ def process_symptom_survey(df, signal, geo_type, shift=1):
             print(f"Skipping {region}")
             skipped += 1
         else:
-            _v = symptoms.loc[query]  # .rolling(7).mean()
+            _v = symptoms.loc[query]
             _v = _v[: end_ix - start_ix + 1]
             _m[start_ix:end_ix] = th.from_numpy(_v.values[1:])
         sym[region] = _m.unsqueeze(1)
@@ -132,13 +133,14 @@ def process_symptom_survey(df, signal, geo_type, shift=1):
 
 def process_county_features(df):
     df_feat = pd.read_csv("features.csv", index_col="region")
+    df_feat = (df_feat - df_feat.min(axis=0)) / df_feat.max(axis=0)
     feat = {}
     for region in df.index:
         _v = df_feat.loc[region]
-        inc = _v["median_income"]
-        inc = inc - inc.min()
+        # inc = _v["median_income"]
+        # inc = inc - inc.min()
         # _v["median_income"] = inc / min(1, inc.max()) * 100
-        _v = (_v - _v.mean()) / _v.std()
+        # _v = (_v - _v.mean()) / _v.std()
         feat[region] = th.from_numpy(_v.values)
     th.save(feat, "county_features.pt")
 
@@ -157,9 +159,8 @@ def process_testing(df):
             skipped += 1
             continue
         _m = th.zeros(df.shape[1])
-        _v = tests.loc[state]  # .rolling(7).mean()
-        _v = np.diff(_v.values)
-        _m[start_ix:end_ix] = th.from_numpy(_v)
+        _v = tests.loc[state]
+        _m[start_ix:end_ix] = th.from_numpy(_v.values[1:])
         ts[region] = _m.unsqueeze(1)
     th.save(ts, "testing/features.pt")
     print(skipped, df.shape[0])
@@ -229,10 +230,10 @@ if __name__ == "__main__":
     print(adj)
     th.save(th.from_numpy(adj), "state_graph.pt")
 
-    # process_county_features(df)
+    process_county_features(df)
     if opt.with_features:
         merge_nyc = opt.metric == "deaths"
-        process_mobility(df, "google/weather_features.csv", 10, merge_nyc)
+        process_mobility(df, "google/weather_features.csv", 7, merge_nyc)
         process_testing(df)
         process_symptom_survey(df, "smoothed_hh_cmnty_cli", "state", 0)
         process_symptom_survey(df, "smoothed_hh_cmnty_cli", "county", 0)
