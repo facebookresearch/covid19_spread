@@ -17,4 +17,6 @@ clean:
 	-rm mobility_raw.csv
 	-rm mobility_features.csv
 	-rm mobility_features.pt
+	-rm weather_features.csv
+	-rm weather_features.pt
 # end
