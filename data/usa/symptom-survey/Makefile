@@ -4,8 +4,9 @@
 # @file
 # @version 0.1
 
-signal=smoothed_hh_cmnty_cli
+#signal=smoothed_wcli
 #startdate=20200406
+signal=smoothed_hh_cmnty_cli
 startdate=20200415
 
 state/$(signal).csv:
@@ -23,12 +24,12 @@ county/$(signal).csv:
 data-$(signal)-state.csv: state/$(signal).csv
 	python3 convert-state.py $(signal)
 
-data-$(signal)-fips.csv: county/$(signal).csv
+data-$(signal)-county.csv: county/$(signal).csv
 	python3 convert-fips.py $(signal)
 
 clean:
 	-rm state/$(signal).csv
 	-rm county/$(signal).csv
 	-rm data-$(signal)-state.csv
-	-rm data-$(signal)-fips.csv
+	-rm data-$(signal)-county.csv
 # end
