@@ -105,28 +105,45 @@ def process_mobility(df, pth, shift=0, merge_nyc=False):
 
 
 def process_symptom_survey(df, signal, geo_type, shift=1):
+    assert shift == 0
     symptoms = pd.read_csv(
         f"symptom-survey/data-{signal}-{geo_type}.csv", index_col="region"
     )
     sym = {}
     skipped = 0
-    dates = pd.to_datetime(symptoms.columns[1:])
-    start_ix = np.where(dates.min() == df.columns)[0][0] + shift
-    end_ix = start_ix + len(dates)
-    end_ix = min(end_ix, df.shape[1])
+    # dates = pd.to_datetime(symptoms.columns[1:])
+    # start_ix = np.where(dates.min() == df.columns)[0][0] + shift
+    # end_ix = start_ix + len(dates)
+    # end_ix = min(end_ix, df.shape[1])
     for region in df.index:
         if geo_type == "state":
             _, query = region.split(", ")
         else:
             query = region
-        _m = th.zeros(df.shape[1])
+            _df = symptoms.transpose()
+        # _m = th.zeros(df.shape[1])
         if query not in symptoms.index:
-            print(f"Skipping {region}")
+            print(f"Skipping {region} (survey, {geo_type})")
             skipped += 1
-        else:
-            _v = symptoms.loc[query]
-            _v = _v[: end_ix - start_ix + 1]
-            _m[start_ix:end_ix] = th.from_numpy(_v.values[1:])
+            continue
+        _df = (
+            df.loc[region]
+            .to_frame()
+            .merge(
+                symptoms.loc[query].to_frame(),
+                left_index=True,
+                right_index=True,
+                how="outer",
+            )
+        )
+        if geo_type == "county":
+            _df.columns = ["_", query]
+        if _df[query].isnull().iloc[0]:
+            _df[query].iloc[0] = 0
+        # _v = symptoms.loc[query]
+        # _v = _v[: end_ix - start_ix + 1]
+        # _m[start_ix:end_ix] = th.from_numpy(_v.values[1:])
+        _m = th.from_numpy(_df.loc[df.columns][query].fillna(method="ffill").values)
         assert (_m == _m).all()
         sym[region] = _m.unsqueeze(1)
     th.save(sym, f"symptom-survey/features_{geo_type}.pt")
@@ -169,10 +186,7 @@ def process_testing(df):
         )
         if merge[state].isnull().iloc[0]:
             merge[state].iloc[0] = 0
-        _m = th.from_numpy(
-            merge.loc[df.columns][state].fillna(method="ffill").diff().values
-        )
-        _m[0] = 0
+        _m = th.from_numpy(merge.loc[df.columns][state].fillna(method="ffill").values)
         assert (_m == _m).all()
         ts[region] = _m.unsqueeze(1)
     th.save(ts, "testing/features.pt")
@@ -243,13 +257,13 @@ if __name__ == "__main__":
     print(adj)
     th.save(th.from_numpy(adj), "state_graph.pt")
 
-    process_county_features(df)
+    # process_county_features(df)
     if opt.with_features:
         merge_nyc = opt.metric == "deaths"
         process_mobility(df, "google/weather_features.csv", 7, merge_nyc)
         process_testing(df)
-        process_symptom_survey(df, "smoothed_hh_cmnty_cli", "state", 0)
         process_symptom_survey(df, "smoothed_hh_cmnty_cli", "county", 0)
+        process_symptom_survey(df, "smoothed_hh_cmnty_cli", "state", 0)
         process_mobility(df, "fb/mobility_features.csv", 7, merge_nyc)
         process_mobility(df, "google/mobility_features.csv", 7, merge_nyc)
 
