@@ -15,16 +15,21 @@ google/weather_features.csv:
 fb/mobility_features.csv:
 	cd fb && make mobility_features.csv
 
-symptom-survey/data-smoothed_cli-fips.csv:
-	cd symptom-survey && make data-smoothed_cli-fips.csv
+testing/testing_features.csv:
+	cd testing && make testing_features.csv
 
-symptom-survey/data-smoothed_cli-state.csv:
-	cd symptom-survey && make data-smoothed_cli-state.csv
+symptom-survey/data-smoothed_hh_cmnty_cli-county.csv:
+	cd symptom-survey && make data-smoothed_hh_cmnty_cli-county.csv
 
-data_cases.csv: google/mobility_features.csv fb/mobility_features.csv symptom-survey/data-smoothed_cli-state.csv google/weather_features.csv
+symptom-survey/data-smoothed_hh_cmnty_cli-state.csv:
+	cd symptom-survey && make data-smoothed_hh_cmnty_cli-state.csv
+
+data_cases.csv: google/mobility_features.csv fb/mobility_features.csv symptom-survey/data-smoothed_hh_cmnty_cli-state.csv symptom-survey/data-smoothed_hh_cmnty_cli-county.csv google/weather_features.csv testing/testing_features.csv
 	python3 convert.py -with-features -source google -metric cases
 	head -1 $@ > data_cases_ny.csv
+	head -1 $@ > data_cases_fl.csv
 	grep "New York" $@ >> data_cases_ny.csv
+	grep "Florida" $@ >> data_cases_fl.csv
 
 data_deaths.csv:
 	python3 convert.py -metric deaths
@@ -32,6 +37,8 @@ data_deaths.csv:
 clean:
 	cd google && make clean
 	cd fb && make clean
-	-rm data.csv
+	cd symptom-survey && make clean
+	cd testing && make clean
+	-rm data_cases.csv
 	-rm data_deaths.csv
 # end
