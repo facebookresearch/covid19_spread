@@ -583,24 +583,6 @@ def to_one_hot(feats, nbins):
 
 
 class BARCV(cv.CV):
-    # def model_selection(self, basedir: str) -> List[BestRun]:
-    #     """
-    #     Evaluate a sweep returning a list of models to retrain on the full dataset.
-    #     """
-    #     runs = []
-    #     for metrics_pth in glob(os.path.join(basedir, "*/metrics.csv")):
-    #         metrics = pd.read_csv(metrics_pth, index_col="Measure")
-    #         runs.append(
-    #             {
-    #                 "pth": os.path.dirname(metrics_pth),
-    #                 "mae": metrics.loc["MAE"][-1]
-    #             }
-    #         )
-    #     df = pd.DataFrame(runs)
-    #     return [
-    #         BestRun(row.pth, f"best_mae_{i}") for i, (_, row) in enumerate(df.iterrows())
-    #     ]
-    #
     model_cls = BAR
 
     def initialize(self, args):
@@ -629,8 +611,7 @@ class BARCV(cv.CV):
         time_features = _get_dict(args, "time_features", device, regions)
         if time_features is not None:
             time_features = time_features.transpose(0, 1)
-            # TODO/FIXME: uncomment for rigorous test setting
-            # time_features = time_features.narrow(0, args.t0, new_cases.size(1))
+            time_features = time_features.narrow(0, args.t0, new_cases.size(1))
             print("Feature size = {} x {} x {}".format(*time_features.size()))
             print(time_features.min(), time_features.max())
             # time_features = to_one_hot(time_features, 15)
@@ -710,7 +691,7 @@ class BARCV(cv.CV):
         else:
             raise ValueError("Unknown beta function")
 
-        self.func = BAR(
+        self.func = self.model_cls(
             regions,
             beta_net,
             args.window,
