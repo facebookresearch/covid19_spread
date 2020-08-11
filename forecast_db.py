@@ -13,7 +13,7 @@ import datetime
 import itertools
 import tempfile
 import shutil
-from data.usa.process_cases import get_nyt
+from data.usa.process_cases import get_nyt, get_google
 import requests
 from xml.etree import ElementTree
 import yaml
@@ -105,9 +105,11 @@ LOC_MAP = {"new-jersey": "New Jersey", "nystate": "New York"}
 def to_sql(conn, df, table):
     cols = ["date", "loc1", "loc2", "loc3", "forecast_date", "counts", "id"]
     df = df[[c for c in cols if c in df.columns]]
-    df.to_sql(
-        "temp____", conn, if_exists="replace", index=False
-    )  # , method='multi', chunksize=1024)
+    if hasattr(df["date"], "dt"):
+        df["date"] = df["date"].dt.date
+    if "forecast_date" in df.columns and hasattr(df["forecast_date"], "dt"):
+        df["forecast_date"] = df["forecast_date"].dt.date
+    df.to_sql("temp____", conn, if_exists="replace", index=False)
     cols = ", ".join(df.columns)
     conn.execute(f"INSERT OR REPLACE INTO {table}({cols}) SELECT {cols} FROM temp____")
 
@@ -338,6 +340,31 @@ def sync_los_alamos(conn):
         to_sql(conn, cases, "infections")
 
 
+def to_csv(df, metric, model, forecast_date, deltas=False):
+    dt = pandas.to_datetime(forecast_date if forecast_date else 0)
+    basedir = f'/checkpoint/{os.environ["USER"]}/covid19/csvs'
+    if forecast_date != "":
+        forecast_date = "_" + str(forecast_date.date())
+
+    df["location"] = df.apply(
+        lambda x: x.loc2 + (", " + x.loc3 if x.loc3 else ""), axis=1
+    )
+    df = df.pivot_table(columns=["location"], values=["counts"], index="date")
+    df.columns = df.columns.get_level_values(-1)
+
+    if deltas:
+        df = df.diff()
+        if dt not in df.index:
+            print(
+                f"Warning: forecast_date not in forecast for {model}, {forecast_date}"
+            )
+    df = df[df.index > dt]
+
+    outfile = os.path.join(basedir, metric, model, f"counts{forecast_date}.csv")
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+    df.to_csv(outfile)
+
+
 def dump_to_csv(conn, distribute):
     basedir = f'/checkpoint/{os.environ["USER"]}/covid19/csvs'
 
@@ -349,34 +376,12 @@ def dump_to_csv(conn, distribute):
         for (model, forecast_date), group in df.fillna("").groupby(
             ["id", "forecast_date"]
         ):
-            dt = pandas.to_datetime(forecast_date if forecast_date else 0)
-            if forecast_date != "":
-                forecast_date = "_" + str(forecast_date.date())
-
-            group["location"] = group.apply(
-                lambda x: x.loc2 + (", " + x.loc3 if x.loc3 else ""), axis=1
-            )
-            group = group.pivot_table(
-                columns=["location"], values=["counts"], index="date"
-            )
-            group.columns = group.columns.get_level_values(-1)
-
-            if deltas:
-                group = group.diff()
-                if dt not in group.index:
-                    print(
-                        f"Warning: forecast_date not in forecast for {model}, {forecast_date}"
-                    )
-            group = group[group.index > dt]
-
-            outfile = os.path.join(basedir, metric, model, f"counts{forecast_date}.csv")
-            os.makedirs(os.path.dirname(outfile), exist_ok=True)
-            group.to_csv(outfile)
+            to_csv(group, metric, model, forecast_date, deltas)
 
     # f("deaths", True)
     # f("infections", True)
-    f("deaths", False)
     f("infections", False)
+    f("deaths", False)
 
     if distribute:
         ssh_alias = CLUSTERS[cluster.FAIR_CLUSTER]
@@ -456,26 +461,21 @@ def sync_jhu(conn):
         f"{data_pth}/csse_covid_19_data/csse_covid_19_daily_reports/*.csv"
     ):
         print(file)
-        try:
-            df = pandas.read_csv(file)
-            df = df.rename(columns=col_map)
-            df["date"] = pandas.to_datetime(df["date"])
-            df["id"] = "jhu_ground_truth"
-            df["date"] = df["date"].dt.date
-            to_sql(
-                conn,
-                df[~df["Confirmed"].isnull()].rename(columns={"Confirmed": "counts"}),
-                "infections",
-            )
-            to_sql(
-                conn,
-                df[~df["Deaths"].isnull()].rename(columns={"Deaths": "counts"}),
-                "deaths",
-            )
-        except Exception as e:
-            import pdb
-
-            pdb.set_trace()
+        df = pandas.read_csv(file)
+        df = df.rename(columns=col_map)
+        df["date"] = pandas.to_datetime(df["date"])
+        df["id"] = "jhu_ground_truth"
+        df["date"] = df["date"].dt.date
+        to_sql(
+            conn,
+            df[~df["Confirmed"].isnull()].rename(columns={"Confirmed": "counts"}),
+            "infections",
+        )
+        to_sql(
+            conn,
+            df[~df["Deaths"].isnull()].rename(columns={"Deaths": "counts"}),
+            "deaths",
+        )
 
 
 def sync_columbia(conn):
@@ -496,6 +496,7 @@ def sync_columbia(conn):
         df = pandas.read_csv(
             file, encoding="latin1", dtype={"fips": str}, parse_dates=["Date"]
         )
+        df["fips"] = df["fips"].str.zfill(5)
         # Convert to cumulative counts
         df = df.pivot(index="Date", columns="fips", values="report_50").cumsum()
         df = df.reset_index().melt(id_vars=["Date"], value_name="report_50")
@@ -526,11 +527,11 @@ def sync_columbia(conn):
         with_base["forecast_date"] = first_day
         name = re.search("Projection_(.*).csv", os.path.basename(file)).group(1)
         with_base["id"] = f"columbia_{name}"
+        # to_csv(with_base, "infections", f"columbia_{name}", first_day)
         to_sql(conn, with_base, "infections")
         conn.execute(
             f"INSERT INTO gt_mapping(id, gt) VALUES ('columbia_{name}','infections') ON CONFLICT DO NOTHING"
         )
-        # conn.execute(f"INSERT OR REPLACE INTO gt_mapping(id, gt) VALUES (?,?)", vals)
 
 
 def sync_usa_facts(conn):
@@ -569,6 +570,21 @@ def sync_usa_facts(conn):
         to_sql(conn, df, table)
 
 
+def sync_google(conn):
+    for metric in ["cases", "deaths"]:
+        df = get_google(metric=metric)
+        df = df.reset_index().melt(
+            id_vars=["date"], value_name="counts", var_name="loc"
+        )
+        df["loc1"] = "United States"
+        df["loc2"] = df["loc"].apply(lambda x: x.split("_")[0])
+        df["loc3"] = df["loc"].apply(lambda x: x.split("_")[1])
+        df["id"] = "google_ground_truth"
+        table = "infections" if metric == "cases" else metric
+        to_sql(conn, df, table)
+        to_csv(df, table, "google_ground_truth", "")
+
+
 @click.command()
 @click.option(
     "--distribute", is_flag=True, help="Distribute across clusters (H1/H2)",
@@ -577,6 +593,7 @@ def sync_forecasts(distribute=False):
     if not os.path.exists(DB):
         mk_db()
     conn = sqlite3.connect(DB)
+    sync_google(conn)
     sync_usa_facts(conn)
     sync_columbia(conn)
     sync_jhu(conn)
