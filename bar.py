@@ -82,7 +82,7 @@ class BetaLSTM(BetaRNN):
         self.rnn = nn.LSTM(input_dim, dim, layers, dropout=dropout)
         # self.rnn = nn.LSTM(4 * dim, dim, layers, dropout=dropout)
         self.rnn.reset_parameters()
-        self.h0 = nn.Parameter(th.randn(layers, M, dim))
+        self.h0 = nn.Parameter(th.zeros(layers, M, dim))
         self.c0 = nn.Parameter(th.randn(layers, M, dim))
         # self.mlp = MLP(3, 4 * dim, input_dim)
 
@@ -276,7 +276,7 @@ class BetaLatent(nn.Module):
         self.M = len(regions)
         self.tmax = tmax
         self.time_features = time_features
-        input_dim = 2
+        input_dim = 0
 
         if time_features is not None:
             input_dim += time_features.size(2)
@@ -284,17 +284,17 @@ class BetaLatent(nn.Module):
         self.fbeta = fbeta(self.M, input_dim)
 
     def forward(self, t, ys):
-        _ys = th.zeros_like(ys)
+        # _ys = th.zeros_like(ys)
         # _ys.narrow(1, 1, ys.size(1) - 1).copy_(ys[:, 1:] - ys[:, :-1])
-        _ys.narrow(1, 1, ys.size(1) - 1).copy_(
-            th.log(ys[:, 1:] + 1) - th.log(ys[:, :-1] + 1)
-        )
-        t = t.unsqueeze(-1).unsqueeze(-1).float()  # .div_(self.tmax)
-        t = t.expand(t.size(0), self.M, 1)
-        x = [t, _ys.t().unsqueeze(-1)]
+        # _ys.narrow(1, 1, ys.size(1) - 1).copy_(
+        #    th.log(ys[:, 1:] + 1) - th.log(ys[:, :-1] + 1)
+        # )
+        # t = t.unsqueeze(-1).unsqueeze(-1).float()  # .div_(self.tmax)
+        # t = t.expand(t.size(0), self.M, 1)
+        # x = [t, _ys.t().unsqueeze(-1)]
         # x = [t]
         # x = [_ys.t().unsqueeze(-1)]
-        # x = []
+        x = []
         if self.time_features is not None:
             if self.time_features.size(0) > t.size(0):
                 f = self.time_features.narrow(0, 0, t.size(0))
@@ -329,9 +329,9 @@ class BAR(nn.Module):
         self.features = features
         self.self_correlation = self_correlation
         self.window = window
-        self.z = nn.Parameter(th.zeros((1, window)).fill_(1))
+        # self.z = nn.Parameter(th.zeros((1, window)).fill_(1))
         # self.z = nn.Parameter(th.ones((self.M, window)).fill_(1))
-        # self.z = nn.Parameter(th.ones((self.M, 2)).fill_(1))
+        self.z = nn.Parameter(th.ones((self.M, 7)).fill_(1))
         self._alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(0))
         self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(8))
         self._dist = dist
@@ -470,10 +470,10 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
         # compute loss
         # model.nu_scale = model.nu_scale.narrow(1, 0, size_pred)
         dist = model.dist(scores.narrow(1, 0, size_pred))
-        _loss = -dist.log_prob(target)
-        loss = _loss.sum()
+        _loss = dist.log_prob(target)
+        loss = -_loss.sum(axis=1).mean()
 
-        stddev = model.dist(scores).stddev.mean()
+        stddev = model.dist(scores).variance.mean()
         loss += stddev * args.weight_decay
 
         # temporal smoothness
@@ -496,7 +496,7 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
         # make sure we have no NaNs
         assert loss == loss, (loss, scores, _loss)
 
-        nn.utils.clip_grad_norm_(model.parameters(), 5)
+        # nn.utils.clip_grad_norm_(model.parameters(), 5)
         # take gradient step
         optimizer.step()
 
@@ -507,23 +507,24 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                 maes = th.abs(dist.mean - new_cases.narrow(1, 1, length))
                 z = F.softplus(model.z)
                 nu = th.sigmoid(model.nu)
+                means = model.dist(scores).mean
                 print(
                     f"[{itr:04d}] Loss {loss.item():.2f} | "
                     f"Temporal {reg.item():.5f} | "
                     f"MAE {maes.mean():.2f} | "
                     f"{model} | "
-                    f"{args.loss} ({scores[:, -1].min().item():.2f}, {scores[:, -1].max().item():.2f}) | "
+                    f"{args.loss} ({means[:, -1].min().item():.2f}, {means[:, -1].max().item():.2f}) | "
                     f"z ({z.min().item():.2f}, {z.mean().item():.2f}, {z.max().item():.2f}) | "
                     f"alpha ({W.min().item():.2f}, {W.mean().item():.2f}, {W.max().item():.2f}) | "
                     f"nu ({nu.min().item():.2f}, {nu.mean().item():.2f}, {nu.max().item():.2f}) | "
-                    f"nb_stddev ({stddev.data.mean().item()})"
+                    f"nb_stddev ({stddev.data.mean().item():.2f})"
                 )
                 optimizer.swap_swa_sgd()
                 th.save(model.state_dict(), checkpoint)
                 optimizer.swap_swa_sgd()
     optimizer.swap_swa_sgd()
     print(f"Train MAE,{maes.mean():.2f}")
-    return model
+    return model, loss.item(), maes.mean()
 
 
 def _get_arg(args, v, device, regions):
@@ -630,7 +631,7 @@ class BARCV(cv.CV):
         if time_features is not None:
             time_features = time_features.transpose(0, 1)
             # TODO/FIXME: uncomment for rigorous test setting
-            # time_features = time_features.narrow(0, args.t0, new_cases.size(1))
+            time_features = time_features.narrow(0, args.t0, new_cases.size(1))
             print("Feature size = {} x {} x {}".format(*time_features.size()))
             print(time_features.min(), time_features.max())
             # time_features = to_one_hot(time_features, 15)
@@ -680,7 +681,6 @@ class BARCV(cv.CV):
                 int(layers),
                 int(dim),
                 input_dim,
-                # 15 - 1,
                 dropout=getattr(args, "dropout", 0.0),
             )
             beta_net = BetaLatent(fbeta, regions, tmax, time_features)
@@ -728,7 +728,7 @@ class BARCV(cv.CV):
 
         params = []
         # exclude = {"nu", "beta.w_feat.weight", "beta.w_feat.bias"}
-        exclude = {"nu", "_alphas", "beta.fbeta.h0"}
+        exclude = {"nu", "_alphas", "beta.fbeta.h0", "beta.fbeta.c0"}
         for name, p in dict(self.func.named_parameters()).items():
             wd = 0 if name in exclude else args.weight_decay
             if wd != 0:
@@ -738,7 +738,7 @@ class BARCV(cv.CV):
         base_opt = optim.AdamW(
             params,
             lr=args.lr,
-            betas=[args.momentum, 0.999],
+            betas=[args.momentum, 0.98],
             weight_decay=args.weight_decay,
         )
         # base_opt = optim.SGD(
