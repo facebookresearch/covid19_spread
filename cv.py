@@ -14,6 +14,7 @@ import sys
 import submitit
 import tempfile
 import torch as th
+import torch.nn.functional as F
 import traceback
 import yaml
 from argparse import Namespace
@@ -182,17 +183,16 @@ class CV:
 
 def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=None):
     return _run_cv(module, basedir, cfg, prefix, basedate)
-    try:
-        _run_cv(module, basedir, cfg, prefix, basedate)
-    except KeyboardInterrupt as e:
-        raise e
-    except Exception as e:
-        print(f"Job {basedir} failed")
-        print(e)
-        traceback.print_exc()
 
 
-def _run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=None):
+def _run_cv(
+    module: str,
+    basedir: str,
+    cfg: Dict[str, Any],
+    prefix="",
+    basedate=None,
+    n_models=1,
+):
     """Runs cross validaiton for one set of hyperaparmeters"""
     try:
         basedir = basedir.replace("%j", submitit.JobEnvironment().job_id)
@@ -229,24 +229,36 @@ def _run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=
     preprocessed = _path(prefix + "preprocessed_" + os.path.basename(dset))
     mod.preprocess(val_in, preprocessed, cfg[module].get("preprocess", {}))
 
-    # setup logging
+    forecasts = []
+    weights = []
     mod.setup_tensorboard(basedir)
-
-    # -- train --
+    # setup logging
     train_params = Namespace(**cfg[module]["train"])
-    model = mod.run_train(
-        preprocessed, train_params, _path(prefix + cfg[module]["output"])
-    )
-    mod.tb_writer.close()
-
-    # -- simulate --
-    with th.no_grad():
-        sim_params = cfg[module].get("simulate", {})
-        # Returns the number of new cases for each day
-        df_forecast_deltas = mod.run_simulate(
-            preprocessed, train_params, model, sim_params=sim_params
+    n_models = getattr(train_params, "n_models", 1)
+    print(f"Training {n_models} models")
+    for mod_id in range(n_models):
+        # -- train --
+        print("Training model", mod_id)
+        model, nll, _ = mod.run_train(
+            preprocessed, train_params, _path(prefix + cfg[module]["output"])
         )
-        df_forecast = rebase_forecast_deltas(val_in, df_forecast_deltas)
+        weights.append(-nll)
+
+        # -- simulate --
+        with th.no_grad():
+            sim_params = cfg[module].get("simulate", {})
+            # Returns the number of new cases for each day
+            df_forecast_deltas = mod.run_simulate(
+                preprocessed, train_params, model, sim_params=sim_params
+            )
+            forecasts.append(rebase_forecast_deltas(val_in, df_forecast_deltas))
+    weights = F.softmax(th.tensor(weights)).numpy()
+    # forecasts = [weights[i] * f for i, f in enumerate(forecasts)]
+    # df_forecast = pd.concat(forecasts).groupby(level=0).sum()
+    df_forecast = pd.concat(forecasts).groupby(level=0).median()
+    print("Forecast weights", weights)
+    # print(df_forecast)
+    mod.tb_writer.close()
 
     print(f"Storing validation in {val_out}")
     df_forecast.to_csv(val_out, index_label="date")
@@ -299,6 +311,13 @@ def mk_absolute_paths(cfg):
             if isinstance(cfg, str) and os.path.exists(cfg)
             else cfg
         )
+
+
+def load_model(model_pth, cv, args):
+    chkpnt = th.load(model_pth)
+    cv.initialize(args)
+    cv.func.load_state_dict(chkpnt)
+    return cv.func
 
 
 def load_config(cfg_pth: str) -> Dict[str, Any]:
@@ -389,7 +408,7 @@ def cli():
 @click.argument("module")
 def notebook(config_pth, sweep_dir, module):
     config = load_config(config_pth)
-    attach_notebook(config, "backfill", module, sweep_dir)
+    attach_notebook(config, "cv", module, sweep_dir)
 
 
 @cli.command()
