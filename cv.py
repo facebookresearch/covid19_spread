@@ -233,7 +233,7 @@ def _run_cv(
     mod.preprocess(val_in, preprocessed, cfg[module].get("preprocess", {}))
 
     forecasts = []
-    weights = []
+    # weights = []
     mod.setup_tensorboard(basedir)
     # setup logging
     train_params = Namespace(**cfg[module]["train"])
@@ -242,10 +242,10 @@ def _run_cv(
     for mod_id in range(n_models):
         # -- train --
         print("Training model", mod_id)
-        model, nll, _ = mod.run_train(
+        model = mod.run_train(
             preprocessed, train_params, _path(prefix + cfg[module]["output"])
         )
-        weights.append(-nll)
+        # weights.append(-nll)
 
         # -- simulate --
         with th.no_grad():
@@ -255,7 +255,7 @@ def _run_cv(
                 preprocessed, train_params, model, sim_params=sim_params
             )
             forecasts.append(rebase_forecast_deltas(val_in, df_forecast_deltas))
-    weights = F.softmax(th.tensor(weights)).numpy()
+    # weights = F.softmax(th.tensor(weights)).numpy()
     # forecasts = [weights[i] * f for i, f in enumerate(forecasts)]
     # df_forecast = pd.concat(forecasts).groupby(level=0).sum()
     df_forecast = pd.concat(forecasts).groupby(level=0).median()
