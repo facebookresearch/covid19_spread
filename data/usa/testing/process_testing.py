@@ -109,5 +109,5 @@ def write_features(key, func_smooth, func_normalize):
 
 write_features("ratio", lambda _df: _df.rolling(7, axis=1).mean(), zscore)
 write_features(
-    "total", lambda _df: _df.diff(axis=1).rolling(7, axis=1).mean(), None,
+    "total", lambda _df: _df.diff(axis=1).rolling(7, axis=1).mean(), zero_one,
 )
