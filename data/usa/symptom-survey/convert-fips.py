@@ -56,10 +56,12 @@ for _fips, group in df_agg:
 df = pd.DataFrame(cols)
 df.set_index("region", inplace=True)
 
+df = df / 100
+
 # z-scores
 # df.iloc[:, 0:] = (
 #    df.iloc[:, 0:].values - df.iloc[:, 0:].mean(axis=1, skipna=True).values[:, None]
 # ) / df.iloc[:, 0:].std(axis=1, skipna=True).values[:, None]
-df = df.fillna(0) / 100
 
+df = df.fillna(0)
 df.round(3).to_csv(f"data-{signal}-county.csv")
