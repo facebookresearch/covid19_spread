@@ -259,8 +259,7 @@ def _run_cv(
     # forecasts = [weights[i] * f for i, f in enumerate(forecasts)]
     # df_forecast = pd.concat(forecasts).groupby(level=0).sum()
     df_forecast = pd.concat(forecasts).groupby(level=0).median()
-    print("Forecast weights", weights)
-    # print(df_forecast)
+    # print("Forecast weights", weights)
     mod.tb_writer.close()
 
     print(f"Storing validation in {val_out}")
