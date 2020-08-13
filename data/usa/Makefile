@@ -31,8 +31,8 @@ data_cases.csv: google/mobility_features.csv fb/mobility_features.csv symptom-su
 	grep "New York" $@ >> data_cases_ny.csv
 	grep "Florida" $@ >> data_cases_fl.csv
 
-data_deaths.csv:
-	python3 convert.py -metric deaths
+data_deaths.csv:	google/mobility_features.csv fb/mobility_features.csv symptom-survey/data-smoothed_hh_cmnty_cli-state.csv symptom-survey/data-smoothed_hh_cmnty_cli-county.csv google/weather_features.csv testing/testing_features.csv
+	python3 convert.py -with-features -source jhu -metric deaths
 
 clean:
 	cd google && make clean

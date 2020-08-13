@@ -145,10 +145,7 @@ class CV:
         else:
             shutil.copy(dset, preprocessed)
 
-    def model_selection(self, basedir: str) -> List[BestRun]:
-        """
-        Evaluate a sweep returning a list of models to retrain on the full dataset.
-        """
+    def metric_df(self, basedir):
         runs = []
         for metrics_pth in glob(os.path.join(basedir, "*/metrics.csv")):
             metrics = pd.read_csv(metrics_pth, index_col="Measure")
@@ -161,7 +158,13 @@ class CV:
                     "state_mae": metrics.loc["STATE_MAE"][-1],
                 }
             )
-        df = pd.DataFrame(runs)
+        return pd.DataFrame(runs)
+
+    def model_selection(self, basedir: str) -> List[BestRun]:
+        """
+        Evaluate a sweep returning a list of models to retrain on the full dataset.
+        """
+        df = self.metric_df(basedir)
         return [
             BestRun(df.sort_values(by="mae").iloc[0].pth, "best_mae"),
             BestRun(df.sort_values(by="rmse").iloc[0].pth, "best_rmse"),
@@ -222,7 +225,7 @@ def _run_cv(
         # out the different in days.  Ex: if ground truth contains data up to 5/20/2020
         # but the basedate is 5/10/2020, then drop an extra 10 days in addition to validation.days
         gt = metrics.load_ground_truth(dset)
-        assert gt.index.max() > basedate
+        assert gt.index.max() >= basedate
         ndays += (gt.index.max() - basedate).days
     filter_validation_days(dset, val_in, ndays)
     # apply data pre-processing
@@ -320,6 +323,19 @@ def load_model(model_pth, cv, args):
     return cv.func
 
 
+def copy_assets(cfg, dir):
+    if isinstance(cfg, dict):
+        return {k: copy_assets(v, dir) for k, v in cfg.items()}
+    elif isinstance(cfg, list):
+        return [copy_assets(x, dir) for x in cfg]
+    elif isinstance(cfg, str) and os.path.exists(cfg):
+        new_pth = os.path.join(dir, "assets", os.path.basename(cfg))
+        shutil.copy(cfg, new_pth)
+        return new_pth
+    else:
+        return cfg
+
+
 def load_config(cfg_pth: str) -> Dict[str, Any]:
     return mk_absolute_paths(yaml.load(open(cfg_pth), Loader=yaml.FullLoader))
 
@@ -388,6 +404,8 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
         name = ",".join(tags)
         print(f"Starting {name}: {pth}")
         job_config = load_config(os.path.join(pth, module + ".yml"))
+        if "test" in cfg:
+            job_config["train"]["test_on"] = cfg["test"]["days"]
         cfg[module] = job_config
         launcher = run_cv_and_copy_results
         if remote:
@@ -514,7 +532,11 @@ def cv(
     if remote:
         extra = cfg[module].get("resources", {})
         if executor is None:
-            executor = mk_executor(f"cv_{region}", basedir + "/%j", extra)
+            executor = mk_executor(
+                f"cv_{region}",
+                basedir + "/%j",
+                {**extra, "array_parallelism": array_parallelism},
+            )
         launcher = executor.map_array
         basedirs = [f"{basedir}/%j" for _ in cfgs]
     else:
@@ -527,7 +549,7 @@ def cv(
                 snapshot.SnapshotManager(
                     snapshot_dir=basedir + "/snapshot",
                     with_submodules=True,
-                    exclude=["data/*", "notebooks/*", "tests/*"],
+                    exclude=["notebooks/*", "tests/*"],
                 )
             )
         jobs = list(
@@ -612,12 +634,19 @@ def backfill(
 
     # setup executor
     extra_params = config[module].get("resources", {})
-    executor = mk_executor(f'backfill_{config["region"]}', basedir, extra_params)
+    executor = mk_executor(
+        f'backfill_{config["region"]}',
+        basedir,
+        {**extra_params, "array_parallelism": array_parallelism},
+    )
     print(f"Backfilling in {basedir}")
+    # Copy any asset files into `basedir/assets`
+    os.makedirs(os.path.join(basedir, "assets"))
+    config[module] = copy_assets(config[module], basedir)
     with snapshot.SnapshotManager(
         snapshot_dir=basedir + "/snapshot",
         with_submodules=True,
-        exclude=["data/*", "notebooks/*", "tests/*"],
+        exclude=["notebooks/*", "tests/*"],
     ), tempfile.NamedTemporaryFile() as tfile:
         # Make sure that we use the CFG with absolute paths since we are now inside the snapshot directory
         with open(tfile.name, "w") as fout:
