@@ -25,6 +25,8 @@ from email.mime.text import MIMEText
 from nb2mail import MailExporter
 import socket
 from lib.slack import get_client as get_slack_client
+import boto3
+import geopandas
 
 
 license_txt = (
@@ -50,6 +52,68 @@ if "__PROD__" in os.environ and os.environ["__PROD__"] == "1":
 @click.group()
 def cli():
     pass
+
+
+def get_county_geometries():
+    if not os.path.exists("cb_2018_us_county_20m.zip"):
+        check_call(
+            [
+                "wget",
+                "https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_us_county_20m.zip",
+            ]
+        )
+
+    if not os.path.exists("us_counties"):
+        shutil.unpack_archive("cb_2018_us_county_20m.zip", "us_counties")
+
+    return geopandas.read_file("us_counties/cb_2018_us_county_20m.shp")
+
+
+@cli.command()
+@click.argument("pth")
+@click.option("--metric", default="best_mae")
+def submit_s3(pth, metric):
+    geometries = get_county_geometries()
+    index = pandas.read_csv(
+        "https://storage.googleapis.com/covid19-open-data/v2/index.csv"
+    )
+    fips = pandas.read_csv(
+        "https://raw.githubusercontent.com/kjhealy/fips-codes/master/state_and_county_fips_master.csv"
+    )
+    fips["fips"] = fips["fips"].astype(str).str.zfill(5)
+    index = index.merge(fips, left_on="subregion2_code", right_on="fips")
+
+    model_selection = json.load(open(os.path.join(pth, "model_selection.json")))
+    model_selection = {x["name"]: x["pth"] for x in model_selection}
+    model_selection[metric]
+    job = os.path.join(pth, os.path.basename(model_selection[metric]))
+    forecast = pandas.read_csv(
+        os.path.join(job, "final_model_validation.csv"), parse_dates=["date"]
+    )
+    forecast = forecast.melt(
+        id_vars=["date"], value_name="estimated_cases", var_name="location"
+    )
+    forecast["loc3"] = forecast["location"].apply(lambda x: x.split(", ")[0])
+    forecast["loc2"] = forecast["location"].apply(lambda x: x.split(", ")[1])
+    forecast["loc1"] = "United States"
+    forecast = forecast[["date", "estimated_cases", "loc1", "loc2", "loc3"]]
+    basedate = str((forecast["date"].min() - timedelta(days=1)).date())
+    geom = geometries.merge(index, left_on="GEOID", right_on="subregion2_code")
+    geom["name"] = geom["name"].str.replace(" (County|Municipality|Parish)", "")
+    merged = forecast.merge(
+        geom, left_on=["loc2", "loc3"], right_on=["subregion1_name", "name"], how="left"
+    )
+    assert not merged["geometry"].isnull().any()
+    merged = merged[["date", "loc1", "loc2", "loc3", "geometry", "estimated_cases"]]
+    merged["geometry"] = merged["geometry"].apply(lambda x: x.wkt)
+
+    merged = merged[(merged["date"] - merged["date"].min()).dt.days < 30]
+
+    client = boto3.client("s3")
+    object_name = f"users/mattle/h2/covid19_forecasts/forecast_{basedate}.csv"
+    with tempfile.NamedTemporaryFile() as tfile:
+        merged.to_csv(tfile.name, index=False, sep="\t")
+        client.upload_file(tfile.name, "fairusersglobal", object_name)
 
 
 @cli.command()
