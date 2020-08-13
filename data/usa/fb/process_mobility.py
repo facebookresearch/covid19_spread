@@ -74,6 +74,13 @@ df = df.dropna(subset=["region"])
 print(df["region"].head())
 print(df["date"].min(), df["date"].max())
 
+
+def zscore(df):
+    # z-scores
+    df = (df.values - df.mean(skipna=True)) / df.std(skipna=True)
+    return df
+
+
 df = df[cols]
 regions = []
 for (name, _df) in df.groupby("region"):
@@ -83,10 +90,14 @@ for (name, _df) in df.groupby("region"):
     assert len(dates) == len(np.unique(dates)), _df
     _df = _df.loc[:, ~_df.columns.duplicated()]
     _df = _df.drop(columns=["region", "date"]).transpose()
-    # convert relative change into absolute numbers
-    _df.loc["all_day_bing_tiles_visited_relative_change"] += 1
     # take 7 day average
     _df = _df.rolling(7, axis=1).mean()
+    # convert relative change into absolute numbers
+    _df.loc["all_day_bing_tiles_visited_relative_change"] += 1
+    # standarize
+    # _df.loc["all_day_ratio_single_tile_users"] = zscore(
+    #    _df.loc["all_day_ratio_single_tile_users"]
+    # )
     _df["region"] = [name] * len(_df)
     _df.columns = list(map(lambda x: x.strftime("%Y-%m-%d"), dates)) + ["region"]
     regions.append(_df.reset_index())
@@ -95,10 +106,6 @@ df = pd.concat(regions, axis=0, ignore_index=True)
 cols = ["region"] + [x for x in df.columns if x != "region"]
 df = df[cols]
 
-# z-scores
-# df.iloc[:, 2:] = (
-#    df.iloc[:, 2:].values - df.iloc[:, 2:].mean(axis=1, skipna=True).values[:, None]
-# ) / df.iloc[:, 2:].std(axis=1, skipna=True).values[:, None]
 
 df = df.fillna(0)
 df = df.rename(columns={"index": "type"})
