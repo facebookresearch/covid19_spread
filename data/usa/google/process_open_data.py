@@ -1,13 +1,51 @@
 import pandas
+import re
+
 
 index = pandas.read_csv("https://storage.googleapis.com/covid19-open-data/v2/index.csv")
+
 index = index[index["country_code"] == "US"]
+state_index = index[(index["key"].str.match("^US_[A-Z]+$")).fillna(False)]
 
 fips = pandas.read_csv(
     "https://raw.githubusercontent.com/kjhealy/fips-codes/master/state_and_county_fips_master.csv"
 )
 fips["fips"] = fips["fips"].astype(str).str.zfill(5)
 index = index.merge(fips, left_on="subregion2_code", right_on="fips")
+
+df = pandas.read_csv(
+    "https://storage.googleapis.com/covid19-open-data/v2/epidemiology.csv",
+    parse_dates=["date"],
+)
+epi = df.merge(state_index, on="key")
+
+# Merge state level epi data to county level index.
+epi = epi[["date", "new_confirmed", "subregion1_code"]].merge(
+    index, on="subregion1_code"
+)
+epi["loc"] = (
+    epi["name"].str.replace(" (County|Municipality|Parish)", "")
+    + ", "
+    + epi["subregion1_name"]
+)
+
+epi_piv = epi.pivot(index="date", values=["new_confirmed"], columns="loc")
+epi_piv = (epi_piv - epi_piv.mean()) / epi_piv.std(skipna=True)
+epi_piv.index = [str(x.date()) for x in epi_piv.index]
+epi_piv.iloc[0] = epi_piv.iloc[0].fillna(0)
+epi_piv = epi_piv.fillna(0)
+
+epi_piv = epi_piv.transpose().unstack(0).transpose()
+epi_piv = epi_piv.stack().unstack(0).reset_index(0)
+epi_piv = epi_piv.rename(columns={"level_0": "type"})
+
+epi_piv = epi_piv.set_index("type", append=True)
+for ty in epi_piv.index.get_level_values(1).unique():
+    values = epi_piv.loc[(slice(None), ty), :].values.reshape(-1)
+    low, high = values.min(), values.max()
+    epi_piv.loc[(slice(None), ty), :] = (epi_piv.loc[(slice(None), ty), :] - low) / high
+
+epi_piv.to_csv("epi_features.csv", index_label=["region", "type"])
 
 # gov response is not granular enough
 # df = pandas.read_csv('https://storage.googleapis.com/covid19-open-data/v2/oxford-government-response.csv')
