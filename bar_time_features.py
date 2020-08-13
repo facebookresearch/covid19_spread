@@ -12,6 +12,8 @@ import yaml
 import click
 import sys
 from bar import BAR, BARCV
+import os
+import metrics
 
 
 class BARTimeFeatures(BAR):
@@ -23,6 +25,9 @@ class BARTimeFeatures(BAR):
             self.features = features.transpose(0, 1)
         features_size = features.size(-1) if features is not None else 0
         self.z = nn.Parameter(th.zeros((1 + features_size, window)).fill_(1))
+        self.combine_correlations = nn.Linear(2, 1)
+        nn.init.uniform_(self.combine_correlations.weight)
+        nn.init.uniform_(self.combine_correlations.bias)
 
     def score(self, t, ys):
         assert t.size(-1) == ys.size(-1), (t.size(), ys.size())
@@ -57,42 +62,23 @@ class BARTimeFeatures(BAR):
 
         # cross-correlation
         W = self.metapopulation_weights()
-
-        if self.features is not None:
-            # Use the concatenated cases/time features tensor
-            Ys_ = th.stack(
-                [
-                    F.pad(ys_.narrow(1, i, length), (0, 0, self.window - 1, 0))
-                    for i in range(self.window)
-                ]
-            )
-            # Ys_ (window x ncounties x time x time_features)
-            # When doing bmm, view Ys_ such that the last 2 dimensions are merged (window x ncounties x time * time_features)
-            temp = th.bmm(
-                W.unsqueeze(0).expand(self.window, -1, -1),
-                Ys_.view(Ys_.size(0), Ys_.size(1), -1),
-            )
-            # temp (window x ncounties x time * time_features)
-            # Average over window and time_features dimensions
-            Ys = temp.view_as(Ys_).mean(0).mean(-1)
-            # Ys (ncounties x time)
-        else:
-            Ys = th.stack(
-                [
-                    F.pad(ys.narrow(1, i, length), (self.window - 1, 0))
-                    for i in range(self.window)
-                ]
-            )
-            Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(
-                dim=0
-            )
+        Ys = th.stack(
+            [
+                F.pad(ys.narrow(1, i, length), (self.window - 1, 0))
+                for i in range(self.window)
+            ]
+        )
+        Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(dim=0)
 
         with th.no_grad():
             self.train_stats = (Z.sum().item(), Ys.sum().item())
 
         # beta evolution
         beta = self.beta(t, ys)
-        Ys = beta * (Z + Ys)
+        Ys = F.linear(
+            th.stack([Z, Ys], dim=-1), F.softplus(self.combine_correlations.weight)
+        ).squeeze(-1)
+        Ys = beta * Ys
         return Ys, beta, W
 
 
@@ -116,6 +102,34 @@ class BARTimeFeaturesCV(BARCV):
 
 CV_CLS = BARTimeFeaturesCV
 MODEL_CLS = BARTimeFeatures
+
+
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+@click.argument("pth")
+def simulate(pth):
+    chkpnt = th.load(pth)
+    mod = BARTimeFeaturesCV()
+    prefix = ""
+    if "final_model" in pth:
+        prefix = "final_model_"
+    cfg = yaml.safe_load(open(f"{os.path.dirname(pth)}/{prefix}bar_time_features.yml"))
+    args = argparse.Namespace(**cfg["train"])
+    new_cases, regions, basedate, device = mod.initialize(args)
+    mod.func.load_state_dict(chkpnt)
+    res = mod.func.simulate(new_cases.size(1), new_cases, args.test_on)
+    df = pd.DataFrame(res.cpu().data.numpy().transpose(), columns=regions)
+    df.index = pd.date_range(
+        start=pd.to_datetime(basedate) + timedelta(days=1), periods=len(df)
+    )
+    df = cv.rebase_forecast_deltas(cfg["data"], df)
+    gt = pd.read_csv(cfg["data"], index_col="region").transpose()
+    gt.index = pd.to_datetime(gt.index)
+    print(metrics._compute_metrics(gt, df, nanfill=True))
 
 
 def main(args):
@@ -145,4 +159,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    if len(sys.argv) > 1 and sys.argv[1] in cli.commands:
+        cli()
+    else:
+        main(sys.argv[1:])
