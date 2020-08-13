@@ -71,10 +71,6 @@ def mae(pred, gt):
     return (pred - gt).abs().mean(axis=1)
 
 
-def sae(pred, gt):
-    return (pred - gt).abs().std(axis=1)
-
-
 def mape(pred, gt):
     return ((pred - gt).abs() / gt.clip(1)).mean(axis=1)
 
@@ -139,7 +135,10 @@ def _compute_metrics(df_true, df_pred, mincount=0, nanfill=False):
         stack = pd.concat(
             [df_true.loc[[df_pred.index.min() - timedelta(days=1)]], df_pred]
         )
-        metrics.loc["MAE_DELTAS"] = mae(stack.diff().loc[ix], df_true.diff().loc[ix])
+        stack_diff = stack.diff().loc[ix]
+        true_diff = df_true.diff().loc[ix]
+        metrics.loc["MAE_DELTAS"] = mae(stack_diff, true_diff)
+        metrics.loc["RMSE_DELTAS"] = rmse(stack_diff, true_diff)
     return metrics
 
 
