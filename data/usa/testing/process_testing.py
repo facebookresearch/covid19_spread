@@ -79,8 +79,8 @@ def zscore(df):
 def zero_one(df):
     df = df.fillna(0)
     # df = df.sub(df.min(axis=1), axis=0)
-    # df = df.div(df.max(axis=1), axis=0)
-    df = df / df.values.max()
+    df = df.div(df.max(axis=1), axis=0)
+    # df = df / df.values.max()
     df = df.fillna(0)
     return df
 
