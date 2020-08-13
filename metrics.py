@@ -79,10 +79,14 @@ def mape(pred, gt):
     return ((pred - gt).abs() / gt.clip(1)).mean(axis=1)
 
 
-def compute_metrics(f_ground_truth, f_predictions, mincount=0):
+def max_mae(pred, gt):
+    return (pred - gt).abs().max(axis=1)
+
+
+def compute_metrics(f_ground_truth, f_predictions, mincount=0, nanfill=False):
     df_true = load_ground_truth(f_ground_truth)
     df_pred = pd.read_csv(f_predictions, parse_dates=["date"], index_col="date")
-    return _compute_metrics(df_true, df_pred, mincount)
+    return _compute_metrics(df_true, df_pred, mincount, nanfill=nanfill)
 
 
 def _compute_metrics(df_true, df_pred, mincount=0, nanfill=False):
@@ -124,11 +128,22 @@ def _compute_metrics(df_true, df_pred, mincount=0, nanfill=False):
             mape(df_pred, gt),
             rmse(naive, gt),
             mae(naive, gt),
+            max_mae(df_pred, gt),
+            max_mae(naive, gt),
             state_mae,
         ],
         columns=df_pred.index.to_numpy(),
     )
-    metrics["Measure"] = ["RMSE", "MAE", "MAPE", "RMSE_NAIVE", "MAE_NAIVE", "STATE_MAE"]
+    metrics["Measure"] = [
+        "RMSE",
+        "MAE",
+        "MAPE",
+        "RMSE_NAIVE",
+        "MAE_NAIVE",
+        "STATE_MAE",
+        "MAX_MAE",
+        "MAX_NAIVE_MAE",
+    ]
     metrics.set_index("Measure", inplace=True)
     if metrics.shape[1] > 0:
         metrics.loc["MAE_MASE"] = metrics.loc["MAE"] / metrics.loc["MAE_NAIVE"]
