@@ -13,13 +13,13 @@ state/$(signal).csv:
 	mkdir -p state
 	-python3 fetch.py state $(signal)
 	head -1 state/$(signal)-$(startdate).csv > $@
-	tail -n +2 state/$(signal)-*.csv >> $@
+	tail -q -n +2 state/$(signal)-*.csv >> $@
 
 county/$(signal).csv:
 	mkdir -p county
 	-python3 fetch.py county $(signal)
 	head -1 county/$(signal)-$(startdate).csv > $@
-	tail -n +2 county/$(signal)-*.csv >> $@
+	tail -q -n +2 county/$(signal)-*.csv >> $@
 
 data-$(signal)-state.csv: state/$(signal).csv
 	python3 convert-state.py $(signal)
