@@ -63,26 +63,51 @@ state_abbrvs = {
 
 df = pd.read_csv("testing_raw.csv", parse_dates=["date"], index_col="date")
 df["state"] = df["state"].apply(lambda x: state_abbrvs[x])
-df["tests"] = df["positive"] + df["negative"]
+df["total"] = df["positive"] + df["negative"]
 df["ratio"] = df["positive"] / df["negative"]
 df_aggr = df.groupby(by="state")
-states = []
-tests = []
-for state, data in df_aggr:
-    states.append(state)
-    tests.append(data["tests"])
-df = pd.concat(tests, axis=1)
-df.columns = states
-df = df.transpose()
-df = df.diff(axis=1).clip(0, None).rolling(7, axis=1).mean()  # .diff(axis=1)
 
-# z-scores
-# df.iloc[:, 0:] = (
-#    df.iloc[:, 0:].values - df.iloc[:, 0:].mean(axis=1, skipna=True).values[:, None]
-# ) / df.iloc[:, 0:].std(axis=1, skipna=True).values[:, None]
 
-df = df.fillna(0)
-# df = df.div(df.max(axis=1), axis=0)
-df = df / df.values.max()
-df.index.set_names("region", inplace=True)
-df.round(3).to_csv("testing_features.csv")
+def zscore(df):
+    df.iloc[:, 0:] = (
+        df.iloc[:, 0:].values - df.iloc[:, 0:].mean(axis=1, skipna=True).values[:, None]
+    ) / df.iloc[:, 0:].std(axis=1, skipna=True).values[:, None]
+    df = df.fillna(0)
+    return df
+
+
+def zero_one(df):
+    df = df.fillna(0)
+    # df = df.sub(df.min(axis=1), axis=0)
+    # df = df.div(df.max(axis=1), axis=0)
+    df = df / df.values.max()
+    df = df.fillna(0)
+    return df
+
+
+def write_features(key, func_smooth, func_normalize):
+    states = []
+    tests = []
+    for state, data in df_aggr:
+        states.append(state)
+        # tests.append(data["tests"])
+        tests.append(data[key])
+    df = pd.concat(tests, axis=1)
+    df.columns = states
+    df = df.transpose()
+    # df = df.diff(axis=1).clip(0, None).rolling(7, axis=1).mean()
+    # df = df.rolling(7, axis=1).mean()
+    df = func_smooth(df)
+    if func_normalize is not None:
+        df = func_normalize(df)
+
+    df = df.fillna(0)
+    print(df.head())
+    df.index.set_names("region", inplace=True)
+    df.round(3).to_csv(f"{key}_features.csv")
+
+
+write_features("ratio", lambda _df: _df.rolling(7, axis=1).mean(), zscore)
+write_features(
+    "total", lambda _df: _df.diff(axis=1).rolling(7, axis=1).mean(), None,
+)
