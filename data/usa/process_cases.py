@@ -93,51 +93,22 @@ def get_google(metric="cases"):
 
 
 def get_jhu(metric="cases"):
-    repo = "https://github.com/CSSEGISandData/COVID-19.git"
-    user = os.environ["USER"]
-    data_pth = f"/checkpoint/{user}/covid19/data/jhu_data"
-    os.makedirs(os.path.dirname(data_pth), exist_ok=True)
-    if not os.path.exists(data_pth):
-        check_call(["git", "clone", repo, data_pth])
-    check_call(["git", "pull"], cwd=data_pth)
-    col_map = {
-        "Country/Region": "loc1",
-        "Province/State": "loc2",
-        "Last Update": "date",
-        "Last_Update": "date",
-        "Admin2": "loc3",
-        "Province_State": "loc2",
-        "Country_Region": "loc1",
+    urls = {
+        "cases": "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv",
+        "deaths": "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv",
     }
-    fips = pandas.read_csv(
-        "https://raw.githubusercontent.com/kjhealy/fips-codes/master/state_and_county_fips_master.csv"
-    )
-    fips["fips"] = fips["fips"].astype(str).str.zfill(5)
-    value_col = "Confirmed" if metric == "cases" else "Deaths"
-    dfs = []
-    for file in glob(
-        f"{data_pth}/csse_covid_19_data/csse_covid_19_daily_reports/*.csv"
-    ):
-        df = pandas.read_csv(file)
-        df = df.rename(columns=col_map)
-        if "loc3" not in df.columns:
-            continue
 
-        # df = df[(df["loc1"] == "US") & (~df["loc3"].isnull()) & (~df["FIPS"].isnull())]
-        # df["FIPS"] = df["FIPS"].astype(int).astype(str).str.zfill(5)
-        # df = df.merge(fips, left_on="FIPS", right_on="fips")
-        df = df[(df["loc1"] == "US") & (~df["loc3"].isnull())]
-
-        df["loc"] = df["loc2"] + "_" + df["loc3"]
-        date = pandas.to_datetime(os.path.splitext(os.path.basename(file))[0])
-        df["date"] = date
-        dfs.append(df.drop_duplicates(["loc", "date"]))
-    df = pandas.concat(dfs)
-    pivot = df.pivot(index="date", values=value_col, columns="loc")
-    pivot.iloc[0] = pivot.iloc[0].fillna(0)
-    pivot = pivot.fillna(method="ffill")
-    pivot.to_csv("jhu.csv", index_label="date")
-    return pivot
+    df = pandas.read_csv(urls[metric])
+    date_cols = [c for c in df.columns if re.match("\d+/\d+/\d+", c)]
+    df = df[~df["Admin2"].isnull()]
+    US_TERRITORIES = {"AS", "GU", "MP", "PR", "VI", "UM"}
+    # Strip out US territories
+    df = df[~df["iso2"].isin(US_TERRITORIES)]
+    df["loc"] = df["Province_State"] + "_" + df["Admin2"]
+    df = df.set_index("loc")[date_cols].transpose()
+    df.index = pandas.to_datetime(df.index)
+    df.to_csv("jhu.csv")
+    return df
 
 
 SOURCES = {
