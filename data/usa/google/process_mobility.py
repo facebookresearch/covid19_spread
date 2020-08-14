@@ -68,4 +68,9 @@ df = df.fillna(0)
 df = df.rename(columns={"index": "type"})
 print(df.head(), len(df))
 
-df.round(3).to_csv("mobility_features.csv", index=False)
+df.round(3).to_csv("mobility_features_counties.csv", index=False)
+
+state = df.copy()
+state["region"] = state["region"].apply(lambda x: x.split(", ")[-1])
+state = state.groupby(["region", "type"]).mean().reset_index()
+state.to_csv("mobility_features_state.csv", index=False)

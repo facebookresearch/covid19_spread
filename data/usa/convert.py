@@ -261,7 +261,7 @@ if __name__ == "__main__":
             df, "symptom-survey/data-smoothed_hh_cmnty_cli-county.csv", 0, merge_nyc
         )
         process_time_features(df, "fb/mobility_features_county.csv", 7, merge_nyc)
-        process_time_features(df, "google/mobility_features.csv", 7, merge_nyc)
+        process_time_features(df, "google/mobility_features_county.csv", 7, merge_nyc)
         process_time_features(df, "google/weather_features.csv", 7, merge_nyc)
         process_time_features(df, "google/epi_features.csv", 7, merge_nyc)
 
