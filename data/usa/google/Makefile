@@ -13,7 +13,7 @@ mobility_features_county.csv: mobility_raw.csv
 mobility_features_state.csv: mobility_raw.csv
 	python3 process_mobility.py mobility_raw.csv
 
-weather_features.csv:
+weather_features_county.csv:
 	python3 process_open_data.py
 
 clean:
@@ -22,6 +22,12 @@ clean:
 	-rm mobility_features_state.pt
 	-rm mobility_features_county.csv
 	-rm mobility_features_county.pt
-	-rm weather_features.csv
-	-rm weather_features.pt
+	-rm weather_features_county.csv
+	-rm weather_features_county.pt
+	-rm weather_features_state.csv
+	-rm weather_features_state.pt
+	-rm epi_features_county.csv
+	-rm epi_features_county.pt
+	-rm epi_features_state.csv
+	-rm epi_features_state.pt
 # end

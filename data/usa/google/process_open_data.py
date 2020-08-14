@@ -45,7 +45,11 @@ for ty in epi_piv.index.get_level_values(1).unique():
     low, high = values.min(), values.max()
     epi_piv.loc[(slice(None), ty), :] = (epi_piv.loc[(slice(None), ty), :] - low) / high
 
-epi_piv.to_csv("epi_features.csv", index_label=["region", "type"])
+epi_piv.to_csv("epi_features_county.csv", index_label=["region", "type"])
+state_epi = epi_piv.copy().reset_index()
+state_epi["loc"] = state_epi["loc"].apply(lambda x: x.split(", ")[-1])
+state_epi = state_epi.groupby(["loc", "type"]).mean().reset_index()
+state_epi.set_index("loc").to_csv("epi_features_state.csv", index_label="region")
 
 # gov response is not granular enough
 # df = pandas.read_csv('https://storage.googleapis.com/covid19-open-data/v2/oxford-government-response.csv')
@@ -80,4 +84,10 @@ weather_piv = weather_piv.fillna(method="ffill")
 weather_piv = weather_piv.transpose().unstack(0).transpose()
 weather_piv = weather_piv.stack().unstack(0).reset_index(0)
 weather_piv = weather_piv.rename(columns={"level_0": "type"})
-weather_piv.round(3).to_csv("weather_features.csv", index_label="region")
+weather_piv.round(3).to_csv("weather_features_county.csv", index_label="region")
+weather_state = weather_piv.copy().reset_index()
+weather_state["loc"] = weather_state["loc"].apply(lambda x: x.split(", ")[-1])
+weather_state = weather_state.groupby(["loc", "type"]).mean().reset_index()
+weather_state.set_index("loc").to_csv(
+    "weather_features_state.csv", index_label="region"
+)
