@@ -22,10 +22,10 @@ county/$(signal).csv:
 	tail -q -n +2 county/$(signal)-*.csv >> $@
 
 data-$(signal)-state.csv: state/$(signal).csv
-	python3 convert-state.py $(signal)
+	python3 process_symptom_survey.py -signal $(signal) -resolution state
 
 data-$(signal)-county.csv: county/$(signal).csv
-	python3 convert-fips.py $(signal)
+	python3 process_symptom_survey.py -signal $(signal) -resolution county
 
 clean:
 	-rm state/$(signal).csv

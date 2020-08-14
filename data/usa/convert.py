@@ -199,11 +199,9 @@ if __name__ == "__main__":
     parser.add_argument("-with-features", default=False, action="store_true")
     parser.add_argument("-source", choices=SOURCES.keys(), default="nyt")
     opt = parser.parse_args()
-
     population = read_population()
     df = SOURCES[opt.source](opt.metric)
     df.index = pd.to_datetime(df.index)
-    print(df.tail())
 
     # state_policies = pd.read_csv("policy_features.csv")
 
@@ -218,12 +216,10 @@ if __name__ == "__main__":
 
     dates = df.index
     df.columns = [c.split("_")[1] + ", " + c.split("_")[0] for c in df.columns]
-    print(df.columns)
     # df = df[[c for c in df.columns if c in population]]
 
     # drop all zero columns
     df = df[df.columns[(df.sum(axis=0) != 0).values]]
-    print(df.head())
 
     population_counties = list(population.keys())
     df_pop = pd.DataFrame.from_dict(
@@ -262,11 +258,13 @@ if __name__ == "__main__":
         merge_nyc = opt.metric == "deaths"
         process_testing(df, "testing/total_features.csv")
         process_testing(df, "testing/ratio_features.csv")
-        process_symptom_survey(df, "smoothed_hh_cmnty_cli", "county", 0)
-        process_symptom_survey(df, "smoothed_hh_cmnty_cli", "state", 0)
+        process_mobility(
+            df, "symptom-survey/data-smoothed_hh_cmnty_cli-county.csv", 0, merge_nyc
+        )
         process_mobility(df, "fb/mobility_features.csv", 7, merge_nyc)
         process_mobility(df, "google/mobility_features.csv", 7, merge_nyc)
         process_mobility(df, "google/weather_features.csv", 7, merge_nyc)
+        process_mobility(df, "google/epi_features.csv", 7, merge_nyc)
 
 
 # n_policies = len(np.unique(state_policies["policy"]))
