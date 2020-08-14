@@ -347,7 +347,7 @@ def to_csv(df, metric, model, forecast_date, deltas=False):
         forecast_date = "_" + str(forecast_date.date())
 
     df["location"] = df.apply(
-        lambda x: x.loc2 + (", " + x.loc3 if x.loc3 else ""), axis=1
+        lambda x: ((x.loc3 + ", ") if x.loc3 else "") + x.loc2, axis=1
     )
     df = df.pivot_table(columns=["location"], values=["counts"], index="date")
     df.columns = df.columns.get_level_values(-1)
