@@ -66,13 +66,8 @@ assert len(txt_files) == 1
 fin = txt_files[0]
 df = get_county_mobility_fb(fin)
 df = df.rename(columns={"ds": "date", "polygon_id": "region"})
-print(df.columns)
-print(df.iloc[0])
-print(df.head())
 df["region"] = df["region"].apply(rename_fips)
 df = df.dropna(subset=["region"])
-print(df["region"].head())
-print(df["date"].min(), df["date"].max())
 
 
 def zscore(df):
@@ -109,6 +104,10 @@ df = df[cols]
 
 df = df.fillna(0)
 df = df.rename(columns={"index": "type"})
-print(df.head(), df.shape)
 
-df.round(4).to_csv("mobility_features.csv", index=False)
+df.round(4).to_csv("mobility_features_county.csv", index=False)
+
+state = df.copy()
+state["region"] = state["region"].apply(lambda x: x.split(", ")[-1])
+state = state.groupby(["region", "type"]).mean().reset_index()
+state.to_csv("mobility_features_state.csv", index=False)

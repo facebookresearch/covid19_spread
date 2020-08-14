@@ -12,8 +12,8 @@ google/mobility_features.csv:
 google/weather_features.csv:
 	cd google && make weather_features.csv
 
-fb/mobility_features.csv:
-	cd fb && make mobility_features.csv
+fb/mobility_features_county.csv:
+	cd fb && make mobility_features_county.csv
 
 testing/testing_features_county.csv:
 	cd testing && make testing_features_county.csv
@@ -24,14 +24,14 @@ symptom-survey/data-smoothed_hh_cmnty_cli-county.csv:
 symptom-survey/data-smoothed_hh_cmnty_cli-state.csv:
 	cd symptom-survey && make data-smoothed_hh_cmnty_cli-state.csv
 
-data_cases.csv: google/mobility_features.csv fb/mobility_features.csv symptom-survey/data-smoothed_hh_cmnty_cli-state.csv symptom-survey/data-smoothed_hh_cmnty_cli-county.csv google/weather_features.csv testing/testing_features_county.csv
+data_cases.csv: google/mobility_features.csv fb/mobility_features_county.csv symptom-survey/data-smoothed_hh_cmnty_cli-state.csv symptom-survey/data-smoothed_hh_cmnty_cli-county.csv google/weather_features.csv testing/testing_features_county.csv
 	python3 convert.py -with-features -source google -metric cases
 	head -1 $@ > data_cases_ny.csv
 	head -1 $@ > data_cases_fl.csv
 	grep "New York" $@ >> data_cases_ny.csv
 	grep "Florida" $@ >> data_cases_fl.csv
 
-data_deaths.csv:	google/mobility_features.csv fb/mobility_features.csv symptom-survey/data-smoothed_hh_cmnty_cli-state.csv symptom-survey/data-smoothed_hh_cmnty_cli-county.csv google/weather_features.csv testing/testing_features.csv
+data_deaths.csv:	google/mobility_features.csv fb/mobility_features_county.csv symptom-survey/data-smoothed_hh_cmnty_cli-state.csv symptom-survey/data-smoothed_hh_cmnty_cli-county.csv google/weather_features.csv testing/testing_features.csv
 	python3 convert.py -with-features -source jhu -metric deaths
 
 clean:
