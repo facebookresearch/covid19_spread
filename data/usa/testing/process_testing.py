@@ -1,71 +1,20 @@
 #!/usr/bin/env python3
 
 import pandas as pd
+from datetime import datetime
 
-state_abbrvs = {
-    "AL": "Alabama",
-    "AK": "Alaska",
-    "AZ": "Arizona",
-    "AS": "American Samoa",
-    "AR": "Arkansas",
-    "CA": "California",
-    "CO": "Colorado",
-    "CT": "Connecticut",
-    "DE": "Delaware",
-    "DC": "District of Columbia",
-    "FL": "Florida",
-    "GA": "Georgia",
-    "GU": "Guam",
-    "HI": "Hawaii",
-    "ID": "Idaho",
-    "IL": "Illinois",
-    "IN": "Indiana",
-    "IA": "Iowa",
-    "KS": "Kansas",
-    "KY": "Kentucky",
-    "LA": "Louisiana",
-    "ME": "Maine",
-    "MD": "Maryland",
-    "MA": "Massachusetts",
-    "MI": "Michigan",
-    "MN": "Minnesota",
-    "MP": "Northern Marianas",
-    "MS": "Mississippi",
-    "MO": "Missouri",
-    "MT": "Montana",
-    "NE": "Nebraska",
-    "NV": "Nevada",
-    "NH": "New Hampshire",
-    "NJ": "New Jersey",
-    "NM": "New Mexico",
-    "NY": "New York",
-    "NC": "North Carolina",
-    "ND": "North Dakota",
-    "OH": "Ohio",
-    "OK": "Oklahoma",
-    "OR": "Oregon",
-    "PA": "Pennsylvania",
-    "PR": "Puerto Rico",
-    "RI": "Rhode Island",
-    "SC": "South Carolina",
-    "SD": "South Dakota",
-    "TN": "Tennessee",
-    "TX": "Texas",
-    "UT": "Utah",
-    "VI": "Virgin Islands",
-    "VT": "Vermont",
-    "VA": "Virginia",
-    "WA": "Washington",
-    "WV": "West Virginia",
-    "WI": "Wisconsin",
-    "WY": "Wyoming",
-}
+df = pd.read_csv("testing_raw.csv", parse_dates=["date"])
 
-df = pd.read_csv("testing_raw.csv", parse_dates=["date"], index_col="date")
-df["state"] = df["state"].apply(lambda x: state_abbrvs[x])
+fips = pd.read_csv("../county_fips_master.csv", encoding="latin1", dtype={"fips": str})
+fips = fips.drop_duplicates("fips")
+
+df = df.merge(
+    fips.drop_duplicates("state_abbr"), left_on="state", right_on="state_abbr"
+)
+df = df[["state_name", "negative", "positive", "date"]].set_index("date")
+
 df["total"] = df["positive"] + df["negative"]
 df["ratio"] = df["positive"] / df["negative"]
-df_aggr = df.groupby(by="state")
 
 
 def zscore(df):
@@ -78,36 +27,39 @@ def zscore(df):
 
 def zero_one(df):
     df = df.fillna(0)
-    # df = df.sub(df.min(axis=1), axis=0)
     df = df.div(df.max(axis=1), axis=0)
-    # df = df / df.values.max()
     df = df.fillna(0)
     return df
 
 
-def write_features(key, func_smooth, func_normalize):
-    states = []
-    tests = []
-    for state, data in df_aggr:
-        states.append(state)
-        # tests.append(data["tests"])
-        tests.append(data[key])
-    df = pd.concat(tests, axis=1)
-    df.columns = states
-    df = df.transpose()
-    # df = df.diff(axis=1).clip(0, None).rolling(7, axis=1).mean()
-    # df = df.rolling(7, axis=1).mean()
+def fmt_features(df, key, func_smooth, func_normalize):
+    pivot = df.pivot(columns="state_name", values=key)
+    df = pivot.transpose()
     df = func_smooth(df)
     if func_normalize is not None:
         df = func_normalize(df)
-
     df = df.fillna(0)
-    print(df.head())
     df.index.set_names("region", inplace=True)
-    df.round(3).to_csv(f"{key}_features.csv")
+    df["type"] = f"testing_{key}"
+    df.round(3).to_csv(f"{key}_features_state.csv")
+    merge = df.merge(fips, left_index=True, right_on="state_name")
+    merge.index = merge["county_name"] + ", " + merge["state_name"]
+    return df, merge[df.columns]
 
 
-write_features("ratio", lambda _df: _df.rolling(7, axis=1).mean(), zscore)
-write_features(
-    "total", lambda _df: _df.diff(axis=1).rolling(7, axis=1).mean(), zero_one,
+state_r, county_r = fmt_features(
+    df, "ratio", lambda _df: _df.rolling(7, axis=1).mean(), zscore
 )
+state_t, county_t = fmt_features(
+    df, "total", lambda _df: _df.diff(axis=1).rolling(7, axis=1).mean(), zero_one,
+)
+
+
+def write_features(df, res):
+    df = df[["type"] + [c for c in df.columns if isinstance(c, datetime)]]
+    df.columns = [str(x.date()) if isinstance(x, datetime) else x for x in df.columns]
+    df.to_csv(f"testing_features_{res}.csv", index_label="region")
+
+
+write_features(pd.concat([state_r, state_t]), "state")
+write_features(pd.concat([county_r, county_t]), "county")
