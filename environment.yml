@@ -35,3 +35,4 @@ dependencies:
     - google-auth-httplib2
     - google-auth-oauthlib
     - hdx-python-api
+    - covidcast
