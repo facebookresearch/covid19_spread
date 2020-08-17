@@ -54,7 +54,7 @@ class BARTimeFeatures(BAR):
                     groups=self.z.size(0),
                 )
                 # Z (ncounties x time_feats x time)
-                Z = Z.sum(1) / float(self.window)
+                Z = F.softplus(Z.sum(1) / float(self.window))
                 # Z (ncounties x time)
             else:
                 Z = F.conv1d(F.pad(ys, (self.z.size(1) - 1, 0)).unsqueeze(1), ws)
