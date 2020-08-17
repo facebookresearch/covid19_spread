@@ -496,6 +496,11 @@ def cv(
 
     os.makedirs(basedir, exist_ok=True)
 
+    if not in_backfill:
+        # Copy any asset files into `basedir/assets`
+        os.makedirs(os.path.join(basedir, "assets"))
+        cfg[module] = copy_assets(cfg[module], basedir)
+
     # Copy the dataset into the basedir
     shutil.copy(cfg[module]["data"], basedir)
     cfg[module]["data"] = os.path.join(basedir, os.path.basename(cfg[module]["data"]))
