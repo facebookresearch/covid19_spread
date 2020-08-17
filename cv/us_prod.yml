@@ -27,12 +27,12 @@ bar_time_features:
     cross_correlation: True
     time_features:
       -
-        - data/usa/testing/features.pt
-        - data/usa/fb/mobility_features.pt
-        - data/usa/symptom-survey/features_county.pt
-        - data/usa/symptom-survey/features_state.pt
-        - data/usa/google/mobility_features.pt
-        - data/usa/google/weather_features.pt
+        - data/usa/fb/mobility_features_county.pt
+        - data/usa/google/mobility_features_county.pt
+        - data/usa/google/weather_features_county.pt
+        - data/usa/symptom-survey/data-smoothed_hh_cmnty_cli-county.pt
+        - data/usa/testing/testing_features_county.pt
+        # - data/usa/google/epi_features_county.pt
     activation: sigmoid
     decay: [lstm2_2]
     window: [20, 25]
