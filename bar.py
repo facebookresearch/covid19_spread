@@ -615,6 +615,10 @@ class BARCV(cv.CV):
         cases, regions, basedate = load.load_confirmed_csv(args.fdat)
         assert (cases == cases).all(), th.where(cases != cases)
         new_cases = cases[:, 1:] - cases[:, :-1]
+
+        # Cumulative max across time
+        new_cases = new_cases + new_cases.clamp(max=0).abs().cumsum(dim=1)
+
         assert (new_cases >= 0).all(), th.where(new_cases < 0)
         new_cases = new_cases.float().to(device)[:, args.t0 :]
 

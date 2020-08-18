@@ -198,6 +198,7 @@ if __name__ == "__main__":
     parser.add_argument("-metric", default="cases", choices=["cases", "deaths"])
     parser.add_argument("-with-features", default=False, action="store_true")
     parser.add_argument("-source", choices=SOURCES.keys(), default="nyt")
+    parser.add_argument("-resolution", choices=["county", "state"], default="county")
     opt = parser.parse_args()
     population = read_population()
     df = SOURCES[opt.source](opt.metric)
@@ -228,42 +229,50 @@ if __name__ == "__main__":
             "population": [population[county] for county in population_counties],
         }
     )
+
     df_pop.to_csv("population.csv", index=False, header=False)
     df = df.transpose()  # row for each county, columns correspond to dates...
     county_id = {c: i for i, c in enumerate(df.index)}
     # make sure counts are strictly increasing
-    df = df.cummax(axis=1)
+    # df = df.cummax(axis=1)
 
     # throw away all-zero columns, i.e., days with no cases
     counts = df.sum(axis=0)
     df = df.iloc[:, np.where(counts > 0)[0]]
 
+    if opt.resolution == "state":
+        df = df.groupby(lambda x: x.split(", ")[-1]).sum()
+        df = df.drop(
+            index=["Virgin Islands", "Northern Mariana Islands", "Puerto Rico", "Guam"],
+            errors="ignore",
+        )
+
     df.to_csv(f"data_{opt.metric}.csv", index_label="region")
 
-    df.groupby(lambda x: x.split(", ")[-1]).sum().to_csv(
-        f"data_states_{opt.metric}.csv", index_label="region"
-    )
+    if opt.resolution == "county":
+        # Build state graph...
+        adj = np.zeros((len(df), len(df)))
+        for _, g in df.groupby(lambda x: x.split(", ")[-1]):
+            idxs = np.array([county_id[c] for c in g.index])
+            adj[np.ix_(idxs, idxs)] = 1
 
-    # Build state graph...
-    adj = np.zeros((len(df), len(df)))
-    for _, g in df.groupby(lambda x: x.split(", ")[-1]):
-        idxs = np.array([county_id[c] for c in g.index])
-        adj[np.ix_(idxs, idxs)] = 1
-
-    print(adj)
-    th.save(th.from_numpy(adj), "state_graph.pt")
+        print(adj)
+        th.save(th.from_numpy(adj), "state_graph.pt")
 
     # process_county_features(df)
     if opt.with_features:
-        merge_nyc = opt.metric == "deaths"
-        process_time_features(df, "testing/testing_features_county.csv", 0, merge_nyc)
+        res = opt.resolution
+        merge_nyc = opt.metric == "deaths" and res == "county"
+        process_time_features(df, f"testing/testing_features_{res}.csv", 0, merge_nyc)
         process_time_features(
-            df, "symptom-survey/data-smoothed_hh_cmnty_cli-county.csv", 0, merge_nyc
+            df, f"symptom-survey/data-smoothed_hh_cmnty_cli-{res}.csv", 0, merge_nyc
         )
-        process_time_features(df, "fb/mobility_features_county.csv", 7, merge_nyc)
-        process_time_features(df, "google/mobility_features_county.csv", 7, merge_nyc)
-        process_time_features(df, "google/weather_features_county.csv", 7, merge_nyc)
-        process_time_features(df, "google/epi_features_county.csv", 7, merge_nyc)
+        process_time_features(df, f"fb/mobility_features_{res}_fb.csv", 7, merge_nyc)
+        process_time_features(
+            df, f"google/mobility_features_{res}_google.csv", 7, merge_nyc
+        )
+        process_time_features(df, f"google/weather_features_{res}.csv", 7, merge_nyc)
+        process_time_features(df, f"google/epi_features_{res}.csv", 7, merge_nyc)
 
 
 # n_policies = len(np.unique(state_policies["policy"]))

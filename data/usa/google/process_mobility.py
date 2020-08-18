@@ -3,6 +3,7 @@
 import sys
 import numpy as np
 import pandas as pd
+from datetime import datetime
 
 sys.path.append("../../../")
 from common import standardize_county_name
@@ -34,43 +35,36 @@ def get_county_mobility_google(fin=None):
 fin = sys.argv[1] if len(sys.argv) == 2 else None
 df = get_county_mobility_google(fin)
 df = df.dropna(subset=["sub_region_2"], axis=0)
-df["sub_region_2"] = df["sub_region_2"].transform(standardize_county_name)
-df["region"] = df[["sub_region_2", "sub_region_1"]].agg(", ".join, axis=1)
-print(df["region"].head())
-print(df["date"].min(), df["date"].max())
+df["fips"] = df["census_fips_code"].apply(lambda x: str(int(x))).str.zfill(5)
+fips = pd.read_csv("../county_fips_master.csv", encoding="latin1")
+fips["fips"] = fips["fips"].astype(str).str.zfill(5)
+
+df = df.merge(fips, on="fips")
+df["county_name"] = df["county_name"].transform(standardize_county_name)
+df["region"] = df[["county_name", "state_name"]].agg(", ".join, axis=1)
+
 
 df = df[cols]
-regions = []
-for (name, _df) in df.groupby("region"):
-    _df = _df.sort_values(by="date")
-    _df = _df.drop_duplicates(subset="date")
-    dates = _df["date"].to_list()
-    assert len(dates) == len(np.unique(dates)), _df
-    _df = _df.loc[:, ~_df.columns.duplicated()]
-    _df = _df.drop(columns=["region", "date"]).transpose()
-    _df = 1 + _df / 100
-    # take 7 day average
-    _df = _df.rolling(7, axis=1).mean()
-    _df["region"] = [name] * len(_df)
-    _df.columns = list(map(lambda x: x.strftime("%Y-%m-%d"), dates)) + ["region"]
-    regions.append(_df.reset_index())
 
-df = pd.concat(regions, axis=0, ignore_index=True)
-cols = ["region"] + [x for x in df.columns if x != "region"]
-df = df[cols]
+val_cols = [c for c in df.columns if c not in {"region", "date"}]
+ratio = (1 + df.set_index(["region", "date"]) / 100).reset_index()
+piv = ratio.pivot(index="date", columns="region", values=val_cols)
+piv = piv.rolling(7, min_periods=1).mean().transpose()
+piv.iloc[0] = piv.iloc[0].fillna(0)
+piv = piv.fillna(method="ffill")
 
-# z-scores
-# df.iloc[:, 2:] = (
-#    df.iloc[:, 2:].values - df.iloc[:, 2:].mean(axis=1, skipna=True).values[:, None]
-# ) / df.iloc[:, 2:].std(axis=1, skipna=True).values[:, None]
+dfs = []
+for k in piv.index.get_level_values(0).unique():
+    df = piv.loc[k].copy()
+    df["type"] = k
+    dfs.append(df)
+df = pd.concat(dfs)
+df = df[["type"] + sorted([c for c in df.columns if isinstance(c, datetime)])]
+df.columns = [str(c.date()) if isinstance(c, datetime) else c for c in df.columns]
 
-df = df.fillna(0)
-df = df.rename(columns={"index": "type"})
-print(df.head(), len(df))
+df.to_csv("mobility_features_county_google.csv")
 
-df.round(3).to_csv("mobility_features_county.csv", index=False)
-
-state = df.copy()
+state = df.reset_index().copy()
 state["region"] = state["region"].apply(lambda x: x.split(", ")[-1])
 state = state.groupby(["region", "type"]).mean().reset_index()
-state.to_csv("mobility_features_state.csv", index=False)
+state.to_csv("mobility_features_state_google.csv", index=False)
