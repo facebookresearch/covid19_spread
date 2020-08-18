@@ -55,7 +55,9 @@ def rename_fips(f):
 
 
 def get_county_mobility_fb(fin):
-    df_mobility_global = pd.read_csv(fin, parse_dates=["ds"], header=0, delimiter="\t")
+    df_mobility_global = pd.read_csv(
+        fin, parse_dates=["ds"], delimiter="\t", dtype={"polygon_id": str}
+    )
     df_mobility_usa = df_mobility_global.query("country == 'USA'")
     return df_mobility_usa
 
@@ -76,38 +78,42 @@ def zscore(df):
     return df
 
 
-df = df[cols]
-regions = []
-for (name, _df) in df.groupby("region"):
-    _df = _df.sort_values(by="date")
-    _df = _df.drop_duplicates(subset="date")
-    dates = _df["date"].to_list()
-    assert len(dates) == len(np.unique(dates)), _df
-    _df = _df.loc[:, ~_df.columns.duplicated()]
-    _df = _df.drop(columns=["region", "date"]).transpose()
-    # take 7 day average
-    _df = _df.rolling(7, axis=1).mean()
-    # convert relative change into absolute numbers
-    _df.loc["all_day_bing_tiles_visited_relative_change"] += 1
-    # standarize
-    # _df.loc["all_day_ratio_single_tile_users"] = zscore(
-    #    _df.loc["all_day_ratio_single_tile_users"]
-    # )
-    _df["region"] = [name] * len(_df)
-    _df.columns = list(map(lambda x: x.strftime("%Y-%m-%d"), dates)) + ["region"]
-    regions.append(_df.reset_index())
+def process_df(df, cols):
+    df = df[cols].copy()
+    regions = []
+    for (name, _df) in df.groupby("region"):
+        _df = _df.sort_values(by="date")
+        _df = _df.drop_duplicates(subset="date")
+        dates = _df["date"].to_list()
+        assert len(dates) == len(np.unique(dates)), _df
+        _df = _df.loc[:, ~_df.columns.duplicated()]
+        _df = _df.drop(columns=["region", "date"]).transpose()
+        # take 7 day average
+        _df = _df.rolling(7, axis=1).mean()
+        # convert relative change into absolute numbers
+        _df.loc["all_day_bing_tiles_visited_relative_change"] += 1
+        # standarize
+        # _df.loc["all_day_ratio_single_tile_users"] = zscore(
+        #    _df.loc["all_day_ratio_single_tile_users"]
+        # )
+        _df["region"] = [name] * len(_df)
+        _df.columns = list(map(lambda x: x.strftime("%Y-%m-%d"), dates)) + ["region"]
+        regions.append(_df.reset_index())
 
-df = pd.concat(regions, axis=0, ignore_index=True)
-cols = ["region"] + [x for x in df.columns if x != "region"]
-df = df[cols]
+    df = pd.concat(regions, axis=0, ignore_index=True)
+    cols = ["region"] + [x for x in df.columns if x != "region"]
+    df = df[cols]
+
+    df = df.fillna(0)
+    df = df.rename(columns={"index": "type"})
+    return df
 
 
-df = df.fillna(0)
-df = df.rename(columns={"index": "type"})
-
-df.round(4).to_csv("mobility_features_county.csv", index=False)
+county = process_df(df, cols)
+county.round(4).to_csv("mobility_features_county_fb.csv", index=False)
 
 state = df.copy()
 state["region"] = state["region"].apply(lambda x: x.split(", ")[-1])
-state = state.groupby(["region", "type"]).mean().reset_index()
-state.to_csv("mobility_features_state.csv", index=False)
+state = state.groupby(["region", "date"]).sum().reset_index()
+state = process_df(state, cols)
+state.to_csv("mobility_features_state_fb.csv", index=False)
