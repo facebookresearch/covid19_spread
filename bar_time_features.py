@@ -39,14 +39,18 @@ class BARTimeFeatures(BAR):
             ws = F.softplus(self.z)
             ws = ws.unsqueeze(1)
             if self.features is not None:
-                if ys.size(-1) - 1 == self.features.size(1):
-                    # In simulation mode, forward fill the features.
-                    self.features = th.cat(
-                        [self.features, self.features.narrow(1, -1, 1)], dim=1
+                if self.features.size(1) < ys.size(-1):
+                    features = th.zeros(self.M, ys.size(-1), self.features.size(-1)).to(
+                        ys.device
                     )
-                assert ys.size(-1) == self.features.size(1)
+                    features.copy_(self.features.narrow(1, -1, 1))
+                    features.narrow(1, 0, self.features.size(1)).copy_(self.features)
+                else:
+                    features = self.features[:, : ys.size(-1)]
+
+                assert ys.size(-1) == features.size(1)
                 # Concatenate cases onto time features
-                ys_ = th.cat([ys.unsqueeze(-1), self.features], axis=-1)
+                ys_ = th.cat([ys.unsqueeze(-1), features], axis=-1)
                 # Convolve ws (time_feats x 1 x window) over ys_ (ncounties x time_feats x time)
                 Z = F.conv1d(
                     F.pad(ys_.transpose(1, 2), (self.z.size(1) - 1, 0)),
