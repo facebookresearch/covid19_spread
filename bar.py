@@ -378,8 +378,9 @@ class BAR(nn.Module):
         self.z = nn.Parameter(th.ones((self.M, 7)).fill_(1))
         # self.z = nn.Parameter(th.ones((1, 7)).fill_(1))
         self._alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(-5))
+        # self._alpha_weights = nn.Parameter(th.zeros((self.M, self.M)).fill_(1))
         self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(8))
-        self.scale = nn.Parameter(th.ones((1, 1)))
+        self.scale = nn.Parameter(th.ones((self.M, 1)))
         self._dist = dist
         self.graph = graph
         self.neighbors = self.M
@@ -418,6 +419,7 @@ class BAR(nn.Module):
         alphas = self.alphas()
         W = th.sigmoid(alphas)
         # W = W * F.softplus(self._alpha_weights)
+        # W = W * self._alpha_weights
         if self.graph is not None:
             W = W * self.graph
         return W
@@ -426,7 +428,6 @@ class BAR(nn.Module):
         assert t.size(-1) == ys.size(-1), (t.size(), ys.size())
         offset = self.window - 1
         length = ys.size(1) - self.window + 1
-        ys = ys / self.population
 
         # beta evolution
         beta = self.beta(t, ys)
@@ -464,9 +465,10 @@ class BAR(nn.Module):
             Ys = Ys + F.softplus(self.w_feat(self.features))
 
         # Ys = F.softplus(self.out_proj(th.stack([beta, Z, Ys], dim=-1)).squeeze())
-        Ys = beta * (Z + F.softplus(self.scale) * Ys) / self.neighbors * self.population
+        # Ys = beta * (Z + th.exp(self.scale) * Ys) / self.neighbors
         # Ys = beta * (Z + Ys) / self.neighbors * self.population
-        # Ys = beta * F.softplus((Z + Ys) / self.M)
+        Ys = beta * (Z + Ys) / self.neighbors
+        # Ys = beta * F.softplus(Z + Ys)
         # Ys = beta * Ys
 
         # assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
@@ -646,9 +648,10 @@ class BARCV(cv.CV):
         cases, regions, basedate = load.load_confirmed_csv(args.fdat)
         assert (cases == cases).all(), th.where(cases != cases)
         new_cases = cases[:, 1:] - cases[:, :-1]
+        self.cases = cases
 
         # Cumulative max across time
-        new_cases = new_cases + new_cases.clamp(max=0).abs().cumsum(dim=1)
+        # new_cases = new_cases + new_cases.clamp(max=0).abs().cumsum(dim=1)
 
         assert (new_cases >= 0).all(), th.where(new_cases < 0)
         new_cases = new_cases.float().to(device)[:, args.t0 :]
@@ -783,6 +786,7 @@ class BARCV(cv.CV):
             "z",
             "nu",
             "_alphas",
+            "_alpha_weights",
             "beta.fbeta.h0",
             "beta.fbeta.c0",
             "beta.fbeta.conv.weight",
