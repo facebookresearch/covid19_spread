@@ -62,7 +62,7 @@ def read_population():
     return population
 
 
-def process_time_features(df, pth, shift=0, merge_nyc=False):
+def process_time_features(df, pth, shift=0, merge_nyc=False, input_resolution="county"):
     mobility = pd.read_csv(pth)
     dates = pd.to_datetime(mobility.columns[2:])
     dates = dates[np.where(dates >= df.columns.min())[0]]
@@ -90,12 +90,16 @@ def process_time_features(df, pth, shift=0, merge_nyc=False):
     end_ix = start_ix + len(dates)
     end_ix = min(end_ix, df.shape[1])
     for region in df.index:
-        if region not in mobility_types:
+        if input_resolution == "state":
+            _, query = region.split(", ")
+        else:
+            query = region
+        if query not in mobility_types:
             # print(region)
             skipped += 1
             continue
         _m = th.zeros(df.shape[1], n_mobility_types)
-        _v = mobility_types[region].iloc[:, 2:].transpose()
+        _v = mobility_types[query].iloc[:, 2:].transpose()
         _v = _v[: end_ix - start_ix]
         _m[start_ix:end_ix] = th.from_numpy(_v.values)
         assert (_m == _m).all()
@@ -143,7 +147,8 @@ def process_symptom_survey(df, signal, geo_type, shift=1):
         # _v = symptoms.loc[query]
         # _v = _v[: end_ix - start_ix + 1]
         # _m[start_ix:end_ix] = th.from_numpy(_v.values[1:])
-        _m = th.from_numpy(_df.loc[df.columns][query].fillna(method="ffill").values)
+        # _m = th.from_numpy(_df.loc[df.columns][query].fillna(method="ffill").values)
+        _m = th.from_numpy(_df.loc[df.columns][query].fillna(0).values)
         assert (_m == _m).all()
         sym[region] = _m.unsqueeze(1)
     th.save(sym, f"symptom-survey/features_{geo_type}.pt")
@@ -234,7 +239,7 @@ if __name__ == "__main__":
     df = df.transpose()  # row for each county, columns correspond to dates...
     county_id = {c: i for i, c in enumerate(df.index)}
     # make sure counts are strictly increasing
-    # df = df.cummax(axis=1)
+    df = df.cummax(axis=1)
 
     # throw away all-zero columns, i.e., days with no cases
     counts = df.sum(axis=0)
@@ -263,10 +268,19 @@ if __name__ == "__main__":
     if opt.with_features:
         res = opt.resolution
         merge_nyc = opt.metric == "deaths" and res == "county"
-        process_time_features(df, f"testing/testing_features_{res}.csv", 0, merge_nyc)
-        process_time_features(
-            df, f"symptom-survey/data-smoothed_hh_cmnty_cli-{res}.csv", 0, merge_nyc
-        )
+        process_time_features(df, f"testing/ratio_features_{res}.csv", 0, merge_nyc)
+        process_time_features(df, f"testing/total_features_{res}.csv", 0, merge_nyc)
+        for signal in [
+            "doctor-visits_smoothed_adj_cli",
+            "fb-survey_smoothed_wcli",
+            "fb-survey_smoothed_hh_cmnty_cli",
+        ]:
+            process_time_features(
+                df, f"symptom-survey/{signal}-county.csv", 3, merge_nyc, "county",
+            )
+            process_time_features(
+                df, f"symptom-survey/{signal}-state.csv", 3, merge_nyc, "state",
+            )
         process_time_features(df, f"fb/mobility_features_{res}_fb.csv", 7, merge_nyc)
         process_time_features(
             df, f"google/mobility_features_{res}_google.csv", 7, merge_nyc
