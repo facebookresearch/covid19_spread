@@ -155,6 +155,7 @@ class CV:
                     "mae": metrics.loc["MAE"][-1],
                     "rmse": metrics.loc["RMSE"][-1],
                     "mae_deltas": metrics.loc["MAE_DELTAS"].mean(),
+                    "rmse_deltas": metrics.loc["RMSE_DELTAS"].mean(),
                     "state_mae": metrics.loc["STATE_MAE"][-1],
                 }
             )
@@ -169,6 +170,7 @@ class CV:
             BestRun(df.sort_values(by="mae").iloc[0].pth, "best_mae"),
             BestRun(df.sort_values(by="rmse").iloc[0].pth, "best_rmse"),
             BestRun(df.sort_values(by="mae_deltas").iloc[0].pth, "best_mae_deltas"),
+            BestRun(df.sort_values(by="rmse_deltas").iloc[0].pth, "best_rmse_deltas"),
             BestRun(df.sort_values(by="state_mae").iloc[0].pth, "best_state_mae"),
         ]
 
