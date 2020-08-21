@@ -81,7 +81,7 @@ def get_google(metric="cases"):
     merged["loc"] = (
         merged["subregion1_name"]
         + "_"
-        + merged["name"].str.replace(" (County|Municipality|Parish)", "")
+        + merged["name"].str.replace(" (County|Municipality|Parish|Borough)", "")
     )
     value_col = "total_confirmed" if metric == "cases" else "total_deceased"
     pivot = merged.pivot(values=value_col, index="date", columns="loc")
