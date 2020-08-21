@@ -12,8 +12,8 @@ parser.add_argument("-resolution", choices=["state", "county"], default="county"
 opt = parser.parse_args()
 
 
-def get_df(signal, resolution):
-    df = pd.read_csv(f"{resolution}/{signal}.csv", parse_dates=["date"])
+def get_df(source, signal, resolution):
+    df = pd.read_csv(f"{resolution}/{source}/{signal}.csv", parse_dates=["date"])
     df.dropna(axis=0, subset=["date"], inplace=True)
 
     fips = pd.read_csv(
@@ -40,24 +40,26 @@ def get_df(signal, resolution):
 
     # Fill in NaNs
     df.iloc[0] = 0
-    df = df.fillna(method="ffill")
+    # df = df.fillna(method="ffill")
+    df = df.fillna(0)
     # Normalize
     df = df.transpose() / 100
 
-    df["type"] = f"symptom_survey_{resolution}"
+    df["type"] = f"{source}_{signal}_{resolution}"
     return df
 
 
-df = get_df(opt.signal, opt.resolution)
+source, signal = opt.signal.split("/")
+df = get_df(source, signal, opt.resolution)
 
 if opt.resolution == "county":
     cols = df.columns
     df["state"] = [x.split(", ")[-1] for x in df.index]
-    df2 = get_df(opt.signal, "state")
+    df2 = get_df(source, signal, "state")
     df2 = df2.merge(df[["state"]], left_index=True, right_on="state")[df2.columns]
     df = pd.concat([df.drop(columns=["state"]), df2])
 
 df = df[["type"] + [c for c in df.columns if isinstance(c, datetime)]]
 df.columns = [str(x.date()) if isinstance(x, datetime) else x for x in df.columns]
 
-df.to_csv(f"data-{opt.signal}-{opt.resolution}.csv", index_label="region")
+df.round(3).to_csv(f"{source}_{signal}-{opt.resolution}.csv", index_label="region")
