@@ -14,7 +14,7 @@ df = df.merge(
 df = df[["state_name", "negative", "positive", "date"]].set_index("date")
 
 df["total"] = df["positive"] + df["negative"]
-df["ratio"] = df["positive"] / df["negative"]
+df["ratio"] = df["positive"] / df["total"]
 
 
 def zscore(df):
@@ -48,18 +48,28 @@ def fmt_features(df, key, func_smooth, func_normalize):
 
 
 state_r, county_r = fmt_features(
-    df, "ratio", lambda _df: _df.rolling(7, axis=1).mean(), zscore
+    # df, "ratio", lambda _df: _df.rolling(7, axis=1).mean(), zscore
+    df,
+    "ratio",
+    lambda _df: _df.rolling(7, axis=1, min_periods=1).mean(),
+    None,
 )
+
 state_t, county_t = fmt_features(
-    df, "total", lambda _df: _df.diff(axis=1).rolling(7, axis=1).mean(), zero_one,
+    df,
+    "total",
+    lambda _df: _df.diff(axis=1).rolling(7, axis=1, min_periods=1).mean(),
+    zero_one,
 )
 
 
-def write_features(df, res):
+def write_features(df, res, fout):
     df = df[["type"] + [c for c in df.columns if isinstance(c, datetime)]]
     df.columns = [str(x.date()) if isinstance(x, datetime) else x for x in df.columns]
-    df.to_csv(f"testing_features_{res}.csv", index_label="region")
+    df.round(3).to_csv(f"{fout}_features_{res}.csv", index_label="region")
 
 
-write_features(pd.concat([state_r, state_t]), "state")
-write_features(pd.concat([county_r, county_t]), "county")
+write_features(state_t, "state", "total")
+write_features(state_r, "state", "ratio")
+write_features(county_t, "county", "total")
+write_features(county_r, "county", "ratio")
