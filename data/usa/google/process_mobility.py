@@ -51,7 +51,8 @@ ratio = (1 + df.set_index(["region", "date"]) / 100).reset_index()
 piv = ratio.pivot(index="date", columns="region", values=val_cols)
 piv = piv.rolling(7, min_periods=1).mean().transpose()
 piv.iloc[0] = piv.iloc[0].fillna(0)
-piv = piv.fillna(method="ffill")
+# piv = piv.fillna(method="ffill")
+piv = piv.fillna(0)
 
 dfs = []
 for k in piv.index.get_level_values(0).unique():
