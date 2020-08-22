@@ -5,16 +5,23 @@
 # @file
 # @version 0.1
 
-.PHONY: clean
+outputs = \
+	total_features_county.csv \
+	total_features_state.csv \
+	ratio_features_county.csv \
+	ratio_features_state.csv
+
+.PHONY: clean process
 
 testing_raw.csv:
 	curl -o $@ https://api.covidtracking.com/v1/states/daily.csv
 
-total_features_county.csv: testing_raw.csv
+process: testing_raw.csv
 	python3 process_testing.py
 
-total_features_state.csv: testing_features_county.csv
+%.csv: process
 
+all: $(outputs)
 
 clean:
 	-rm testing_raw.csv
