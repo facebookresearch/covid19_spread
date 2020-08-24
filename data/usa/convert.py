@@ -235,7 +235,17 @@ if __name__ == "__main__":
         }
     )
 
-    df_pop.to_csv("population.csv", index=False, header=False)
+    df_pop = df_pop.set_index("county").rename(
+        index={
+            "Doña Ana, New Mexico": "Do̱a Ana, New Mexico",
+            "LaSalle, Louisiana": "La Salle, Louisiana",
+        }
+    )
+
+    assert df.shape[1] == len(df_pop.loc[df.columns])
+    df_pop = df_pop.loc[df.columns]
+
+    df_pop.to_csv("population.csv", index_label="county", header=False)
     df = df.transpose()  # row for each county, columns correspond to dates...
     county_id = {c: i for i, c in enumerate(df.index)}
     # make sure counts are strictly increasing
