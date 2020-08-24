@@ -21,7 +21,7 @@ process: testing_raw.csv
 
 %.csv: process
 
-all: $(outputs)
+all: process
 
 clean:
 	-rm testing_raw.csv
