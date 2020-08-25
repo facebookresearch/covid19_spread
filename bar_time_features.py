@@ -18,9 +18,19 @@ import metrics
 
 class BARTimeFeatures(BAR):
     def __init__(
-        self, regions, beta, window, dist, graph, features, self_correlation=True
+        self,
+        regions,
+        population,
+        beta,
+        window,
+        dist,
+        graph,
+        features,
+        self_correlation=True,
     ):
-        super().__init__(regions, beta, window, dist, graph, None, self_correlation)
+        super().__init__(
+            regions, population, beta, window, dist, graph, None, self_correlation
+        )
         if features is not None:
             self.features = features.transpose(0, 1)
         features_size = features.size(-1) if features is not None else 0
@@ -94,6 +104,7 @@ class BARTimeFeaturesCV(BARCV):
         # Recreate the model, but pass in the time features as AR features
         self.func = self.model_cls(
             self.func.regions,
+            self.func.population,
             self.func.beta,
             args.window,
             args.loss,
