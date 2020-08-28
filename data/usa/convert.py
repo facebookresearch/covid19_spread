@@ -105,53 +105,6 @@ def process_time_features(df, pth, shift=0, merge_nyc=False, input_resolution="c
     print(skipped, df.shape[0])
 
 
-def process_symptom_survey(df, signal, geo_type, shift=1):
-    assert shift == 0
-    symptoms = pd.read_csv(
-        f"symptom-survey/data-{signal}-{geo_type}.csv", index_col="region"
-    )
-    sym = {}
-    skipped = 0
-    # dates = pd.to_datetime(symptoms.columns[1:])
-    # start_ix = np.where(dates.min() == df.columns)[0][0] + shift
-    # end_ix = start_ix + len(dates)
-    # end_ix = min(end_ix, df.shape[1])
-    for region in df.index:
-        if geo_type == "state":
-            _, query = region.split(", ")
-        else:
-            query = region
-            _df = symptoms.transpose()
-        # _m = th.zeros(df.shape[1])
-        if query not in symptoms.index:
-            print(f"Skipping {region} (survey, {geo_type})")
-            skipped += 1
-            continue
-        _df = (
-            df.loc[region]
-            .to_frame()
-            .merge(
-                symptoms.loc[query].to_frame(),
-                left_index=True,
-                right_index=True,
-                how="outer",
-            )
-        )
-        if geo_type == "county":
-            _df.columns = ["_", query]
-        if _df[query].isnull().iloc[0]:
-            _df[query].iloc[0] = 0
-        # _v = symptoms.loc[query]
-        # _v = _v[: end_ix - start_ix + 1]
-        # _m[start_ix:end_ix] = th.from_numpy(_v.values[1:])
-        # _m = th.from_numpy(_df.loc[df.columns][query].fillna(method="ffill").values)
-        _m = th.from_numpy(_df.loc[df.columns][query].fillna(0).values)
-        assert (_m == _m).all()
-        sym[region] = _m.unsqueeze(1)
-    th.save(sym, f"symptom-survey/features_{geo_type}.pt")
-    print(skipped, df.shape[0])
-
-
 def process_county_features(df):
     df_feat = pd.read_csv("features.csv", index_col="region")
     df_feat = (df_feat - df_feat.min(axis=0)) / df_feat.max(axis=0)
@@ -164,35 +117,6 @@ def process_county_features(df):
         # _v = (_v - _v.mean()) / _v.std()
         feat[region] = th.from_numpy(_v.values)
     th.save(feat, "county_features.pt")
-
-
-def process_testing(df, pth):
-    tests = pd.read_csv(pth, index_col="region")
-    ts = {}
-    skipped = 0
-    for region in df.index:
-        _, state = region.split(", ")
-        if state not in tests.index:
-            print("Skipping {region}")
-            skipped += 1
-            continue
-        merge = (
-            df.loc[region]
-            .to_frame()
-            .merge(
-                tests.loc[state].to_frame(),
-                left_index=True,
-                right_index=True,
-                how="outer",
-            )
-        )
-        if merge[state].isnull().iloc[0]:
-            merge[state].iloc[0] = 0
-        _m = th.from_numpy(merge.loc[df.columns][state].fillna(method="ffill").values)
-        assert (_m == _m).all()
-        ts[region] = _m.unsqueeze(1)
-    th.save(ts, pth.replace(".csv", ".pt"))
-    print(skipped, df.shape[0])
 
 
 if __name__ == "__main__":
