@@ -90,10 +90,7 @@ def process_time_features(df, pth, shift=0, merge_nyc=False, input_resolution="c
     end_ix = start_ix + len(dates)
     end_ix = min(end_ix, df.shape[1])
     for region in df.index:
-        if input_resolution == "state":
-            _, query = region.split(", ")
-        else:
-            query = region
+        query = region
         if query not in mobility_types:
             # print(region)
             skipped += 1
@@ -242,10 +239,6 @@ if __name__ == "__main__":
         }
     )
 
-    assert df.shape[1] == len(df_pop.loc[df.columns])
-    df_pop = df_pop.loc[df.columns]
-
-    df_pop.to_csv("population.csv", index_label="county", header=False)
     df = df.transpose()  # row for each county, columns correspond to dates...
     county_id = {c: i for i, c in enumerate(df.index)}
     # make sure counts are strictly increasing
@@ -261,6 +254,12 @@ if __name__ == "__main__":
             index=["Virgin Islands", "Northern Mariana Islands", "Puerto Rico", "Guam"],
             errors="ignore",
         )
+        df_pop = df_pop.groupby(lambda x: x.split(", ")[-1]).sum()
+
+    assert df.shape[0] == len(df_pop.loc[df.index])
+    df_pop = df_pop.loc[df.index]
+
+    df_pop.to_csv("population.csv", index_label="county", header=False)
 
     df.to_csv(f"data_{opt.metric}.csv", index_label="region")
 

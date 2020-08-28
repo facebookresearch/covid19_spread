@@ -4,7 +4,7 @@
 # @file
 # @version 0.1
 
-.PHONY: clean symptom-survey
+.PHONY: clean symptom-survey testing
 
 google/mobility_features_county_google.csv:
 	cd google && make mobility_features_county_google.csv
@@ -42,7 +42,7 @@ data_deaths.csv: \
 	testing
 	python3 convert.py -with-features -source jhu -metric deaths
 
-data_deaths_state.csv: \
+data_states_deaths.csv: \
 	symptom-survey \
 	fb/mobility_features_county_fb.csv \
 	google/mobility_features_county_google.csv \
