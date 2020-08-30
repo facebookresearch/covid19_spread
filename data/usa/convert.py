@@ -215,15 +215,21 @@ if __name__ == "__main__":
             "fb-survey_smoothed_wcli",
             "fb-survey_smoothed_hh_cmnty_cli",
         ]:
-            process_time_features(
-                df, f"symptom-survey/{signal}-county.csv", 0, merge_nyc, "county",
-            )
-            process_time_features(
-                df, f"symptom-survey/{signal}-state.csv", 0, merge_nyc, "state",
-            )
-            process_time_features(
-                df, f"symptom-survey/{signal}-state.csv", 0, merge_nyc, "county_state",
-            )
+            if res == "county":
+                process_time_features(
+                    df, f"symptom-survey/{signal}-county.csv", 0, merge_nyc, "county",
+                )
+                process_time_features(
+                    df,
+                    f"symptom-survey/{signal}-state.csv",
+                    0,
+                    merge_nyc,
+                    "county_state",
+                )
+            else:
+                process_time_features(
+                    df, f"symptom-survey/{signal}-state.csv", 0, merge_nyc, "state",
+                )
         process_time_features(df, f"fb/mobility_features_{res}_fb.csv", 7, merge_nyc)
         process_time_features(
             df, f"google/mobility_features_{res}_google.csv", 7, merge_nyc
