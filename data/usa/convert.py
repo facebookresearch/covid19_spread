@@ -90,7 +90,10 @@ def process_time_features(df, pth, shift=0, merge_nyc=False, input_resolution="c
     end_ix = start_ix + len(dates)
     end_ix = min(end_ix, df.shape[1])
     for region in df.index:
-        query = region
+        if input_resolution == "county_state":
+            _, query = region.split(", ")
+        else:
+            query = region
         if query not in mobility_types:
             # print(region)
             skipped += 1
@@ -101,6 +104,8 @@ def process_time_features(df, pth, shift=0, merge_nyc=False, input_resolution="c
         _m[start_ix:end_ix] = th.from_numpy(_v.values)
         assert (_m == _m).all()
         mob[region] = _m
+    if input_resolution == "county_state":
+        pth = pth.replace("state", "county_state")
     th.save(mob, pth.replace(".csv", ".pt"))
     print(skipped, df.shape[0])
 
@@ -183,7 +188,9 @@ if __name__ == "__main__":
     assert df.shape[0] == len(df_pop.loc[df.index])
     df_pop = df_pop.loc[df.index]
 
-    df_pop.to_csv("population.csv", index_label="county", header=False)
+    df_pop.to_csv(
+        f"population_{opt.resolution}.csv", index_label="county", header=False
+    )
 
     df.to_csv(f"data_{opt.metric}.csv", index_label="region")
 
@@ -214,12 +221,17 @@ if __name__ == "__main__":
             process_time_features(
                 df, f"symptom-survey/{signal}-state.csv", 0, merge_nyc, "state",
             )
+            process_time_features(
+                df, f"symptom-survey/{signal}-state.csv", 0, merge_nyc, "county_state",
+            )
         process_time_features(df, f"fb/mobility_features_{res}_fb.csv", 7, merge_nyc)
         process_time_features(
             df, f"google/mobility_features_{res}_google.csv", 7, merge_nyc
         )
         process_time_features(df, f"google/weather_features_{res}.csv", 7, merge_nyc)
-        process_time_features(df, f"google/epi_features_{res}.csv", 0, merge_nyc)
+        process_time_features(df, f"google/epi_features_{res}.csv", 7, merge_nyc)
+        if res == "state":
+            process_time_features(df, f"google/hosp_features_{res}.csv", 0, merge_nyc)
 
 
 # n_policies = len(np.unique(state_policies["policy"]))
