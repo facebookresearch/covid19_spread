@@ -1,8 +1,17 @@
 region: us
-population: &fpop data/usa/population.csv
+population: &fpop data/usa/population_county.csv
 basegraph: &fgraph data/usa/state_graph.pt
+notebooks:
+  backfill:
+    # - notebooks/Backtest US.ipynb
+    - "notebooks/Model Analysis.ipynb"
+  cv:
+    - "notebooks/Model Analysis.ipynb"
 validation:
   days: &vdays 21
+  output: validation.csv
+test:
+  days: 60
   output: validation.csv
 forecast:
   output: forecast.csv
@@ -10,27 +19,47 @@ prediction_interval_:
   nsamples: 10
   output_mean: mean.csv
   output_std: std.csv
+backfill_:
+  # deaths
+  - 2020-05-03
+  - 2020-05-18
+  - 2020-05-24
+  - 2020-06-08
+  - 2020-06-14
+  - 2020-06-21
+  - 2020-06-24
+  - 2020-06-29
+  - 2020-07-06
+  - 2020-07-23
 backfill:
+  # Google
+  - 2020-05-11
+  - 2020-05-18
+  - 2020-05-25
+  - 2020-05-30
+  - 2020-06-08
+  - 2020-06-20
+  - 2020-06-27
   # LANL
   #- 2020-04-05
   #- 2020-04-08
   #- 2020-04-12
   # - 2020-04-15
-  - 2020-04-19
+  #- 2020-04-19
   # - 2020-04-22
-  - 2020-04-26
+  #- 2020-04-26
   #- 2020-04-29
-  - 2020-05-03
+  #- 2020-05-03
   # - 2020-05-06
-  - 2020-05-10
-  - 2020-05-17
-  - 2020-05-24
-  - 2020-05-31
-  - 2020-06-07
-  - 2020-06-14
-  - 2020-06-21
-  - 2020-06-28
-  - 2020-07-05
+  #- 2020-05-10
+  #- 2020-05-17
+  #- 2020-05-24
+  #- 2020-05-31
+  #- 2020-06-07
+  #- 2020-06-14
+  #- 2020-06-21
+  #- 2020-06-28
+  #- 2020-07-05
   # IHME
   # - 2020-05-01
   # GLEAM
@@ -165,32 +194,135 @@ bar:
   #preprocess:
   #  smooth: 5
   train:
-    fpop: *fpop
-    # features: data/usa/county_features.pt
-    # time_features:
-    #   -
-    #     - data/usa/google/mobility_features.pt
-    #     - data/usa/fb/mobility_features.pt
-    #     - data/usa/symptom-survey/features.pt
+    n_models: 1
+    fpop: data/usa/population_county.csv
+    # features: [[data/usa/county_features.pt]]
+    time_features:
+      -
+        - data/usa/testing/ratio_features_county.pt
+        - data/usa/testing/total_features_county.pt
+        - data/usa/fb/mobility_features_county_fb.pt
+        - data/usa/google/mobility_features_county_google.pt
+        - data/usa/google/weather_features_county.pt
+        #- data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-county.pt
+        - data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-county_state.pt
+        #- data/usa/symptom-survey/fb-survey_smoothed_wcli-county.pt
+        - data/usa/symptom-survey/fb-survey_smoothed_wcli-county_state.pt
+        - data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-county.pt
+        - data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-county_state.pt
     # graph: *fgraph
     activation: sigmoid
     no_cross_correlation: false
-    decay: [latent2_2]
-    window: [20, 25]
-    lr: [0.001]
-    momentum: [0.99]
+    decay: [lstm2_2]
+    #window: [20, 25]
+    window: [14, 21, 28]
+    lr: [0.005]
+    momentum: [0.9]
+    dropout: [0.1]
+    #weight_decay: [0.01, 0.1]
     weight_decay: [0.2, 0.3]
-    niters: [50000]
+    # weight_decay: [0.3, 0.4, 0.5, 0.6]
+    # niters: [40000]
+    niters: [30000]
+    # granger: [0.5]
     granger: [0.5]
-    temporal: [0.5, 1, 2]
-    eta: [0.2, 0.3, 0.4]
+    temporal: [100]
+    #temporal: [0.1, 1]
+    # eta: [0.1, 0.2]
+    eta: [0.002, 0.02, 0.2]
     loss: nb
     t0: 0
-    test_on: *vdays
+    test_on: 21
 naive:
   module: naive
   output: naive_model.npy
   data: data/usa/data_cases.csv
   train:
     days: *vdays
-
+bar_lstm:
+  output: bar_model.bin
+  data: data/usa/data_cases.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 3600
+  #preprocess:
+  #  smooth: 5
+  train:
+    n_models: 1
+    fpop: *fpop
+    # features: [[data/usa/county_features.pt]]
+    time_features:
+      -
+        - data/usa/testing/total_features.pt
+        - data/usa/testing/ratio_features.pt
+        - data/usa/fb/mobility_features.pt
+        - data/usa/google/mobility_features.pt
+        - data/usa/google/weather_features.pt
+        - data/usa/symptom-survey/features_state.pt
+        - data/usa/symptom-survey/features_county.pt
+    # graph: *fgraph
+    activation: sigmoid
+    no_cross_correlation: false
+    decay: [lstm2_2]
+    window: [15, 20, 25]
+    lr: [0.001]
+    momentum: [0.9]
+    dropout: [0.1, 0.2]
+    weight_decay: [0.1, 0.2]
+    niters: [30000]
+    granger: [0.5]
+    temporal: [100, 1000]
+    eta: [0.1, 0.2]
+    loss: nb
+    t0: 0
+    test_on: *vdays
+bar_time_features:
+  output: bar_model.bin
+  data: data/usa/data_deaths.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 3600
+  preprocess:
+    smooth: 7
+  train:
+    n_models: 1
+    fpop: *fpop
+    self_correlation: True
+    cross_correlation: True
+    time_features:
+      -
+        - data/usa/testing/ratio_features_state.pt
+        - data/usa/testing/total_features_state.pt
+        - data/usa/fb/mobility_features_state_fb.pt
+        - data/usa/google/mobility_features_state_google.pt
+        - data/usa/google/weather_features_state.pt
+        - data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-state.pt
+        - data/usa/symptom-survey/fb-survey_smoothed_wcli-state.pt
+        - data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-state.pt
+        - data/usa/google/epi_features_state.pt
+        - data/usa/google/hosp_features_state.pt
+    ar_features:
+      -
+        - data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-state.pt
+        - data/usa/symptom-survey/fb-survey_smoothed_wcli-state.pt
+        - data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-state.pt
+        - data/usa/google/epi_features_state.pt
+        - data/usa/google/hosp_features_state.pt
+    activation: sigmoid
+    decay: [lstm2_2]
+    window: [14, 21, 28]
+    lr: [0.001]
+    momentum: [0.9]
+    weight_decay: [0.1, 0.2]
+    niters: [30000]
+    granger: [0.5]
+    temporal: [100]
+    dropout: [0.2, 0.3]
+    eta: [0.002, 0.02, 0.2]
+    loss: nb
+    t0: 0
+    test_on: 60

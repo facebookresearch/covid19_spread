@@ -27,7 +27,7 @@ class TrainParamsNY:
 
 class TrainParamsUS:
     fdat = "data/usa/data_cases.csv"
-    fpop = "data/usa/population.csv"
+    fpop = "data/usa/population_county.csv"
     window = 30
     recovery_days = 10
     distancing_reduction = 0.8
