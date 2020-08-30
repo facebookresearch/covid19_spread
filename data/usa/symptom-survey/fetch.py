@@ -21,7 +21,6 @@ df.max_time = pd.to_datetime(df.max_time)
 df = df.query(
     f"data_source == '{source}' and signal == '{signal}' and geo_type == '{geo_value}'"
 )
-print(df)
 assert len(df) == 1
 base_date = df.iloc[0].min_time - timedelta(1)
 end_date = df.iloc[0].max_time
@@ -38,7 +37,6 @@ while current_date < end_date:
         continue
 
     res = Epidata.covidcast(source, signal, "day", geo_value, [date_str], "*")
-    # res = covidcast.signal("fb-survey", signal, "day", geo_value, [date_str], "*")
     print(date_str, res["result"], res["message"])
     assert res["result"] == 1, ("CLI", res["message"], res)
     df = pd.DataFrame(res["epidata"])
@@ -54,6 +52,5 @@ while current_date < end_date:
         inplace=True,
     )
     df.to_csv(fout, index=False)
-
 
 print(df)
