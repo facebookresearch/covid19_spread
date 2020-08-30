@@ -14,7 +14,6 @@ df = df.merge(
 df = df[["state_name", "negative", "positive", "date"]].set_index("date")
 
 df["total"] = df["positive"] + df["negative"]
-df["ratio"] = df["positive"] / df["total"]
 
 
 def zscore(df):
@@ -28,12 +27,12 @@ def zscore(df):
 def zero_one(df):
     df = df.fillna(0)
     df = df.div(df.max(axis=1), axis=0)
+    # df = df / df.max()
     df = df.fillna(0)
     return df
 
 
-def fmt_features(df, key, func_smooth, func_normalize):
-    pivot = df.pivot(columns="state_name", values=key)
+def fmt_features(pivot, key, func_smooth, func_normalize):
     df = pivot.transpose()
     df = func_smooth(df)
     if func_normalize is not None:
@@ -41,25 +40,24 @@ def fmt_features(df, key, func_smooth, func_normalize):
     df = df.fillna(0)
     df.index.set_names("region", inplace=True)
     df["type"] = f"testing_{key}"
-    df.round(3).to_csv(f"{key}_features_state.csv")
     merge = df.merge(fips, left_index=True, right_on="state_name")
     merge.index = merge["county_name"] + ", " + merge["state_name"]
     return df, merge[df.columns]
 
 
+def _diff(df):
+    return df.diff(axis=1).rolling(7, axis=1, min_periods=1).mean()
+
+
 state_r, county_r = fmt_features(
-    # df, "ratio", lambda _df: _df.rolling(7, axis=1).mean(), zscore
-    df,
+    df.pivot(columns="state_name", values=["positive", "total"]),
     "ratio",
-    lambda _df: _df.rolling(7, axis=1, min_periods=1).mean(),
+    lambda _df: (_diff(_df.loc["positive"]) / _diff(_df.loc["total"])),
     None,
 )
 
 state_t, county_t = fmt_features(
-    df,
-    "total",
-    lambda _df: _df.diff(axis=1).rolling(7, axis=1, min_periods=1).mean(),
-    zero_one,
+    df.pivot(columns="state_name", values="total"), "total", _diff, zero_one,
 )
 
 
