@@ -174,6 +174,7 @@ class Worker:
                 time.sleep(self.sleep)
             with transaction_manager as conn:
                 ready = self.fetch_ready_job(conn)
+                status = JobStatus.pending
                 if len(ready) == 0:  # no jobs ready
                     if self.finished(conn):
                         return  # all jobs are finished, exiting...
@@ -183,6 +184,7 @@ class Worker:
                         continue
 
                     ready = self.get_final_jobs(conn)
+                    status = JobStatus.final
                     if len(ready) == 0:
                         self.sleep = min(max(self.sleep * 2, 1), 30)
                         continue
@@ -194,7 +196,7 @@ class Worker:
                 # Mark that we're working on this job.
                 res = conn.execute(
                     "UPDATE jobs SET status=?, worker_id=? WHERE pickle=? AND status=?",
-                    (running_status, worker_job_id, pickle, JobStatus.pending),
+                    (running_status, worker_job_id, pickle, status),
                 )
 
             # Run the job
