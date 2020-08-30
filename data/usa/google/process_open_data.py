@@ -25,7 +25,10 @@ def zscore(piv):
 
 def zero_one(df):
     df = df.fillna(0)
-    df = df.div(df.max(axis=1), axis=0)
+    print(df)
+    # df = df.div(df.max(axis=0), axis=1)
+    df = df / df.max(axis=0)
+    print(df)
     df = df.fillna(0)
     return df
 
@@ -44,7 +47,8 @@ def process_df(df, columns, resolution, func_normalize):
             + merged["subregion1_name"]
         )
     piv = merged.pivot(index="date", columns="region", values=columns)
-    piv = func_normalize(piv)
+    if func_normalize is not None:
+        piv = func_normalize(piv)
 
     dfs = []
     for k in piv.columns.get_level_values(0).unique():
@@ -56,6 +60,23 @@ def process_df(df, columns, resolution, func_normalize):
     return df.fillna(0)  # in case all values are NaN
 
 
+# --- Hospitalizations ---
+df = pandas.read_csv(
+    "https://storage.googleapis.com/covid19-open-data/v2/hospitalizations.csv",
+    parse_dates=["date"],
+)
+print(df)
+state_hosp = process_df(
+    df,
+    columns=["current_hospitalized", "current_intensive_care", "current_ventilator"],
+    resolution="state",
+    # func_normalize=lambda x: zero_one(x.clip(0, None)).rolling(7, min_periods=1).mean(),
+    func_normalize=lambda x: zero_one(x.clip(0, None)),
+)
+state_hosp.round(3).to_csv("hosp_features_state.csv")
+
+
+# --- Weather features ---
 df = pandas.read_csv(
     "https://storage.googleapis.com/covid19-open-data/v2/weather.csv",
     parse_dates=["date"],
@@ -67,27 +88,41 @@ weather.round(3).to_csv("weather_features_county.csv")
 weather = process_df(df, columns=cols, resolution="state", func_normalize=zscore)
 weather.round(3).to_csv("weather_features_state.csv")
 
+
+# --- Epi features ---
 df = pandas.read_csv(
     "https://storage.googleapis.com/covid19-open-data/v2/epidemiology.csv",
     parse_dates=["date"],
 )
 state_epi = process_df(
-    df, columns=["new_confirmed"], resolution="state", func_normalize=zscore
+    df,
+    columns=["new_confirmed"],
+    resolution="state",
+    # func_normalize=lambda x: zero_one(x.clip(0, None)).rolling(7, min_periods=1).mean(),
+    func_normalize=lambda x: zero_one(x.clip(0, None)),
 )
 state_epi.round(3).to_csv("epi_features_state.csv")
 
 epi = process_df(
-    df, columns=["new_confirmed"], resolution="county", func_normalize=zscore
+    df,
+    columns=["new_confirmed"],
+    resolution="county",
+    # func_normalize=lambda x: zero_one(x.clip(0, None)).rolling(7, min_periods=1).mean(),
+    func_normalize=lambda x: zero_one(x.clip(0, None)),
 )
 epi.round(3).to_csv("epi_features_county.csv")
 
 testing = process_df(
-    df, columns=["new_tested"], resolution="state", func_normalize=zero_one
+    df,
+    columns=["new_tested"],
+    resolution="state",
+    # func_normalize=lambda x: zero_one(x.clip(0, None)).rolling(7, min_periods=1).mean(),
+    func_normalize=lambda x: zero_one(x.clip(0, None)),
 )
 testing.round(3).to_csv("tested_total_state.csv")
 
 df["ratio"] = df["new_confirmed"] / df["new_tested"]
-testing = process_df(df, columns=["ratio"], resolution="state", func_normalize=zero_one)
+testing = process_df(df, columns=["ratio"], resolution="state", func_normalize=None,)
 testing.round(3).to_csv("tested_ratio_state.csv")
 
 # gov response is not granular enough
