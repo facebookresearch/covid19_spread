@@ -122,7 +122,7 @@ def main():
         client = get_slack_client()
         msg = f'*New Data Available for New Jersey: {df["Date"].max().date()}*'
         client.chat_postMessage(channel="#new-data", text=msg)
-        check_call(["git", "add", fout], cwd=script_dir)
+        check_call(["git", "add", "-f", fout], cwd=script_dir)
         check_call(
             ["git", "commit", "-m", f'Updating NJ data for {df["Date"].max().date()}'],
             cwd=script_dir,
