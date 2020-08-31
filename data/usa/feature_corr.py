@@ -47,7 +47,7 @@ else:
 df = df.transpose().diff().clip(lower=0)
 df.index = pandas.to_datetime(df.index)
 
-lags = list(range(-15, 15))
+lags = list(range(0, 21))
 result = []
 for feature in tqdm(features[opt.resolution]):
     feat = pandas.read_csv(feature)
@@ -71,7 +71,8 @@ for feature in tqdm(features[opt.resolution]):
             result.append({"feature": feature, "type": ty, "lag": lag, "corr": corr})
 
 res = pandas.DataFrame(result)
-best = res.loc[res.groupby(["feature", "type"])["corr"].idxmax()]
+res["abs_corr"] = res["corr"].abs()
+best = res.loc[res.groupby(["feature", "type"])["abs_corr"].idxmax()]
 best = best[best["corr"].abs() > 0.2]
 dfs = []
 for _, row in best.iterrows():
