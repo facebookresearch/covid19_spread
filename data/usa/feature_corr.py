@@ -2,12 +2,14 @@
 
 import argparse
 import pandas
+import numpy as np
 from tqdm import tqdm
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-resolution", choices=["state", "county"], default="county")
 parser.add_argument("-metric", choices=["cases", "deaths"], default="cases")
+parser.add_argument("-threshold", type=float, default=0.2)
 opt = parser.parse_args()
 
 features = {
@@ -20,6 +22,7 @@ features = {
         "symptom-survey/fb-survey_smoothed_wcli-state.csv",
         "symptom-survey/doctor-visits_smoothed_adj_cli-state.csv",
         "google/epi_features_state.csv",
+        "google/hosp_features_state.csv",
     ],
     "county": [
         "symptom-survey/fb-survey_smoothed_hh_cmnty_cli-state.csv",
@@ -73,7 +76,19 @@ for feature in tqdm(features[opt.resolution]):
 res = pandas.DataFrame(result)
 res["abs_corr"] = res["corr"].abs()
 best = res.loc[res.groupby(["feature", "type"])["abs_corr"].idxmax()]
-best = best[best["corr"].abs() > 0.2]
+best = best[best["corr"].abs() > opt.threshold]
+
+# display selected features
+with pandas.option_context(
+    "display.max_rows",
+    None,
+    "display.max_columns",
+    None,
+    "display.expand_frame_repr",
+    False,
+):
+    print(best.sort_values(by="abs_corr"))
+
 dfs = []
 for _, row in best.iterrows():
     df = pandas.read_csv(row.feature)
