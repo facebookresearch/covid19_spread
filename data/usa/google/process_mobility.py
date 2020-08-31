@@ -65,7 +65,20 @@ df.columns = [str(c.date()) if isinstance(c, datetime) else c for c in df.column
 
 df.to_csv("mobility_features_county_google.csv")
 
-state = df.reset_index().copy()
-state["region"] = state["region"].apply(lambda x: x.split(", ")[-1])
-state = state.groupby(["region", "type"]).mean().reset_index()
-state.to_csv("mobility_features_state_google.csv", index=False)
+
+state = get_county_mobility_google()
+state = state[(~state["sub_region_1"].isnull()) & (state["sub_region_2"].isnull())]
+state["region"] = state["sub_region_1"]
+state = state[cols]
+
+ratio = (1 + state[cols].set_index(["region", "date"]) / 100).reset_index()
+piv = ratio.pivot(index="date", columns="region", values=val_cols)
+piv = piv.rolling(7, min_periods=1).mean().transpose()
+piv.columns = [str(x.date()) for x in sorted(piv.columns)]
+piv = piv.fillna(0).reset_index(level=0).rename(columns={"level_0": "type"})
+piv.to_csv("mobility_features_state_google.csv")
+
+# state = df.reset_index().copy()
+# state["region"] = state["region"].apply(lambda x: x.split(", ")[-1])
+# state = state.groupby(["region", "type"]).mean().reset_index()
+# state.to_csv("mobility_features_state_google.csv", index=False)
