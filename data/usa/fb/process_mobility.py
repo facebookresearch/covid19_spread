@@ -24,9 +24,9 @@ if os.path.exists("fb_mobility"):
     shutil.rmtree("fb_mobility")
 shutil.unpack_archive(path, "fb_mobility", "zip")
 
-fips_map = pd.read_csv(
-    "../county_fips_master.csv", index_col=["fips"], encoding="ISO-8859-1"
-)
+fips_map = pd.read_csv("../county_fips_master.csv", encoding="ISO-8859-1")
+# Washington DC is duplicated in this file for some reason...
+fips_map = fips_map.drop_duplicates(["fips"]).set_index("fips")
 
 fips = {}
 for f in np.unique(fips_map.index):
