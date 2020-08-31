@@ -54,6 +54,7 @@ lags = list(range(0, 21))
 result = []
 for feature in tqdm(features[opt.resolution]):
     feat = pandas.read_csv(feature)
+    feat = feat.replace(0, np.nan)
     for ty, g_feat in feat.groupby("type"):
         del g_feat["type"]
         g_feat = g_feat.set_index("region")
@@ -67,7 +68,7 @@ for feature in tqdm(features[opt.resolution]):
         g_feat = g_feat.transpose()
         g_feat.index = pandas.to_datetime(g_feat.index)
         for lag in lags:
-            shifted = g_feat.shift(lag).dropna()
+            shifted = g_feat.shift(lag)  # .dropna()
             idx = shifted.index.intersection(df.index)
             cols = sorted(set(df.columns).intersection(shifted.columns))
             corr = df.loc[idx, cols].corrwith(shifted.loc[idx, cols]).mean()
