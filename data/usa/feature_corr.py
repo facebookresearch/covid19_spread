@@ -25,15 +25,15 @@ features = {
         "google/hosp_features_state.csv",
     ],
     "county": [
-        "symptom-survey/fb-survey_smoothed_hh_cmnty_cli-state.csv",
+        "symptom-survey/fb-survey_smoothed_hh_cmnty_cli-county.csv",
         "testing/ratio_features_county.csv",
         "testing/total_features_county.csv",
         "fb/mobility_features_county_fb.csv",
         "google/mobility_features_county_google.csv",
         "google/weather_features_county.csv",
-        "symptom-survey/fb-survey_smoothed_wcli-state.csv",
+        "symptom-survey/fb-survey_smoothed_wcli-county.csv",
         "symptom-survey/doctor-visits_smoothed_adj_cli-county.csv",
-        "symptom-survey/doctor-visits_smoothed_adj_cli-state.csv",
+        # "symptom-survey/doctor-visits_smoothed_adj_cli-state.csv",
     ],
 }
 
@@ -41,6 +41,7 @@ features = {
 df = pandas.read_csv(
     "data_cases.csv" if opt.metric == "cases" else "data_deaths.csv", index_col="region"
 )
+regions = set(df.index.unique().values.tolist())
 if opt.resolution == "county":
     idx = df.max(1).sort_values().iloc[-100:].index
     df = df.loc[idx]
@@ -49,6 +50,7 @@ else:
 
 df = df.transpose().diff().clip(lower=0)
 df.index = pandas.to_datetime(df.index)
+
 
 lags = list(range(0, 21))
 result = []
@@ -99,8 +101,12 @@ for _, row in best.iterrows():
         transpose.shift(row["lag"]).fillna(method="ffill").fillna(method="bfill")
     )
     df = transpose.transpose()
+    missing = list(regions - set(df.index.unique().tolist()))
+    for m in missing:
+        df.loc[m] = np.zeros(df.shape[1])
     df["type"] = row["type"]
     dfs.append(df.set_index("type", append=True))
+    print("Number of missing regions:", row.feature, row.type, len(missing), len(df))
 
 df = pandas.concat(dfs)
 df = df[sorted(df.columns)]
