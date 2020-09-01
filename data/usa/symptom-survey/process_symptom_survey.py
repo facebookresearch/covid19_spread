@@ -53,7 +53,8 @@ source, signal = opt.signal.split("/")
 df = get_df(source, signal, opt.resolution)
 
 if opt.resolution == "county":
-    cols = df.columns
+    cases = pd.read_csv("../data_cases.csv", index_col="region")
+    df = cases.index.to_frame()
     df["state"] = [x.split(", ")[-1] for x in df.index]
     df2 = get_df(source, signal, "state")
     df2 = df2.merge(df[["state"]], left_index=True, right_on="state")[df2.columns]
