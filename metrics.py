@@ -124,9 +124,9 @@ def _compute_metrics(df_true, df_pred, mincount=0, nanfill=False):
             mape(df_pred, gt),
             rmse(naive, gt),
             mae(naive, gt),
+            state_mae,
             max_mae(df_pred, gt),
             max_mae(naive, gt),
-            state_mae,
         ],
         columns=df_pred.index.to_numpy(),
     )
