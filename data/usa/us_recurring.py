@@ -47,7 +47,9 @@ class USARRecurring(recurring.Recurring):
 
     def launch_job(self, **kwargs):
         # Make clean with features
-        check_call(["make", "clean", "data_cases.csv"])
+        check_call(["make", "clean"], cwd=script_dir)
+        check_call(["python", "convert.py", "-source", "google"], cwd=script_dir)
+        check_call(["make", "data_cases.csv", "-j", "5"], cwd=script_dir)
         client = get_slack_client()
         msg = f"*New Data Available for US: {self.latest_date()}*"
         client.chat_postMessage(channel="#new-data", text=msg)
