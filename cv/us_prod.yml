@@ -9,8 +9,7 @@ test:
   output: validation.csv
 forecast:
   output: forecast.csv
-prediction_interval_:
-  nsamples: 10
+prediction_interval:
   output_mean: mean.csv
   output_std: std.csv
 bar_time_features:
@@ -27,12 +26,13 @@ bar_time_features:
     cross_correlation: True
     time_features:
       -
-        - data/usa/fb/mobility_features_county.pt
-        - data/usa/google/mobility_features_county.pt
+        - data/usa/testing/total_features_county.pt
+        - data/usa/fb/mobility_features_county_fb.pt
+        - data/usa/google/mobility_features_county_google.pt
         - data/usa/google/weather_features_county.pt
-        - data/usa/symptom-survey/data-smoothed_hh_cmnty_cli-county.pt
-        - data/usa/testing/testing_features_county.pt
-        # - data/usa/google/epi_features_county.pt
+        - data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-county_state.pt
+        - data/usa/symptom-survey/fb-survey_smoothed_wcli-county_state.pt
+        - data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-county.pt
     activation: sigmoid
     decay: [lstm2_2]
     window: [20, 25]
