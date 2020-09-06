@@ -7,21 +7,38 @@ from nbconvert import HTMLExporter
 import nbformat
 import nbconvert
 from nbconvert.preprocessors import ExecutePreprocessor
-from data.recurring import env_var
 import os
+import dropbox
 import tempfile
 from traitlets.config import Config
+import json
 import click
-from data.recurring import DB, chdir
+from data.recurring import DB, chdir, env_var
 import sqlite3
+from glob import glob
 import re
+from lib.dropbox import Uploader
 import yaml
+import shutil
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from nb2mail import MailExporter
 import socket
+from lib.slack import get_client as get_slack_client
+import boto3
+import geopandas
 
-license_txt = "This work is licensed under the Creative Commons Attribution-Noncommercial 4.0 International Public License (CC BY-NC 4.0). To view a copy of this license go to https://creativecommons.org/licenses/by-nc/4.0/. Retention of the foregoing language is sufficient for attribution."
+
+license_txt = (
+    "This work is based on publicly available third party data sources which "
+    "may not necessarily agree. Facebook makes no guarantees about the "
+    "reliability, accuracy, or completeness of the data. It is not intended "
+    "to be a substitute for either public health guidance or professional "
+    "medical advice, diagnosis, or treatment. This work is licensed under "
+    "the Creative Commons Attribution-Noncommercial 4.0 International Public "
+    "License (CC BY-NC 4.0). To view a copy of this license go to "
+    "https://creativecommons.org/licenses/by-nc/4.0/"
+)
 
 RECIPIENTS = [
     "Matt Le <mattle@fb.com>",
@@ -37,24 +54,100 @@ def cli():
     pass
 
 
+def get_county_geometries():
+    if not os.path.exists("cb_2018_us_county_20m.zip"):
+        check_call(
+            [
+                "wget",
+                "https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_us_county_20m.zip",
+            ]
+        )
+
+    if not os.path.exists("us_counties"):
+        shutil.unpack_archive("cb_2018_us_county_20m.zip", "us_counties")
+
+    return geopandas.read_file("us_counties/cb_2018_us_county_20m.shp")
+
+
+@cli.command()
+@click.argument("pth")
+@click.option("--metric", default="best_mae")
+def submit_s3(pth, metric):
+    geometries = get_county_geometries()
+    index = pandas.read_csv(
+        "https://storage.googleapis.com/covid19-open-data/v2/index.csv"
+    )
+    fips = pandas.read_csv(
+        "https://raw.githubusercontent.com/kjhealy/fips-codes/master/state_and_county_fips_master.csv"
+    )
+    fips["fips"] = fips["fips"].astype(str).str.zfill(5)
+    index = index.merge(fips, left_on="subregion2_code", right_on="fips")
+
+    model_selection = json.load(open(os.path.join(pth, "model_selection.json")))
+    model_selection = {x["name"]: x["pth"] for x in model_selection}
+    model_selection[metric]
+    job = os.path.join(pth, os.path.basename(model_selection[metric]))
+    forecast = pandas.read_csv(
+        os.path.join(job, "final_model_validation.csv"), parse_dates=["date"]
+    )
+    forecast = forecast.melt(
+        id_vars=["date"], value_name="estimated_cases", var_name="location"
+    )
+    forecast["loc3"] = forecast["location"].apply(lambda x: x.split(", ")[0])
+    forecast["loc2"] = forecast["location"].apply(lambda x: x.split(", ")[1])
+    forecast["loc1"] = "United States"
+    forecast = forecast[["date", "estimated_cases", "loc1", "loc2", "loc3"]]
+    basedate = str((forecast["date"].min() - timedelta(days=1)).date())
+    geom = geometries.merge(index, left_on="GEOID", right_on="subregion2_code")
+    geom["name"] = geom["name"].str.replace(" (County|Municipality|Parish)", "")
+    merged = forecast.merge(
+        geom, left_on=["loc2", "loc3"], right_on=["subregion1_name", "name"], how="left"
+    )
+    assert not merged["geometry"].isnull().any()
+    merged = merged[["date", "loc1", "loc2", "loc3", "geometry", "estimated_cases"]]
+    merged["geometry"] = merged["geometry"].apply(lambda x: x.wkt)
+
+    merged = merged[(merged["date"] - merged["date"].min()).dt.days < 30]
+
+    client = boto3.client("s3")
+    object_name = f"users/mattle/h2/covid19_forecasts/forecast_{basedate}.csv"
+    with tempfile.NamedTemporaryFile() as tfile:
+        merged.to_csv(tfile.name, index=False, sep="\t")
+        client.upload_file(tfile.name, "fairusersglobal", object_name)
+
+
 @cli.command()
 @click.argument("pth")
 @click.option("--module", required=True)
 @click.option("--region", required=True)
-def submit(pth: str, module: str, region: str):
+@click.option("--email/--no-email", default=True)
+def submit(pth: str, module: str, region: str, email: bool = True):
     script_dir = os.path.dirname(os.path.realpath(__file__))
     with tempfile.TemporaryDirectory() as tdir:
         os.makedirs(tdir, exist_ok=True)
         with chdir(tdir):
             # Read and format CSV
             df = pandas.read_csv(pth, index_col="date", parse_dates=["date"])
+
+            forecast_dir = os.path.dirname(pth)
             basedate = (df.index.min() - timedelta(days=1)).date().strftime("%Y%m%d")
-            forecast = f"forecast-{region}_{basedate}_{module}.csv"
+            forecast = f"{forecast_dir}/forecast-{region}_{basedate}_{module}.csv"
             df = df[sorted(df.columns)].copy()
             df["ALL_REGIONS"] = df.sum(axis=1)
             df.index = [x.date() for x in df.index]
             df.loc[license_txt] = None
             df.to_csv(forecast, index_label="date", float_format="%.2f")
+
+            if not email:
+                print("Not sending email...")
+                return
+
+            try:
+                client = get_slack_client()
+                msg = f"*Forecast for {region} - {module} is ready: {basedate}*"
+                client.chat_postMessage(channel="#sweep-updates", text=msg)
+            except Exception:
+                pass
 
             # Run the notebook for this forecast
             notebook = f"{script_dir}/notebooks/forecast_template.ipynb"
@@ -62,7 +155,7 @@ def submit(pth: str, module: str, region: str):
                 nb = nbformat.read(fin, as_version=nbformat.current_nbformat)
             with env_var({"FORECAST_PTH": pth}):
                 print("Executing notebook...")
-                ep = ExecutePreprocessor(kernel_name="python3")
+                ep = ExecutePreprocessor(kernel_name="python3", timeout=240)
                 ep.preprocess(nb, {"metadata": {"path": os.path.dirname(notebook)}})
 
             # Export to an email
@@ -100,7 +193,7 @@ def check_unsubmitted(ctx):
     SELECT path, module
     FROM sweeps
     LEFT JOIN submitted ON sweeps.path=submitted.sweep_path
-    WHERE submitted.sweep_path IS NULL
+    WHERE submitted.sweep_path IS NULL AND module='ar'
     """
     )
     print(f"Checking for unsubmitted forecasts: {datetime.now()}")
@@ -116,6 +209,36 @@ def check_unsubmitted(ctx):
             "INSERT INTO submitted (sweep_path, submitted_at) VALUES(?,?)", vals
         )
         conn.commit()
+
+
+@cli.command()
+@click.option("--dry", is_flag=True)
+def submit_to_dropbox(dry: bool = False):
+    conn = sqlite3.connect(DB)
+    res = conn.execute(
+        """
+    SELECT path, module
+    FROM sweeps
+    WHERE module IN ('ar', 'ar_daily')
+    """
+    )
+    uploader = Uploader()
+    for path, module in res:
+        cfg = yaml.safe_load(open(f"{path}/cfg.yml"))
+        fcsts = glob(f'{path}/forecasts/forecast-{cfg["region"]}*_{module}.csv')
+        if len(fcsts) == 1:
+            forecast_pth = fcsts[0]
+            db_file = (
+                f"/covid19_forecasts/{cfg['region']}/{os.path.basename(forecast_pth)}"
+            )
+            try:
+                uploader.client.files_get_metadata(db_file)
+                continue  # file already exists, skip it...
+            except dropbox.exceptions.ApiError:
+                pass
+            print(f"Uploading: {db_file}")
+            if not dry:
+                uploader.upload(forecast_pth, db_file)
 
 
 if __name__ == "__main__":

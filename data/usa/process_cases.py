@@ -18,6 +18,7 @@ import itertools
 import shutil
 import argparse
 import datetime
+from glob import glob
 
 
 def get_nyt(metric="cases"):
@@ -61,9 +62,66 @@ def get_nyt(metric="cases"):
     ).fillna(0)
 
 
+def get_google(metric="cases"):
+    index = pandas.read_csv(
+        "https://storage.googleapis.com/covid19-open-data/v2/index.csv"
+    )
+    index = index[index["country_code"] == "US"]
+    df = pandas.read_csv(
+        "https://storage.googleapis.com/covid19-open-data/v2/epidemiology.csv",
+        parse_dates=["date"],
+    )
+    fips = pandas.read_csv(
+        "https://raw.githubusercontent.com/kjhealy/fips-codes/master/state_and_county_fips_master.csv"
+    )
+    fips["fips"] = fips["fips"].astype(str).str.zfill(5)
+    index = index.merge(fips, left_on="subregion2_code", right_on="fips")
+    merged = df.merge(index, on="key")
+    merged = merged[~merged["subregion2_name"].isnull()]
+    merged["loc"] = (
+        merged["subregion1_name"]
+        + "_"
+        + merged["name"].str.replace(" (County|Municipality|Parish|Borough)", "")
+    )
+    value_col = "total_confirmed" if metric == "cases" else "total_deceased"
+    pivot = merged.pivot(values=value_col, index="date", columns="loc")
+    if pivot.iloc[-1].isnull().any():
+        pivot = pivot.iloc[:-1]
+    pivot.iloc[0] = pivot.iloc[0].fillna(0)
+    pivot = pivot.fillna(method="ffill")
+    return pivot
+
+
+def get_jhu(metric="cases"):
+    urls = {
+        "cases": "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv",
+        "deaths": "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv",
+    }
+
+    df = pandas.read_csv(urls[metric])
+    date_cols = [c for c in df.columns if re.match("\d+/\d+/\d+", c)]
+    df = df[~df["Admin2"].isnull()]
+    US_TERRITORIES = {"AS", "GU", "MP", "PR", "VI", "UM"}
+    # Strip out US territories
+    df = df[~df["iso2"].isin(US_TERRITORIES)]
+    df["loc"] = df["Province_State"] + "_" + df["Admin2"]
+    df = df.set_index("loc")[date_cols].transpose()
+    df.index = pandas.to_datetime(df.index)
+    df.to_csv("jhu.csv")
+    return df
+
+
+SOURCES = {
+    "nyt": get_nyt,
+    "google": get_google,
+    "jhu": get_jhu,
+}
+
+
 def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--smooth", type=int, default=1)
+    parser.add_argument("--source", choices=list(SOURCES.keys()), default="nyt")
     parser.add_argument(
         "--mode",
         choices=["adjacent_states", "no_interaction", "deaths"],
@@ -94,7 +152,7 @@ def main(args):
         state_map[k]: [state_map[v] for v in vs] for k, vs in neighbors.items()
     }
 
-    df = get_nyt(metric="deaths" if opt.mode == "deaths" else "cases")
+    df = SOURCES[opt.source](metric="deaths" if opt.mode == "deaths" else "cases")
     print(f"Latest date = {df.index.max()}")
 
     # Remove any unknowns

@@ -1,0 +1,179 @@
+{
+    "Alabama": {
+        "Birmingham": [
+            "Jefferson County, AL",
+            "Shelby County, AL"
+        ],
+        "Mobile": [
+            "Mobile County, AL"
+        ]
+    },
+    "California": {
+        "Palo Alto": [
+            "Santa Clara County, CA"
+        ],
+        "San Diego": [
+            "San Diego County, CA"
+        ]
+    },
+    "Colorado": {
+        "Aurora": [
+            "Arapahoe County, CO",
+            "Adams County, CO",
+            "Douglas County, CO"
+        ]
+    },
+    "Connecticut": {
+        "New Haven": [
+            "New Haven County, CT"
+        ]
+    },
+    "Florida": {
+        "Coral Gables": [
+            "Miami-Dade County, FL"
+        ],
+        "Hollywood": [
+            "Broward County, FL"
+        ],
+        "Miami": [
+            "Miami-Dade County, FL"
+        ]
+    },
+    "Georgia": {
+        "Atlanta": [
+            "Fulton County, GA",
+            "DeKalb County, GA"
+        ],
+        "Decatur": [
+            "DeKalb County, GA"
+        ]
+    },
+    "Illinois": {
+        "Chicago": [
+            "Cook County, IL",
+            "DuPage County, IL"
+        ]
+    },
+    "Louisiana": {
+        "Metairie": [
+            "Jefferson Parish, LA"
+        ],
+        "New Orleans": [
+            "Orleans Parish, LA"
+        ]
+    },
+    "Massachusetts": {
+        "Boston": [
+            "Suffolk County, MA"
+        ]
+    },
+    "Michigan": {
+        "Detroit": [
+            "Monroe County, MI",
+            "Wayne County, MI"
+        ]
+    },
+    "Missouri": {
+        "St. Louis": [
+            "St. Louis City County, MO"
+        ]
+    },
+    "Nebraska": {
+        "Omaha": [
+            "Douglas County, NE"
+        ]
+    },
+    "Nevada": {
+        "Las Vegas": [
+            "Clark County, NV"
+        ]
+    },
+    "New Jersey": {
+        "Hackensack": [
+            "Bergen County, NJ"
+        ],
+        "Hillsborough": [
+            "Somerset County"
+        ],
+        "New Brunswick": [
+            "Middlesex County, NJ"
+        ],
+        "Newark": [
+            "Essex County, NJ"
+        ]
+    },
+    "New York": {
+        "Bronx": [
+            "Westchester County, NY",
+            "Bronx County, NY"
+        ],
+        "New York": [
+            "Kings County, NY",
+            "Queens County, NY",
+            "New York County, NY",
+            "Bronx County, NY",
+            "Richmond County, NY"
+        ],
+        "Rochester": [
+            "Monroe County, NY"
+        ]
+    },
+    "North Carolina": {
+        "Charlotte": [
+            "Mecklenburg County, NC"
+        ],
+        "Fayetteville": [
+            "Cumberland County, NC"
+        ],
+        "Raleigh": [
+            "Wake County, NC",
+            "Durham County, NC"
+        ]
+    },
+    "Ohio": {
+        "Cincinnati": [
+            "Hamilton County, OH"
+        ],
+        "Cleveland": [
+            "Cuyahoga County, OH"
+        ]
+    },
+    "Pennsylvania": {
+        "Philadelphia": [
+            "Philadelphia County, PA"
+        ]
+    },
+    "South Dakota": {
+        "Harrisburg": [
+            "Lincoln County, SD"
+        ]
+    },
+    "Tennessee": {
+        "Knoxville": [
+            "Knox County, TN"
+        ],
+        "Nashville": [
+            "Davidson County, TN"
+        ]
+    },
+    "Texas": {
+        "Austin": [
+            "Travis County, TX",
+            "Williamson County, TX",
+            "Hays County, TX"
+        ],
+        "Dallas": [
+            "Dallas County, TX",
+            "Collin County, TX",
+            "Denton County, TX",
+            "Kaufman County, TX",
+            "Rockwall County, TX"
+        ],
+        "Fort Worth": [
+            "Tarrant County, TX",
+            "Denton County, TX",
+            "Parker County, TX",
+            "Wise County, TX"
+        ]
+    }
+}

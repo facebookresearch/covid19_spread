@@ -71,21 +71,27 @@ def mae(pred, gt):
     return (pred - gt).abs().mean(axis=1)
 
 
-def sae(pred, gt):
-    return (pred - gt).abs().std(axis=1)
-
-
 def mape(pred, gt):
     return ((pred - gt).abs() / gt.clip(1)).mean(axis=1)
 
 
-def compute_metrics(f_ground_truth, f_predictions, mincount=10):
+def max_mae(pred, gt):
+    return (pred - gt).abs().max(axis=1)
+
+
+def compute_metrics(f_ground_truth, f_predictions, mincount=0, nanfill=False):
     df_true = load_ground_truth(f_ground_truth)
     df_pred = pd.read_csv(f_predictions, parse_dates=["date"], index_col="date")
-    return _compute_metrics(df_true, df_pred, mincount)
+    return _compute_metrics(df_true, df_pred, mincount, nanfill=nanfill)
 
 
-def _compute_metrics(df_true, df_pred, mincount=10):
+def _compute_metrics(df_true, df_pred, mincount=0, nanfill=False):
+    if nanfill:
+        cols = sorted(set(df_true.columns).difference(set(df_pred.columns)))
+        zeros = pd.DataFrame(np.zeros((len(df_pred), len(cols))), columns=cols)
+        zeros.index = df_pred.index
+        df_pred = pd.concat([df_pred, zeros], axis=1)
+
     common_cols = list(set(df_true.columns).intersection(set(df_pred.columns)))
     df_pred = df_pred[common_cols]
     df_true = df_true[common_cols]
@@ -106,6 +112,11 @@ def _compute_metrics(df_true, df_pred, mincount=10):
     naive = naive.loc[ix]
     gt = df_true.loc[ix]
 
+    # compute state level MAE
+    state_gt = gt.transpose().groupby(lambda x: x.split(", ")[-1]).sum()
+    state_pred = df_pred.transpose().groupby(lambda x: x.split(", ")[-1]).sum()
+    state_mae = (state_gt.sort_index() - state_pred.sort_index()).abs().mean(axis=0)
+
     metrics = pd.DataFrame(
         [
             rmse(df_pred, gt),
@@ -113,10 +124,22 @@ def _compute_metrics(df_true, df_pred, mincount=10):
             mape(df_pred, gt),
             rmse(naive, gt),
             mae(naive, gt),
+            state_mae,
+            max_mae(df_pred, gt),
+            max_mae(naive, gt),
         ],
         columns=df_pred.index.to_numpy(),
     )
-    metrics["Measure"] = ["RMSE", "MAE", "MAPE", "RMSE_NAIVE", "MAE_NAIVE"]
+    metrics["Measure"] = [
+        "RMSE",
+        "MAE",
+        "MAPE",
+        "RMSE_NAIVE",
+        "MAE_NAIVE",
+        "STATE_MAE",
+        "MAX_MAE",
+        "MAX_NAIVE_MAE",
+    ]
     metrics.set_index("Measure", inplace=True)
     if metrics.shape[1] > 0:
         metrics.loc["MAE_MASE"] = metrics.loc["MAE"] / metrics.loc["MAE_NAIVE"]
@@ -127,7 +150,10 @@ def _compute_metrics(df_true, df_pred, mincount=10):
         stack = pd.concat(
             [df_true.loc[[df_pred.index.min() - timedelta(days=1)]], df_pred]
         )
-        metrics.loc["MAE_DELTAS"] = mae(stack.diff().loc[ix], df_true.diff().loc[ix])
+        stack_diff = stack.diff().loc[ix]
+        true_diff = df_true.diff().loc[ix]
+        metrics.loc["MAE_DELTAS"] = mae(stack_diff, true_diff)
+        metrics.loc["RMSE_DELTAS"] = rmse(stack_diff, true_diff)
     return metrics
 
 

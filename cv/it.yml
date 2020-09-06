@@ -1,24 +1,28 @@
 region: it
 population: &fpop data/italy/population.csv
-basegraph: &fgraph data/it/state_graph.pt
+notebooks:
+  backfill:
+    - notebooks/Italy.ipynb
+    - "notebooks/Model Analysis.ipynb"
 validation:
-  days: &vdays 7
+  days: 14
   output: validation.csv
 forecast:
   output: forecast.csv
+  days: &fdays 14
 prediction_interval:
   nsamples: 1000
   intervals: [0.99, 0.95, 0.8]
   output: piv.csv
-backfill_:
+backfill:
   - 2020-04-22
   - 2020-04-29
-  - 2020-05-05
+  # - 2020-05-05
   # - 2020-05-10
   # IHME
-  - 2020-04-19
-  - 2020-04-26
-  - 2020-05-01
+  # - 2020-04-19
+  # - 2020-04-26
+  # - 2020-05-01
 backfill__:
   - 2020-04-08
   - 2020-04-10
@@ -73,4 +77,59 @@ ar:
     niters: [30000]
     loss: nb
     t0: 5
-    test_on: *vdays
+    test_on: *fdays
+# car:
+#   output: car_model.bin
+#   data: data/italy/data-upc.csv
+#   resources:
+#     gpus: 1
+#     cpus: 1
+#     memgb: 15
+#     timeout: 30
+#   #preprocess:
+#   #  smooth: 5
+#   train:
+#     fpop: *fpop
+#     activation: sigmoid
+#     no_cross_correlation: false
+#     decay: [latent2_1]
+#     window: [15, 20, 25]
+#     lr: [0.001]
+#     momentum: [0.99]
+#     weight_decay: [0.1, 0.2]
+#     niters: [30000, 40000]
+#     #granger: [1, 10, 100]
+#     # granger: [0.1, 1, 10]
+#     granger: [0.1, 0.15, 0.2]
+#     #niters: [30000, 40000]
+#     #granger: [0.01, 0.005]
+#     loss: nb
+#     t0: 5
+#     test_on: *fdays
+bar:
+  output: bar_model.bin
+  data: data/italy/data-upc.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 360
+  # preprocess:
+  #   smooth: 5
+  train:
+    fpop: *fpop
+    activation: sigmoid
+    decay: [latent2_2]
+    window: [20, 25]
+    lr: [0.001]
+    momentum: [0.99]
+    weight_decay: [0.1, 0.2]
+    # niters: [30000]
+    niters: [20000]
+    granger: [0.5]
+    # granger: [0.3, 0.4, 0.5]
+    temporal: [0.5, 1, 2]
+    eta: [0.1, 0.2, 0.3]
+    loss: nb
+    t0: 5
+    test_on: *fdays

@@ -1,0 +1,49 @@
+region: us
+population: &fpop data/usa/population.csv
+basegraph: &fgraph data/usa/state_graph.pt
+validation:
+  days: &vdays 7
+  output: validation.csv
+test:
+  days: 30
+  output: validation.csv
+forecast:
+  output: forecast.csv
+prediction_interval:
+  output_mean: mean.csv
+  output_std: std.csv
+bar_time_features:
+  output: bar_model.bin
+  data: data/usa/data_cases.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 3600
+  train:
+    fpop: *fpop
+    self_correlation: True
+    cross_correlation: True
+    time_features:
+      -
+        - data/usa/testing/total_features_county.pt
+        - data/usa/fb/mobility_features_county_fb.pt
+        - data/usa/google/mobility_features_county_google.pt
+        - data/usa/google/weather_features_county.pt
+        - data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-county_state.pt
+        - data/usa/symptom-survey/fb-survey_smoothed_wcli-county_state.pt
+        - data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-county.pt
+    activation: sigmoid
+    decay: [lstm2_2]
+    window: [20, 25]
+    lr: [0.001]
+    momentum: [0.99]
+    weight_decay: [0.1, 0.2]
+    niters: [40000]
+    granger: [0.5]
+    temporal: [1, 2]
+    dropout: [0.2, 0.3]
+    eta: [0.1, 0.2]
+    loss: nb
+    t0: 0
+    test_on: *vdays

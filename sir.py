@@ -172,8 +172,20 @@ class SIRCV(cv.CV):
             train_params.fpop, regions=cases_df.columns
         )
 
+        # Make sure population and case locations match
+        locs = cases_df.columns.intersection(populations_df["region"])
+        cases_df = cases_df[locs]
+        populations_df = (
+            populations_df.set_index("region")
+            .reindex(locs)
+            .reset_index()
+            .rename(columns={"index": "region"})
+        )
+
         recovery_days, distancing_reduction, days, keep = initialize(train_params)
         doubling_times, regions = model
+
+        regions = locs
 
         region_to_prediction = dict()
 

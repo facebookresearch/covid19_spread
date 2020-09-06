@@ -1,3 +1,5 @@
+*.log
+*.err
 .ipynb_checkpoints
 *.h5
 *.bin
@@ -5,5 +7,11 @@ __pycache__
 *.log
 *.stdout
 *.stderr
+*.bkp
 data/nystate/raw-ny-*.csv
 data/nystate/data-ny-*.csv
+data/new-jersey/data-*.csv
+data/new-jersey/nj-official-*.csv
+data/usa/**/*.pt
+data/usa/fb/**/README.txt
+data/usa/fb/fb_mobility*

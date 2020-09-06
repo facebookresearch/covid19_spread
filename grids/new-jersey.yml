@@ -11,7 +11,7 @@ grid:  # parameter grid for training
   data: ["data/new-jersey/timeseries_smooth.h5"]
   dim: [10, 15, 20]
   base_intensity: [True, False]
-  alpha_scale: [-10, -15]
+  alpha_scale: [-5, -10]
   const_beta: [-1, 10, 15]
   weight_decay: [0]
   max_events: [1000000]
