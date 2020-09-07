@@ -1,6 +1,7 @@
 #+MACRO: NEWLINE @@latex:\\@@ @@html:<br>@@
-#+Title: Inducing Granger Causality {{{NEWLINE}}} for High-Resolution COVID-19 Forecasting
-#+Author: Maximilian Nickel, Matt Le, Mark Ibrahim, Levent Sagun, Timothee Lacroix {{{NEWLINE}}} Facebook AI Research
+#+MACRO: CORRESP @@latex:\textsuperscript{\dagger}@@
+#+Title: Neural Relational Autoregression {{{NEWLINE}}} for High-Resolution COVID-19 Forecasting
+#+Author: Matthew Le, Mark Ibrahim, Levent Sagun, Timothee Lacroix, {{{NEWLINE}}} Maximilian Nickel {{{NEWLINE}}} Facebook AI Research
 #+Publisher: Facebook AI Research
 
 #+OPTIONS: toc:nil date:nil
@@ -66,6 +67,8 @@
 #+LATEX_HEADER:     allcolors = {DarkBlue}
 #+LATEX_HEADER: }
 
+#+LATEX_HEADER: \captionsetup{labelfont=bf}
+
 #+LATEX_HEADER: \renewcommand{\vec}[1]{\bm{#1}}
 #+LATEX_HEADER: \newcommand{\AR}{\text{AR}}
 #+LATEX_HEADER: \newcommand{\bAR}{\ensuremath{\beta}\text{-AR}\xspace}
@@ -75,18 +78,21 @@
 #+LATEX_HEADER: \newcommand{\E}{\mathbb{E}}
 #+LATEX_HEADER: \newcommand{\todo}[1]{{\color{red} #1}}
 
-#+LATEX_HEADER: %\author{Maximilian Nickel\\Facebook AI Research\\New York, NY\\\texttt{maxn@fb.com}}
+#+LATEX: \marginnote[-2.15em]{Corresponding author: Maximilian Nickel \texttt{maxn@fb.com}}
 
 #+BEGIN_abstract
 Forecasting COVID-19 poses unique challenges due to the novelty of the disease,
 its unknown characteristics, and substantial but varying interventions to reduce
 its spread. To improve the quality and robustness of forecasts, we propose a new
-method which employs Granger causality as an inductive bias and aims to
-disentangle region-specific aspects -- such as demographics, enacted policies,
-and testing methods -- from disease-inherent aspects that influence its spread.
-This allows us to train high-resolution models by borrowing statistical strength
-across regions. In our experiments, we demonstrate that this approach achieves
-strong performance in predicting the spread of COVID-19.
+method which aims to disentangle region-specific factors -- such as
+demographics, enacted policies, and mobility -- from disease-inherent
+factors that influence its spread. For this purpose, we combine recurrent neural
+networks with an autoregressive model optimize the model to learn relations
+between regions which is akin to inducing Granger causality in the
+autoregressive part. This approach allows us to train high-resolution models by
+borrowing statistical strength across regions. In our experiments, we
+demonstrate that this approach achieves excellent performance in predicting the
+spread of COVID-19 when compared to state-of-the-art forecasts.
 #+END_abstract
 
 * Introduction
@@ -94,11 +100,18 @@ Modeling the spread of COVID-19 at a high spatial and temporal resolution has
 become an important task in the public health response to the disease. For
 instance, it is not only central to monitor the state of the pandemic but is
 also important to efficiently allocate scarce resources such as ventilators,
-personal protective equipment, and ICU beds.
+personal protective equipment, and ICU beds and to make progress towards
+efficient early detection systems.
 
-#+ATTR_LATEX: :float margin :width \columnwidth :offset 20em
-#+CAPTION: Variability of new cases per region and over time
-[[file:img/cases_italy.png]]
+#+ATTR_LATEX: :width 1.3\columnwidth :float margin :center nil :offset -30em
+#+NAME: fig:ranking-covidhub-mae
+#+CAPTION: Ranking of county-level forecasts by average MAE over various forecast horizons. The proposed neural relational autoregressive model (\bAR) shows strong performance over all horizons when compared to current state-of-the-art forecasts. Mean rank over all horizons in parentheses.
+[[file:img/us_rank_mae.png]]
+
+
+#+ATTR_LATEX: :float margin :width \columnwidth :offset -5em
+#+CAPTION: Variability of growth in confirmed cases per region over time
+[[file:img/growth_example.png]]
 
 However, forecasting COVID-19 poses unique challenges as it is still largely
 unknown to what extent certain factors influence its spread. This is only
@@ -107,14 +120,21 @@ Even several months after the initial outbreak there exists substantially less
 data than for infectious diseases like influenza and measles which have been
 monitored for decades. Due to the global nature of COVID-19, the available data
 is also distributed among regions with very different properties, many of which
-may affect its spread. This includes, for instance, demographics and population
+may affect its spread.
+
+This includes, for instance, demographics and population
 densities, enacted policies, adherence to those policies, mobility patterns, and
 geographic features such as temperature. In addition, testing and reporting can
-change considerably across regions and time what adds another source of
+change considerably across regions and time which adds another source of
 variability and uncertainty. All these factors make reliable forecasts
 difficult, especially at high spatial resolution. While flexible models are
 needed to account for all these a possible influencing factors there is little data
 to estimate such models reliably and without overfitting.
+
+- noise level higher on county granularity than state granularity
+- variation in growth between counties
+- data-driven model /complimentatry approach
+- disentangle / akin to GC
 
 To alleviate this issue, we propose to employ /Granger
 causality/ as an inductive bias to improve forecast quality. Although there
@@ -124,49 +144,57 @@ accounted for region-specific dynamics, information about the spread of the
 disease in region $j$ should therefore also help to improve predictions
 for a related region $i$. Based on this assumption, our method then aims to
 learn models that increase Granger causality between regions.
-For this purpose, we use standard autoregressive models and a
+
+For this purpose, we use recurrent neural networks with an autoregressive model and a
 specific regularization scheme that increases the coupling between regions.
 Notably, this approach optimizes the opposite objective as often used in causal
 discovery where coupling between regions is penalized, e.g., via $\ell_1$
 regularization.
 
 * Method
-We consider forecasting of time series that are different realizations of
-the same underlying disease process. Let \(\foi_i^{t}\) denote the /force of
-infection/ at time \(t\) in location \(i\).[fn::Given $y^t_i$ infected
-individuals, the force of infection (or hazard) models the probability that a
-susceptible individual at time $t$ will become infected by time $t+1$. Classic
-epidemological models (e.g., SIR, AR) and quantities ($R_0$) can be expressed in terms
-of $\foi_i^t$. See citet:bauer2018stratified for a detailed discussion.]
-We then assume that $\foi_i^t$ can be decomposed into a time-dependent
-component $\beta_i^t$ and a time-independent component $\foi$ such that
+We consider forecasting of time series that are different realizations of the
+same underlying disease process. Let \(\Set{Y} = \{(y_i^1, \ldots,
+y_i^T)\}_{i=1}^m\) denote the observed case counts where $i$ indexes locations
+and where $T$ denotes the maximum observation time. Furthermore, let
+\(\foi_i^{t}\) denote the /force of infection/ at time \(t\) in location
+\(i\).[fn::Given $y^t_i$ infected individuals, the force of infection (or
+hazard) models the probability that a susceptible individual at time $t$ will
+become infected by time $t+1$. Classic epidemological models (e.g., SIR, AR) and
+quantities ($R_0$) can be expressed in terms of $\foi_i^t$
+citep:bauer2018stratified.] We then assume that $\foi_i^t$ can be decomposed
+into a time-dependent component $\beta_i^t$ and a time-independent component
+$\foi$ such that
 \begin{align*}
 \foi_i^t = \beta_i^t \foi \quad\text{where}\quad \beta_i^t \in [0, 1],\, \foi > 0
 \end{align*}
 
 Hence, $\beta_i^t$ can be understood as a dampening factor of the underlying
 force of infection that depends on time and location. While
-some influencing factors for the evolution of $\beta_i^t$ might be know (e.g.,
+some influencing factors for the evolution of $\beta_i^t$ might be known (e.g.,
 mobility, population density, etc.), we assume that the full set of influencing
 factors is unknown. We will therefore regard $\beta_i^t$ as a latent variable whose state
 can depend on observed variables $\vec{x}_i^t$. There exist many possible ways
-to model the evolution of $\beta_i^t$ in this scenario. In the following, we will
+to model the evolution of $\beta_i^t$ in this scenario.
+
+
+** Neural Relational Autoregression
+In the following, we will
 simply use a /Elman RNN/ where
 \begin{align}
-    \beta_i^t & = \sigma(\vec{w}^\top \vec{z}_t)
+    \beta_i^t & = \phi(\vec{w}^\top \vec{z}_t)
     & \vec{z}_t & = \psi(W_z\vec{h}^t_i + \vec{b}_z) \label{eq:rnn} \\
     && \vec{h}_t & = \psi(W_h\vec{x}_i^t + U\vec{h}^{t-1}_i + \vec{b}_h)\notag
 \end{align}
-and where $\sigma$ and $\psi$ denote sigmoid and tanh non-linearities.
+and where $\phi$ and $\psi$ denote sigmoid and tanh non-linearities.
 
 ** Granger Causality as an Inductive Bias
 Although an RNN as in ref:eq:rnn should provide enough capacity to model the
-evolution of $\beta_i^t$, there exists currently not enough data about the
+evolution of $\beta_i^t$, there currently does not exist enough data about the
 spread of COVID-19 to estimate its parameters without overfitting. We seek
-therefore inductive biases which allows us to estimate $\beta_i^t$ from few
+therefore inductive biases which allow us to estimate $\beta_i^t$ from few
 observations. Since all regions are affected by the same underlying disease
-process, we assume that information about the spread in region $j$ should also
-help to predict the spread in region $i$ -- once we have accounted for time- and
+process, we assume that information about the spread in region $i$ should also
+help to predict the spread in region $j$ -- once we have accounted for time- and
 location-dependent dynamics. A good model of $\beta_i^t$ should therefore help
 to improve the predictions of $y_i^{t+1} / \beta_i^t$ from cases in other
 regions $y_j^t$. We interpret this inductive bias in terms of Granger causality,
@@ -185,47 +213,48 @@ directly linked to its coefficients. In particular, let
 \begin{equation} \AR(p): \quad y_i^{t+1} =
 \sum_{\ell=0}^{p-1} \sum_{j=1}^m \lambda_{ij}^\ell y_j^{t - \ell}
 \end{equation}
-be a multivariate autoregressive model of order $p$. /A time series $y_j$ is
-then Granger causing $y_i$ if and only if $\lambda_{ij} \neq 0$/
+be a multivariate autoregressive model of order $p$.[fn::Autoregressive
+coefficients $\lambda_{ij}$ can be interpreted in terms force of infection
+$\underline{\lambda}_{ij}$ as discussed in citet:bauer2018stratified] /A time series $y_j$ is
+then Granger-causing $y_i$ if and only if $\lambda_{ij} \neq 0$/
 citep:Seth2007granger. For causal discovery, coefficients $\lambda_{ij}$ are
 therefore often \(\ell_1\)-regularized. Here, we take the opposite approach and
 seek solutions in which as many time-series as possible are Granger-causal
 related. However, we do not force /all/ time series to be related since this is
 likely an unrealistic constraint. Instead, we assume $\lambda_{ij}$ are drawn
 from a logit-normal distribution citep:atchison1980logistic, what allows us to
-specify a prior on the ratio of related-to-unrelated time series.
+specify a prior on the /proportion/ of related and unrelated time series.
 
-#+LATEX: \begin{marginfigure}[5em]
+#+LATEX: \begin{marginfigure}[2em]
 #+ATTR_LATEX: :width \columnwidth :float nil
 [[file:img/logit_normal_0.png]]
 #+ATTR_LATEX: :width \columnwidth :float nil
 [[file:img/logit_normal_-1.png]]
 #+ATTR_LATEX: :width \columnwidth :float nil
 [[file:img/logit_normal_1.png]]
-#+LATEX: \caption{Logit-Normal distribution for different location ($\mu$) and scale parameters $(\sigma)$.}
+#+LATEX: \caption{The Logit-Normal distribution is a probability distribution of a random variable whose logit has a normal distribution, i.e., $\phi(\mathcal{N}(\mu, \sigma))$.}
 #+LATEX: \end{marginfigure}
 
-In particular, let \(\Set{Y} = \{(y_i^1, \ldots, y_i^T)\}_{i=1}^m\) denote the
-observed realizations where $i$ indexes locations and where $T$ denotes the
-maximum observation time. Furthermore, let $\sigma(\cdot)$ denote the
-logistic function and let $\lambda_{ij} = \sigma(\alpha_{ij})$. We then
+In particular, let $\phi(\cdot)$ denote the
+logistic function and let $\lambda_{ij} = \phi(\alpha_{ij})$. We then
 model the spread of the disease via the time-varying and location-dependent model
 \begin{equation}
-\bAR(p): \quad y_i^{t+1} = &
-\sum_{\ell=0}^{p-1} \sum_{j=1}^m \beta_i^t\lambda_{ij}^\ell y_j^{t - \ell} \label{eq:beta-ar}
+\bAR(p): \quad y_i^{t+1} =
+\sum_{\ell=0}^{p-1}\sum_{j=1}^m \beta_i^t\lambda_{ij}^\ell y_j^{t - \ell} \label{eq:beta-ar}
 \end{equation}
 To incorporate Granger causality as an inductive bias, we regularize the
-model log-likelihood such that $\alpha_{ij}$ is drawn from a logit-normal
-distribution with location $\mu$ and scale $\gamma$. Let $\theta$ denote
+model log-likelihood such that $\lambda_{ij}$ is drawn from a logit-normal
+distribution with location $\mu$ and scale $\sigma$. Let $\theta$ denote
 the model parameters (i.e., $\alpha_{ij}$ as well as parameters of the RNN).
 and let $p_\theta(y)$ denote the likelihood function of the $\bAR$
-model. Furthermore, let $q$ denote the PDF of the logit-normal
-distribution. We then maximize the regularized objective
+model. Furthermore, let $q$ denote the prior normal
+distribution for $\alpha_{ij}$. We then maximize the regularized objective
 \begin{equation}
-\max_{\theta}\sum_y\log p_\theta(y) + \eta \sum_{ij} \log q(\alpha_{ij}\,|\,\mu,\gamma). \label{eq:objective}
+\max_{\theta}\sum_y\log p_\theta(y) + \sum_{ij} \log q(\alpha_{ij}\,|\,\mu,\sigma). \label{eq:objective}
 \end{equation}
-We regard $\eta, \mu, \gamma > 0$ as hyperparameters which allow us to control
+We regard $\mu, \sigma > 0$ as hyperparameters which allow us to control
 the ratio of related and unrelated time series in terms of Granger causality.
+
 
 ** Accounting for Overdispersion
 Count data such as confirmed cases is naturally modeled using Poisson
@@ -270,9 +299,166 @@ past values of Y. Formally, \[ T_{j \to i} = p_\theta(y^{t+1}_i, \Set{Y}^t) \log
 \frac{p_\theta(y^{t+1} | \Set{Y}^t)}{p_\theta(y^{t+1} | \Set{Y}^t \textbackslash
 y^t_j)} \]
 
+
+* Results
+In the following, we evaluate the forecast quality of our method compared to
+multiple to multiple state-of-the-art forecasts for confirmed cases on
+county-level. All comparison forecasts are collected from the COVID-19 Forecast
+Hub[fn::\url{https://github.com/reichlab/covid19-forecast-hub}] and submitted by
+the respective teams. The COVID-19 Forecast Hub features county-level forecasts
+from July 5th on and we selected those models for which at least 10 forecasts
+where available since then. The full list of comparison forecasts is shown in
+ref:tab:forecasts.
+
+#+BEGIN_EXPORT latex
+\begin{table*}[h]
+\small
+\centering
+\caption{Confirmed cases forecasting models on county-level.\label{tab:forecasts}}
+\vspace*{1em}
+\begin{tabular}{lll}
+\toprule
+\bf Group & \bf Model \\
+\midrule
+Center for Disease Dynamics, Economics \& Policy & \it CDDP-SEIR\_MCMC & \citep{cddep_seir_mcmc} \\
+Columbia University & \it CU-* & \citep{forecasts/columbia} \\
+COVID Alliance at MIT & \it MITCovAlliance-SIR & \citep{baek2020limits} \\
+Iowa State University Lily Wang Research Group & \it IowaStateLW-STEM & \citep{wang2020spatiotemporal} \\
+Johns Hopkins ID Dynamics COVID-19 Working Group & \it JHU-IDD\_CovidSP & \citep{forecasts/jhu_idd_covidsp} \\
+LockNQuay & \it LNQ-ens1 & \citep{forecasts/lnq_ens1} \\
+Oliver Wyman & \it Pandemic Navigator & \citep{forecasts/oliver_wyman} \\
+UCLA Statistical Machine Learning Lab & \it UCLA-SuEIR & \citep{forecasts/Zou2020.05.24.20111989} \\
+University of Southern California Data Science Lab & \it USC-SI\_kJalpha & \citep{srivastava2020fast} \\
+University of Massachussets Amherst & \it UMass-MechBayes & \citep{forecasts/umass_mechbayes} \\
+\bottomrule
+\end{tabular}
+\end{table*}
+#+END_EXPORT
+
+\paragraph{Forecast setup and model selection}
+Model selection is fully automated: For each forecast date $d$, we perform cross-validation by holding out additional 21 days of validation data and train the model on the remaining data. We then select the best hyperparameters as measured by RMSE on the validation set and retrain the whole model with those hyperparameters on the training and validation set to compute the forecast.
+When computing the forecasts, we hold all additional input data (e.g., symptom survey, mobility, weather, etc.) constant after the last observed day $d$.[fn::This setting places natural limits on the duration of the forecasting horizon. We reserve the joint forecasting of cases and covariates -- what could extend the horizon -- for future work.]. For all training details of the model, please see the supplementary material.
+
+
+\paragraph{Input data} As input features for \bAR, we use multiple data sources as listed in
+ref:tab:data-sources. Confirmed cases enter the model only in the autoregressive
+part. All other covariates enter the model only as input features for the
+time-varying \(\beta\)-part. For cases and weather data, we use the preprocessed data
+from the Google COVID-19 Open Data repository citep:data/Wahltinez2020.
+
+#+BEGIN_EXPORT latex
+\begin{table*}[h]
+\small
+\centering
+\begin{tabular}{lll}
+\toprule
+\bf Dataset & \bf Source & \bf Resolution \\
+\midrule
+Confirmed Cases &  \citet{data/nytimes_cases} &  County \\
+& \multicolumn{2}{l}{\it Confirmed cases based on reports from state \& local health agencies} \\
+\midrule
+Symptom Survey & \citet{data/fb_symptom_survey} &  County, State \\
+& \multicolumn{2}{l}{\it Prevalence of COVID-like symptoms from self-reported surveys} \\
+\midrule
+Movement Range Maps &  \citet{data/fb_movement_range} &  County, State \\
+& \multicolumn{2}{l}{\it Mobility metrics related to physical distancing measures} \\
+& \multicolumn{2}{l}{\it (change in movement and staying put)} \\
+\midrule
+Community Mobility & \citet{data/google_mobility} &  County, State \\
+& \multicolumn{2}{l}{\it Movement trends across different categories of places} \\
+& \multicolumn{2}{l}{\it (retail and recreation, groceries and pharmacies, etc.)} \\
+\midrule
+Doctor visits & CMU COVIDcast \citep{data/covidcast} & County, State \\
+& \multicolumn{2}{l}{Percentage of COVID-related doctor’s visits in a given location} \\
+\midrule
+Testing &  \citet{data/covidtracking} & State \\
+& \multicolumn{2}{l}{\it Total number of COVID PCR tests per state} \\
+\midrule
+Weather & NOAA GHCN \citep{data/menne2012overview} &  County \\
+& \multicolumn{2}{l}{\it Average, minimum, maximum temperature \& rainfall per county} \\
+\bottomrule
+\end{tabular}
+\vspace*{2em}
+\caption{Data sources for \bAR.\label{tab:data-sources}}
+\end{table*}
+#+END_EXPORT
+
+\paragraph{Forecast evaluation} ref:fig:mae-covidhub shows the forecast
+quality as measured by MAE for multiple forecast horizons.[fn::MAE numbers are computed in accordance with \url{https://github.com/youyanggu/covid19-forecast-hub-evaluation}] It can be seen that
+the proposed \bAR models shows a consistently strong performance and is for all
+forecasting dates and horizons either the best model or among the best.
+ref:fig:ranking-covidhub-mae, which shows the ranking of all models by the
+average MAE for each forecast horizon, further illustrates this property. It can
+be seen that \bAR model is consistently ranked first over all horizons.
+Furthermore, other models show much larger variability in their performance.
+
+#+NAME: fig:mae-covidhub
+#+CAPTION: Comparison of \bAR model (blue) to 15 county-level models from COVID-19 forecast hub (gray).
+#+CAPTION: Forecast quality is measured in MAE.
+#+ATTR_LATEX: :width \columnwidth
+[[file:img/us_mae/us_mae.png]]
+
+
+To also evaluate the performance of our model on days prior to July 5th, we
+compare to forecasts of Google Cloud AI citep:arik2020interpretable and Columbia
+University citep:forecasts/columbia which provide county-level forecasts of
+confirmed cases from May 11th to June 27th. ref:fig:mae-google shows the average
+MAE over all counties for 7 and 14 day forecasts for the models.[fn::For this
+comparison, average MAE is computed as described in citep:arik2020interpretable]
+It can be seen that the \bAR model shows again strong performance on these
+earlier days and is consistently ranked first on these earlier dates.
+
+#+NAME: fig:mae-google
+#+ATTR_LATEX: :width \columnwidth :float multicolumn
+[[file:img/counties_bar_mae_7d.png]]
+
+\paragraph{Ablations} In addition to comparisons to state-of-the-art
+county-level forecasts, we also evaluate the contributions of different aspects
+of our model. First, we test the effect of the relational autoregressive part.
+For this purpose, we trained additional models were we disabled the relation
+part (by setting $\forall i \neq j: w_{ij} = 0$) and compared their forecasts to
+the full model of ref:eq:model. To measure the relative improvement of the full
+model over the non-relational model, we compute then the relative mean error of
+both model.
+\begin{equation*}
+    \text{Relative Mean Absolute Error} = \frac{\text{MAE}_{\text{full}}}{\text{MAE}_\text{non-relational}}
+\end{equation*}
+It can be seen from ref:fig:quality-ratio that full model offers substantial
+improvements over the non-relational model as the relative forecast quality
+grows exponentially with the forecasting horizon. While the non-relational model
+can offer acceptable forecast for horizons of 1-2 days, it quickly deteriorates
+with larger horizons. This show the importance of the relational component for
+disentangling the different growth factors and learning high quality models.
+
+#+NAME: fig:quality-ratio
+#+ATTR_LATEX: :width \columnwidth :float margin
+[[file:img/quality_ratio.png]]
+
+In addition to the non-relational component, we also evaluated the contributions
+of the logit-normal regularization method. For this purpose, we trained a model
+where we explicitly set the reqularization parameter $\sigma = 0$. We then
+compare the forecast quality to the standard model where the regularization
+parameter has been selected via cross-validation. ref:fig:mae-covidhub-granger
+shows the results of the comparison. It can be seen that the logit-normal
+regularization can be very benefitial to improve forecast quality. While the
+differences to the standard model are much small than for the non-relational
+model, the addition of the regularization term can lead to substantial
+improvements, especiall for horizons of 13 days and longer.
+
+#+NAME: fig:mae-covidhub-granger
+#+CAPTION: Comparison of \bAR model with (blue) and without (magenta) Granger regularization.
+#+CAPTION: Forecast quality is measured in MAE.
+#+ATTR_LATEX: :width \columnwidth
+[[file:img/us_mae_granger_ablation/us_mae_granger_ablation.png]]
+
+#+ATTR_LATEX: :width \columnwidth :float margin :center nil
+#+CAPTION: Evolution of \beta over time
+[[file:img/betas.png]]
+
+
 * Related Work
 We build on prior work that has proposed to use autoregressive models
-for spatially and temporally aggregated surveillance data of endemic-epidemic
+for spatially and temporally aggregated disease surveillance data of endemic-epidemic
 processes citep:held2005statistical,meyer2014powerlaw,meyer2016socialcontact.
 Such autoregressive models are, for instance, used to monitor infectious
 diseases by public health agencies like the Robert Koch Institute
@@ -290,7 +476,10 @@ regularization to for the discovery of Granger-causal relations to understand
 brain connectivity. citet:haufe2010sparse proposed an improved estimator which
 can be applied for VAR models of order $p > 1$.
 
-* Experiments
+#+LATEX: \newpage
+#+LATEX: \printbibliography
+
+* Experiments :noexport:
 We compare predictions of the proposed \bAR model to cite:forecasts/lanl (LANL)
 and cite:forecasts/yyg (YYG). Both LANL and YYG forecast on state-level while we
 performed our forecasts on county-level. For comparison, we therefore aggregate
@@ -299,7 +488,7 @@ which models the dynamics of the disease through explicit parameters for disease
 and other mitigation effects.[fn::This includes, for instance, social
 distancing, lockdown fatigue etc.] YYG is trained on confirmed deaths and
 population data. For the \beta-\AR model, we only use confirmed deaths as
-training and the only hyper parameters are model order $p$,
+training and the only hyper parameters are model order $p$.
 
 #+LATEX: \begin{figure*}
 #+LATEX: \begin{minipage}{.33\linewidth}
@@ -316,5 +505,3 @@ training and the only hyper parameters are model order $p$,
 #+LATEX: \end{minipage}%
 #+LATEX: \end{figure*}
 
-#+LATEX: \newpage
-#+LATEX: \printbibliography
