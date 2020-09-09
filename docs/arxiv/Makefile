@@ -38,6 +38,15 @@ img/us_mae_granger_ablation/us_mae_granger_ablation.png:
 	rsync -v etfair:covid19_spread/notebooks/img/us_mae_granger_ablation*.svg img/us_mae_granger_ablation/
 	cd img/us_mae_granger_ablation && /usr/bin/montage -density 150 -geometry '1x1<' -reverse us_mae_granger_ablation*.svg us_mae_granger_ablation.png
 
+img/us_mae_loss_ablation/us_mae_loss_ablation.png:
+	mkdir -p img/us_mae_loss_ablation
+	rsync -v etfair:covid19_spread/notebooks/img/us_mae_loss_ablation*.svg img/us_mae_loss_ablation/
+	cd img/us_mae_loss_ablation && /usr/bin/montage -density 150 -geometry '1x1<' -reverse us_mae_loss_ablation*.svg us_mae_granger_ablation.png
+
+
+img/counties_bar_mae.png:
+	/usr/bin/montage -density 150 -geometry '1x1<' -tile 1x2 -reverse  img/counties_bar_mae_*.svg $@
+
 clean:
 	rm -f img/maes.png
 	rm -f img/cases_example.png
