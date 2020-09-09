@@ -238,6 +238,7 @@ if __name__ == "__main__":
         process_time_features(df, f"google/epi_features_{res}.csv", 7, merge_nyc)
         if res == "state":
             process_time_features(df, f"google/hosp_features_{res}.csv", 0, merge_nyc)
+            process_time_features(df, f"shifted_features_{res}.csv", 0, merge_nyc)
 
 
 # n_policies = len(np.unique(state_policies["policy"]))
