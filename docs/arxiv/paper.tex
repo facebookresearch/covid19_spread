@@ -135,8 +135,8 @@ To alleviate these issues, we propose a new method for predicting the spread of
 COVID-19 by combining recurrent neural networks with a vector autoregressive
 model and a specific regularization relational scheme. Our approach is motivated
 by two main aspects: First, we seek to develop an end-to-end differentiable
-model as this allows us to make efficient use of the limited available data
-while also enabling us estimate parameters of powerful models that can capture
+model, as this allows us to make efficient use of the limited available data
+while also enabling us to estimate parameters of powerful models that can capture
 the large variability of cases across locations and time. However, while such
 flexible models are needed to account for all possible influencing factors there
 is little data to estimate them reliably and without overfitting. For this
@@ -317,7 +317,7 @@ updates of the remaining parameters.
 \section{Results}
 \label{sec:org7d76cd4}
 In the following, we evaluate the forecast quality of our method compared to
-multiple to multiple state-of-the-art forecasts for confirmed cases on
+multiple state-of-the-art forecasts for confirmed cases on
 county-level. All comparison forecasts are collected from the COVID-19 Forecast
 Hub\sidenote[]{\url{https://github.com/reichlab/covid19-forecast-hub}} as submitted by
 the respective teams. The COVID-19 Forecast Hub features county-level forecasts
