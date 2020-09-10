@@ -14,6 +14,7 @@ import sys
 import submitit
 import tempfile
 import torch as th
+from tqdm import tqdm
 import torch.nn.functional as F
 import traceback
 import yaml
@@ -87,6 +88,26 @@ class CV:
 
         return df
 
+    def run_prediction_interval_closed_form(self, dset, args, intervals, model=None):
+        args.fdat = dset
+        if model is None:
+            raise NotImplementedError
+
+        cases, regions, basedate, device = self.initialize(args)
+        tmax = cases.size(1)
+
+        means, stds = model.simulate(tmax, cases, args.test_on, True, True)
+        std = th.cat([x.narrow(-1, -1, 1) for x in stds], dim=-1)
+
+        def mk_df(t):
+            df = pd.DataFrame(t.cpu().data.numpy().T, columns=regions)
+            df.index = pd.date_range(
+                start=pd.to_datetime(basedate) + timedelta(days=1), periods=len(df)
+            )
+            return df
+
+        return mk_df(means), mk_df(std)
+
     def run_prediction_interval(
         self, dset, args, nsamples, intervals, orig_cases, model=None
     ):
@@ -98,7 +119,7 @@ class CV:
         tmax = cases.size(1)
         samples = []
 
-        for i in range(nsamples):
+        for i in tqdm(range(nsamples)):
             test_preds = model.simulate(tmax, cases, args.test_on, False)
             test_preds = test_preds.cpu().numpy()
             # FIXME: refactor to use rebase_forecast_deltas
@@ -282,16 +303,15 @@ def _run_cv(
         with th.no_grad():
             # FIXME: refactor to use rebase_forecast_deltas
             gt = metrics.load_ground_truth(val_in)
-            prev_day = gt.loc[[df_forecast_deltas.index.min() - timedelta(days=1)]]
-            df_piv = mod.run_prediction_interval(
+
+            _, stds = mod.run_prediction_interval_closed_form(
                 preprocessed,
                 train_params,
-                cfg["prediction_interval"]["nsamples"],
                 cfg["prediction_interval"]["intervals"],
-                prev_day.values.T,
                 model,
             )
-            df_piv.to_csv(_path(prefix + cfg["prediction_interval"]["output"]))
+            cum_stds = np.sqrt(stds.pow(2).cumsum())
+            cum_stds.to_csv(_path(prefix + "piv.csv"), index_label="date")
 
 
 def filter_validation_days(dset: str, val_in: str, validation_days: int):
@@ -419,6 +439,66 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
 @click.group(cls=DefaultGroup, default_command="cv")
 def cli():
     pass
+
+
+@cli.command()
+@click.argument("pth")
+@click.option("-prefix", default="")
+@click.option("-new", is_flag=True)
+def prediction_interval(pth, prefix, new):
+    chkpnts = []
+    if os.path.exists(pth) and pth.endswith(".bin"):
+        chkpnts = [pth]
+    else:
+        chkpnts = glob(os.path.join(pth, "**/{prefix}*.bin"), recursive=True)
+        if prefix == "":
+            chkpnts = [x for x in chkpnts if not x.startswith("final_model")]
+    for chkpnt_pth in chkpnts:
+        chkpnt = th.load(chkpnt_pth)
+        job_pth = os.path.dirname(chkpnt_pth)
+        cfg = load_config(os.path.join(job_pth, "../cfg.yml"))
+        module = cfg["this_module"]
+        job_config = load_config(os.path.join(job_pth, f"{prefix}{module}.yml"))
+        opt = Namespace(**job_config["train"])
+        mod = importlib.import_module(module).CV_CLS()
+        new_cases, regions, basedate, device = mod.initialize(opt)
+        model = mod.func
+        model.load_state_dict(chkpnt)
+
+        if new:
+            dset = os.path.join(
+                job_pth, prefix + "preprocessed_" + os.path.basename(job_config["data"])
+            )
+            intervals = [0.99, 0.95, 0.8]
+            means, stds = mod.run_prediction_interval_closed_form(
+                dset, opt, intervals, model
+            )
+
+            val_in = os.path.join(
+                job_pth, prefix + "filtered_" + os.path.basename(job_config["data"])
+            )
+            cum_stds = np.sqrt(stds.pow(2).cumsum())
+            cum_means = rebase_forecast_deltas(val_in, means)
+            cum_stds.to_csv(
+                os.path.join(job_pth, f"{prefix}piv.csv"), index_label="date"
+            )
+        else:
+            gt = metrics.load_ground_truth(cfg[module]["data"])
+            prev_day = gt.loc[[pd.to_datetime(basedate)]]
+            pred_interval = cfg.get(
+                "prediction_interval", {"intervals": [0.99, 0.95, 0.8], "nsamples": 100}
+            )
+            df_piv = mod.run_prediction_interval(
+                opt.fdat,
+                opt,
+                pred_interval["nsamples"],
+                pred_interval["intervals"],
+                prev_day.values.T,
+                model,
+            )
+            df_piv.to_csv(
+                os.path.join(job_pth, f"{prefix}old_piv.csv"), index_label="date"
+            )
 
 
 @cli.command()

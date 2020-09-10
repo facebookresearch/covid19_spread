@@ -488,10 +488,11 @@ class BAR(nn.Module):
         # self.nu_scale = nu_scale
         return Ys, beta, W
 
-    def simulate(self, tobs, ys, days, deterministic=True):
+    def simulate(self, tobs, ys, days, deterministic=True, return_stds=False):
         preds = ys.clone()
         self.eval()
         assert tobs == preds.size(1), (tobs, preds.size())
+        stds = []
         for d in range(days):
             t = th.arange(tobs + d).to(ys.device) + 1
             s, _, _ = self.score(t, preds)
@@ -505,9 +506,11 @@ class BAR(nn.Module):
             assert (y >= 0).all(), y.squeeze()
             y = y.narrow(1, -1, 1).clamp(min=1e-8)
             preds = th.cat([preds, y], dim=1)
-        # preds = preds[:, 1:] - preds[:, :-1]
+            stds.append(self.dist(s).stddev)
         preds = preds.narrow(1, -days, days)
         self.train()
+        if return_stds:
+            return preds, stds
         return preds
 
     def __repr__(self):
@@ -665,7 +668,7 @@ class BARCV(cv.CV):
         new_cases.narrow(1, 1, cases.size(1) - 1).copy_(cases[:, 1:] - cases[:, :-1])
 
         # Cumulative max across time
-        # new_cases = new_cases + new_cases.clamp(max=0).abs().cumsum(dim=1)
+        new_cases = new_cases + new_cases.clamp(max=0).abs().cumsum(dim=1)
 
         assert (new_cases >= 0).all(), new_cases[th.where(new_cases < 0)]
         new_cases = new_cases.float().to(device)[:, args.t0 :]

@@ -12,6 +12,7 @@ forecast:
 prediction_interval:
   output_mean: mean.csv
   output_std: std.csv
+  intervals: [0.99, 0.95, 0.8]
 bar_time_features:
   output: bar_model.bin
   data: data/usa/data_cases.csv

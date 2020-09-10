@@ -585,6 +585,85 @@ def sync_google(conn):
         to_csv(df, table, "google_ground_truth", "")
 
 
+def add_loc(df, fips):
+    merged = df.merge(
+        fips[["fips", "county_name", "state_name"]], left_on="location", right_on="fips"
+    )
+    merged["loc"] = merged["county_name"] + ", " + merged["state_name"]
+    return merged
+
+
+def sync_county_level_reichlab_case_date(conn):
+    data_dir = update_repo("https://github.com/reichlab/covid19-forecast-hub.git")
+    fips = pandas.read_csv(
+        "data/usa/county_fips_master.csv", encoding="latin1", dtype={"fips": str}
+    )
+    fips["fips"] = fips["fips"].str.zfill(5)
+    fips = fips.drop_duplicates("fips")
+    cumulative_truth = pandas.read_csv(
+        f"{data_dir}/data-truth/truth-Cumulative Cases.csv",
+        parse_dates=["date"],
+        dtype={"location": str},
+    )
+    dc = cumulative_truth[cumulative_truth["location"] == "11"].copy()
+    dc["location"] = "11001"
+    cumulative_truth = pandas.concat([cumulative_truth, dc])
+    cumulative_truth = add_loc(cumulative_truth, fips)
+    cumulative_truth = cumulative_truth.pivot(
+        index="date", columns="loc", values="value"
+    )
+
+    incident_truth = pandas.read_csv(
+        f"{data_dir}/data-truth/truth-Incident Cases.csv",
+        parse_dates=["date"],
+        dtype={"location": str},
+    )
+    dc = incident_truth[incident_truth["location"] == "11"].copy()
+    dc["location"] = "11001"
+    incident_truth = pandas.concat([incident_truth, dc])
+    incident_truth = add_loc(incident_truth, fips)
+    incident_truth = incident_truth.pivot(index="date", columns="loc", values="value")
+
+    for f in glob(f"{data_dir}/data-processed/**/*.csv"):
+        # if 'UVA-Ensemble' not in f:
+        #     continue
+        df = pandas.read_csv(
+            f, dtype={"location": str}, parse_dates=["target_end_date", "forecast_date"]
+        )
+        mask = (df["target"].str.contains("case")) & (
+            df["location"].str.match("\d{4,5}")
+        )
+        if mask.any():
+            # incident
+            df = df[
+                mask & (df["type"] == "point") & (df["target"].str.contains("inc case"))
+            ]
+            merged = add_loc(df, fips)
+            piv = merged.pivot(index="target_end_date", columns="loc", values="value")
+            basedate = df["forecast_date"].max()
+            forecast = (
+                piv.cumsum()
+                + cumulative_truth.loc[df["forecast_date"].max()].loc[piv.columns]
+            )
+            forecast = forecast.reset_index().melt(id_vars="target_end_date")
+            forecast["loc1"] = "United States"
+            forecast["loc2"] = forecast["loc"].apply(lambda x: x.split(", ")[1])
+            forecast["loc3"] = forecast["loc"].apply(lambda x: x.split(", ")[0])
+            forecast = forecast.rename(
+                columns={"target_end_date": "date", "value": "counts"}
+            )
+            forecast["id"] = f.split("/")[-2]
+            forecast["forecast_date"] = df["forecast_date"].max()
+            # to_sql(conn, forecast, 'infections')
+            to_csv(
+                forecast,
+                "infections",
+                f.split("/")[-2],
+                df["forecast_date"].max(),
+                deltas=False,
+            )
+
+
 @click.command()
 @click.option(
     "--distribute", is_flag=True, help="Distribute across clusters (H1/H2)",
@@ -593,6 +672,7 @@ def sync_forecasts(distribute=False):
     if not os.path.exists(DB):
         mk_db()
     conn = sqlite3.connect(DB)
+    sync_county_level_reichlab_case_date(conn)
     sync_google(conn)
     sync_usa_facts(conn)
     sync_columbia(conn)
