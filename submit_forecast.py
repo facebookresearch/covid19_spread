@@ -87,11 +87,12 @@ def format_df(df, val_name):
 
 
 def get_index():
-    if os.path.exists("us_counties_index.geojson"):
-        index = geopandas.read_file("us_counties_index.geojson")
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    if os.path.exists(f"{script_dir}/us_counties_index.geojson"):
+        index = geopandas.read_file(f"{script_dir}/us_counties_index.geojson")
         index.columns = [c.lower() for c in index.columns]
         return index
-    geometries = get_county_geometries()
+    geometries = get_county_geometries().drop(columns=["NAME"])
     index = pandas.read_csv(
         "https://storage.googleapis.com/covid19-open-data/v2/index.csv"
     )
@@ -112,11 +113,12 @@ def get_index():
     )
     merged["area"] = merged["geometry"].area
     grouped = merged.loc[merged.groupby("fips")["area"].idxmax()].rename(
-        columns={"gid_2": "GADM"}
+        columns={"GID_2": "GADM"}
     )
     grouped["geometry"] = grouped["geometry2"]
     del grouped["geometry2"]
-    grouped.to_file("us_counties_index.geojson", driver="GeoJSON")
+    grouped.columns = [c.lower() for c in grouped.columns]
+    grouped.to_file(f"{script_dir}/us_counties_index.geojson", driver="GeoJSON")
     return grouped
 
 
@@ -165,7 +167,7 @@ def submit_s3(pth, metric):
             "std_dev",
             "gadm",
         ]
-    ]
+    ].copy()
     merged["measurement_type"] = "cases"
     client = boto3.client("s3")
     object_name = f"users/mattle/h2/covid19_forecasts/forecast_{basedate}.csv"
