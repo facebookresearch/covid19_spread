@@ -32,6 +32,7 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{mathtools}
+\usepackage{colortbl}
 \usepackage{cleveref}
 \usepackage{svg}
 \usepackage{bm}
@@ -499,6 +500,42 @@ in the observed data, while the stricter Poisson likelihood causes the
 \caption{Evolution of \(\beta\) over time}
 \end{marginfigure}
 
+
+In addition to county level case forecasts, we compare against state-level death forecasts from the Covid-19 Forecast Hub.  
+MAE is computed using the Covid-19 Forecast Hub Evaluation script \sidenote[]{\url{https://github.com/youyanggu/covid19-forecast-hub-evaluation}}.
+Models submitted to the forecast hub are released on different dates and have time horizons, so not all models have a prediction for each pair of dates.  
+We've tried to pick dates that cover the most competitive models, and leave missing entries in the table indicated as " - ".  As can be seen from Table \ref{tab:state-deaths},
+the \bAR model is quite competitive with other submissions, and has the lowest MAE for nearly half of all entires (9/19).
+
+\begin{table*}
+\centering
+\begin{tabular}{lrrrrr}
+\toprule
+date & IHME-CurveFit & LANL-GrowthRate & UT-Mobility & YYG-ParamSearch & \bAR \\
+2020-04-20 - 2020-05-09 & 388.1 & 327.9 & 519.4 & \cellcolor{red} 244.3 & 283.4 \\
+2020-04-27 - 2020-05-16 & 455.8 & 271.7 & 461.3 & \cellcolor{red} 193.1 & 220.0 \\
+2020-05-04 - 2020-05-23 & 139.0 & 164.1 & 393.3 & 125.2 & \cellcolor{red} 120.9 \\
+2020-05-11 - 2020-05-30 &  -  & 151.4 & 200.0 & \cellcolor{red} 85.8 & 99.7 \\
+2020-05-18 - 2020-06-06 & 144.2 & 107.8 & 205.1 & 107.9 & \cellcolor{red} 101.4 \\
+2020-05-25 - 2020-06-13 &  -  & 100.0 & 134.0 & 111.3 & \cellcolor{red} 84.5 \\
+2020-06-01 - 2020-06-20 &  -  & 98.2 & 134.0 & 107.5 & \cellcolor{red} 70.2 \\
+2020-06-08 - 2020-06-27 & 128.8 & 125.1 & 135.8 & 105.2 & \cellcolor{red} 60.2 \\
+2020-06-15 - 2020-07-04 & 130.2 &  -  & 131.6 & 109.5 & \cellcolor{red} 99.8 \\
+2020-06-22 - 2020-07-11 & 120.5 &  -  & 132.1 & 125.1 & \cellcolor{red} 84.7 \\
+2020-06-29 - 2020-07-18 & \cellcolor{red} 94.4 & 115.7 & 95.6 & 102.0 & 126.2 \\
+2020-07-06 - 2020-07-25 & 141.7 & 144.8 & 147.6 & \cellcolor{red} 135.8 & 140.8 \\
+2020-07-13 - 2020-08-01 &  -  & 179.3 & 118.4 & \cellcolor{red} 110.6 & 127.7 \\
+2020-07-20 - 2020-08-08 &  -  & 196.9 & 146.4 & 122.1 & \cellcolor{red} 108.4 \\
+2020-07-27 - 2020-08-15 &  -  & 220.7 & 232.0 & 118.9 & \cellcolor{red} 75.6 \\
+2020-08-03 - 2020-08-22 &  -  & 179.3 & 358.2 & \cellcolor{red} 88.7 & 118.8 \\
+2020-08-10 - 2020-08-29 &  -  & 118.5 &  -  & \cellcolor{red} 59.5 & 215.7 \\
+2020-08-17 - 2020-09-05 &  -  & 111.3 & 177.7 & \cellcolor{red} 45.1 & 56.9 \\
+2020-08-24 - 2020-09-05 & 108.1 & 61.0 & 61.4 & \cellcolor{red} 29.5 & 37.2 \\
+\bottomrule
+\end{tabular}
+\vspace*{2em}
+\caption{State Level Death Forecasts \label{tab:state-deaths}}
+\end{table*}
 
 \section{Related Work}
 \label{sec:org4064e60}
