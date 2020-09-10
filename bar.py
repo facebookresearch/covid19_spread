@@ -87,6 +87,7 @@ class BetaLSTM(BetaRNN):
         self.rnn.reset_parameters()
         self.h0 = nn.Parameter(th.zeros(layers, M, dim))
         self.c0 = nn.Parameter(th.randn(layers, M, dim))
+        # self.dropout = nn.Dropout(dropout)
         # self.mlp = MLP(2, 4 * dim, input_dim)
 
     def forward(self, x):
@@ -94,6 +95,7 @@ class BetaLSTM(BetaRNN):
         # x = self.emb(x.long()).reshape(x.size(0), x.size(1), self.input_dim)
         # print(x.size())
         # x = th.tanh(self.mlp(x))
+        # x = self.dropout(x)
         ht, (hn, cn) = self.rnn(x, (self.h0, self.c0))
         beta = self.fpos(self.v(ht))
         return beta
@@ -364,26 +366,31 @@ class BAR(nn.Module):
         graph,
         features,
         self_correlation=True,
+        cross_correlation=True,
+        offset=None,
     ):
         super(BAR, self).__init__()
         self.regions = regions
         self.M = len(regions)
         self.beta = beta
         self.features = features
-        self.population = population.unsqueeze(1).float() / 1000
+        self.population = population
         self.self_correlation = self_correlation
+        self.cross_correlation = cross_correlation
         self.window = window
         # self.z = nn.Parameter(th.ones((1, window)).fill_(1))
         # self.z = nn.Parameter(th.ones((self.M, window)).fill_(1))
         self.z = nn.Parameter(th.ones((self.M, 7)).fill_(1))
         # self.z = nn.Parameter(th.ones((1, 7)).fill_(1))
-        self._alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(-5))
+        self._alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(-3))
         # self._alpha_weights = nn.Parameter(th.zeros((self.M, self.M)).fill_(1))
         self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(8))
         self.scale = nn.Parameter(th.ones((self.M, 1)))
         self._dist = dist
         self.graph = graph
+        self.offset = offset
         self.neighbors = self.M
+        self.adjdrop = nn.Dropout2d(0.1)
         if graph is not None:
             assert graph.size(0) == self.M, graph.size()
             assert graph.size(1) == self.M, graph.size()
@@ -419,15 +426,19 @@ class BAR(nn.Module):
         alphas = self.alphas()
         W = th.sigmoid(alphas)
         # W = W * F.softplus(self._alpha_weights)
+        # W = W * th.sigmoid(self._alpha_weights)
         # W = W * self._alpha_weights
+        W = self.adjdrop(W.unsqueeze(0).unsqueeze(-1))
+        W = W.squeeze(0).squeeze(-1).t()
         if self.graph is not None:
             W = W * self.graph
         return W
 
     def score(self, t, ys):
         assert t.size(-1) == ys.size(-1), (t.size(), ys.size())
-        offset = self.window - 1
         length = ys.size(1) - self.window + 1
+        # cs = ys.cumsum(dim=1) + self.offset
+        # _ys = cs * (self.population - cs) / self.population
 
         # beta evolution
         beta = self.beta(t, ys)
@@ -446,29 +457,31 @@ class BAR(nn.Module):
             Z = Z.div(float(self.z.size(1)))
 
         # cross-correlation
-        W = self.metapopulation_weights()
-        Ys = th.stack(
-            [
-                F.pad(ys.narrow(1, i, length), (self.window - 1, 0))
-                for i in range(self.window)
-            ]
-        )
-        Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(dim=0)
-        # Ys = th.bmm(W, Ys).mean(dim=0)
+        Ys = th.zeros(0).sum(0)
+        W = th.zeros(1, 1)
+        if self.cross_correlation:
+            W = self.metapopulation_weights()
+            Ys = th.stack(
+                [
+                    F.pad(ys.narrow(1, i, length), (self.window - 1, 0))
+                    for i in range(self.window)
+                ]
+            )
+            Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(
+                dim=0
+            )
+            # Ys = th.bmm(W, Ys).mean(dim=0)
         with th.no_grad():
             self.train_stats = (Z.mean().item(), Ys.mean().item())
 
-        # ys = ys.narrow(1, offset, ys.size(1) - offset)
-        # beta = beta.narrow(-1, -ys.size(1), ys.size(1))
         # nu_scale = nu.narrow(-1, -ys.size(1), ys.size(1))
         if self.features is not None:
             Ys = Ys + F.softplus(self.w_feat(self.features))
 
         # Ys = F.softplus(self.out_proj(th.stack([beta, Z, Ys], dim=-1)).squeeze())
         # Ys = beta * (Z + th.exp(self.scale) * Ys) / self.neighbors
-        # Ys = beta * (Z + Ys) / self.neighbors * self.population
         Ys = beta * (Z + Ys) / self.neighbors
-        # Ys = beta * F.softplus(Z + Ys)
+        # Ys = beta * (Z + Ys)
         # Ys = beta * Ys
 
         # assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
@@ -492,6 +505,7 @@ class BAR(nn.Module):
             assert (y >= 0).all(), y.squeeze()
             y = y.narrow(1, -1, 1).clamp(min=1e-8)
             preds = th.cat([preds, y], dim=1)
+        # preds = preds[:, 1:] - preds[:, :-1]
         preds = preds.narrow(1, -days, days)
         self.train()
         return preds
@@ -647,28 +661,32 @@ class BARCV(cv.CV):
         device = th.device("cuda" if th.cuda.is_available() else "cpu")
         cases, regions, basedate = load.load_confirmed_csv(args.fdat)
         assert (cases == cases).all(), th.where(cases != cases)
-        new_cases = cases[:, 1:] - cases[:, :-1]
-        self.cases = cases
+        new_cases = th.zeros_like(cases)
+        new_cases.narrow(1, 1, cases.size(1) - 1).copy_(cases[:, 1:] - cases[:, :-1])
 
         # Cumulative max across time
         # new_cases = new_cases + new_cases.clamp(max=0).abs().cumsum(dim=1)
 
-        assert (new_cases >= 0).all(), th.where(new_cases < 0)
+        assert (new_cases >= 0).all(), new_cases[th.where(new_cases < 0)]
         new_cases = new_cases.float().to(device)[:, args.t0 :]
 
         # prepare population
-        populations = load.load_populations_by_region(args.fpop, regions=regions)
+        # populations = load.load_populations_by_region(args.fpop, regions=regions)
         # print(set(regions) - set(populations["region"].values))
-        populations = th.from_numpy(populations["population"].values).to(device)
-        assert (populations > 0).all()
-        assert populations.size(0) == len(regions), (len(regions), populations.size(0))
+        # populations = th.from_numpy(populations["population"].values).to(device)
+        # assert (populations > 0).all()
+        # assert populations.size(0) == len(regions), (len(regions), populations.size(0))
+        # populations = populations.unsqueeze(1).float()  # / 1000
+        populations = None
 
         print("Number of Regions =", new_cases.size(0))
         print("Timeseries length =", new_cases.size(1))
         print(
-            "Max increase: All = {}, Last = {}",
-            new_cases.max().item(),
-            new_cases[:, -1].max().item(),
+            "Increase: max all = {}, max last = {}, min last = {}".format(
+                new_cases.max().item(),
+                new_cases[:, -1].max().item(),
+                new_cases[:, -1].min().item(),
+            )
         )
         tmax = new_cases.size(1) + 1
 
@@ -772,6 +790,8 @@ class BARCV(cv.CV):
             graph,
             features,
             self_correlation=getattr(args, "self_correlation", True),
+            cross_correlation=not getattr(args, "no_cross_correlation", False),
+            offset=cases[:, 0].unsqueeze(1).to(device).float(),
         ).to(device)
 
         return new_cases, regions, basedate, device
