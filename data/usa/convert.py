@@ -76,6 +76,7 @@ def process_time_features(df, pth, shift=0, merge_nyc=False, input_resolution="c
     mobility_types = {r: v for (r, v) in mobility.groupby("region")}
     if merge_nyc:
         mobility = merge_nyc_boroughs(mobility, n_mobility_types)
+    print(f"Lengths df={len(df)}, mobility_types={len(mobility_types)}")
     print(mobility.head(), len(mobility), n_mobility_types)
 
     mob = {}
@@ -101,7 +102,12 @@ def process_time_features(df, pth, shift=0, merge_nyc=False, input_resolution="c
         _m = th.zeros(df.shape[1], n_mobility_types)
         _v = mobility_types[query].iloc[:, 2:].transpose()
         _v = _v[: end_ix - start_ix]
-        _m[start_ix:end_ix] = th.from_numpy(_v.values)
+        try:
+            _m[start_ix:end_ix] = th.from_numpy(_v.values)
+        except:
+            print(region, query, _m.size(), _v.shape)
+            print(_v)
+            fail
         assert (_m == _m).all()
         mob[region] = _m
     if input_resolution == "county_state":
@@ -210,32 +216,31 @@ if __name__ == "__main__":
         merge_nyc = opt.metric == "deaths" and res == "county"
         process_time_features(df, f"testing/ratio_features_{res}.csv", 0, merge_nyc)
         process_time_features(df, f"testing/total_features_{res}.csv", 0, merge_nyc)
-        for signal in [
-            "doctor-visits_smoothed_adj_cli",
-            "fb-survey_smoothed_wcli",
-            "fb-survey_smoothed_hh_cmnty_cli",
+        for signal, lag in [
+            ("symptom-survey/doctor-visits_smoothed_adj_cli-{}.csv", 2),
+            ("symptom-survey/fb-survey_smoothed_wcli-{}.csv", 0),
+            ("symptom-survey/fb-survey_smoothed_hh_cmnty_cli-{}.csv", 0),
+            ("fb/mobility_features_{}_fb.csv", 5),
+            ("google/mobility_features_{}_google.csv", 5),
         ]:
             if res == "county":
                 process_time_features(
-                    df, f"symptom-survey/{signal}-county.csv", 0, merge_nyc, "county",
+                    df, signal.format("county"), lag, merge_nyc, "county",
                 )
                 process_time_features(
-                    df,
-                    f"symptom-survey/{signal}-state.csv",
-                    0,
-                    merge_nyc,
-                    "county_state",
+                    df, signal.format("state"), lag, merge_nyc, "county_state",
                 )
             else:
                 process_time_features(
-                    df, f"symptom-survey/{signal}-state.csv", 0, merge_nyc, "state",
+                    df, signal.format("state"), lag, merge_nyc, "state",
                 )
-        process_time_features(df, f"fb/mobility_features_{res}_fb.csv", 7, merge_nyc)
+        process_time_features(df, f"fb/mobility_features_{res}_fb.csv", 5, merge_nyc)
         process_time_features(
-            df, f"google/mobility_features_{res}_google.csv", 7, merge_nyc
+            df, f"google/mobility_features_{res}_google.csv", 5, merge_nyc
         )
-        process_time_features(df, f"google/weather_features_{res}.csv", 7, merge_nyc)
+        process_time_features(df, f"google/weather_features_{res}.csv", 5, merge_nyc)
         process_time_features(df, f"google/epi_features_{res}.csv", 7, merge_nyc)
+        process_time_features(df, f"shifted_features_{res}.csv", 0, merge_nyc)
         if res == "state":
             process_time_features(df, f"google/hosp_features_{res}.csv", 0, merge_nyc)
 
