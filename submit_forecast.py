@@ -138,12 +138,22 @@ def submit_s3(pth, metric):
     forecast = forecast[["date", "estimated_cases", "loc1", "loc2", "loc3"]]
     basedate = str((forecast["date"].min() - timedelta(days=1)).date())
 
+    dates = pandas.DataFrame.from_dict({"date": forecast["date"].unique(), "dummy": 1})
+    index["dummy"] = 1
+    index = index.merge(dates, on="dummy")
+
     merged = forecast.merge(
         index,
-        left_on=["loc2", "loc3"],
-        right_on=["subregion1_name", "name"],
-        how="left",
+        left_on=["loc2", "loc3", "date"],
+        right_on=["subregion1_name", "name", "date"],
+        how="outer",
     )
+
+    # Fill any missing counties with zeros.  We drop these when training the model
+    merged["loc1"] = "United States"
+    merged["loc2"] = merged["subregion1_name"]
+    merged["loc3"] = merged["name"]
+    merged["estimated_cases"] = merged["estimated_cases"].fillna(0)
 
     assert not merged["geometry"].isnull().any()
     merged["geometry"] = merged["geometry"].apply(lambda x: x.wkt)
@@ -154,7 +164,8 @@ def submit_s3(pth, metric):
         os.path.join(job, "final_model_piv.csv"), parse_dates=["date"]
     )
     std = format_df(std, "std_dev")
-    merged = merged.merge(std, on=["date", "loc1", "loc2", "loc3"])
+    merged = merged.merge(std, on=["date", "loc1", "loc2", "loc3"], how="left")
+    merged["std_dev"] = merged["std_dev"].fillna(0)
     merged = merged[
         [
             "date",
