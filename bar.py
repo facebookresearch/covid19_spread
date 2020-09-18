@@ -664,11 +664,12 @@ class BARCV(cv.CV):
         device = th.device("cuda" if th.cuda.is_available() else "cpu")
         cases, regions, basedate = load.load_confirmed_csv(args.fdat)
         assert (cases == cases).all(), th.where(cases != cases)
-        new_cases = th.zeros_like(cases)
-        new_cases.narrow(1, 1, cases.size(1) - 1).copy_(cases[:, 1:] - cases[:, :-1])
 
         # Cumulative max across time
-        new_cases = new_cases + new_cases.clamp(max=0).abs().cumsum(dim=1)
+        cases = np.maximum.accumulate(cases, axis=1)
+
+        new_cases = th.zeros_like(cases)
+        new_cases.narrow(1, 1, cases.size(1) - 1).copy_(cases[:, 1:] - cases[:, :-1])
 
         assert (new_cases >= 0).all(), new_cases[th.where(new_cases < 0)]
         new_cases = new_cases.float().to(device)[:, args.t0 :]
