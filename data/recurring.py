@@ -66,7 +66,8 @@ def chdir(d):
 class Recurring:
     script_dir = script_dir
 
-    def __init__(self):
+    def __init__(self, force=False):
+        self.force = force
         mk_db()
 
     def get_id(self) -> str:
@@ -151,17 +152,18 @@ class Recurring:
             "SELECT path, launch_time FROM sweeps WHERE basedate=? AND id=?",
             (str(latest_date), self.get_id()),
         )
-        for pth, launch_time in res:
-            launch_time = datetime.datetime.fromtimestamp(launch_time)
-            if os.path.exists(pth):
+        if not self.force:
+            for pth, launch_time in res:
+                launch_time = datetime.datetime.fromtimestamp(launch_time)
+                if os.path.exists(pth):
 
-                print(f"Already launched {pth} at {launch_time}, exiting...")
-                return
-            # This directory got deleted, remove it from the database...
-            conn.execute(
-                "DELETE FROM sweeps WHERE path=? AND id=?", (pth, self.get_id())
-            )
-            conn.commit()
+                    print(f"Already launched {pth} at {launch_time}, exiting...")
+                    return
+                # This directory got deleted, remove it from the database...
+                conn.execute(
+                    "DELETE FROM sweeps WHERE path=? AND id=?", (pth, self.get_id())
+                )
+                conn.commit()
 
         sweep_path = self.launch_job()
 
@@ -188,5 +190,6 @@ class Recurring:
                 config_pth=config,
                 module=kwargs.get("module", "mhp"),
                 remote=True,
+                array_parallelism=kwargs.get("array_parallelism", 20),
             )
         return sweep_path

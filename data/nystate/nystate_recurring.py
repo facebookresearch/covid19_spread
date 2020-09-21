@@ -88,7 +88,7 @@ class NYSweepRecurring(NYARRecurring):
                     "-ncpus",
                     "40",
                     "-timeout-min",
-                    "60",
+                    "180",
                     "-partition",
                     "learnfair,scavenge",
                     "-comment",
@@ -105,7 +105,7 @@ class NYSweepRecurring(NYARRecurring):
                     "-ncpus",
                     "40",
                     "-timeout-min",
-                    "60",
+                    "180",
                     "-partition",
                     "learnfair,scavenge",
                     "-comment",
@@ -141,9 +141,10 @@ def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--install", action="store_true")
     parser.add_argument("--kind", choices=list(kinds.keys()), default="ar")
+    parser.add_argument("--force", "-f", action="store_true")
     opt = parser.parse_args()
 
-    job = kinds[opt.kind]()
+    job = kinds[opt.kind](force=opt.force)
 
     if opt.install:
         job.install()  # install cron job
