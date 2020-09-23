@@ -4,7 +4,7 @@
 # @file
 # @version 0.1
 
-.PHONY: clean symptom-survey testing
+.PHONY: clean symptom-survey testing shifted_features_state.csv
 
 google/mobility_features_county_google.csv:
 	cd google && make mobility_features_county_google.csv
@@ -50,11 +50,15 @@ data_deaths.csv: \
 	testing
 	python3 convert.py -with-features -source jhu -metric deaths
 
+shifted_features_state.csv:	shifted_features_state.csv 
+	python convert.py -source jhu -metric deaths -resolution state && python feature_corr.py -resolution state -metric deaths
+
 data_states_deaths.csv: \
 	symptom-survey \
 	fb/mobility_features_county_fb.csv \
 	google/mobility_features_county_google.csv \
 	google/weather_features_county.csv \
+	shifted_features_state.csv \
 	testing
 	python3 convert.py -with-features -source jhu -metric deaths -resolution state
 
