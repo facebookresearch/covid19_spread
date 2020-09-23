@@ -34,6 +34,14 @@ data_cases.csv: \
 	grep "New York" $@ >> data_cases_ny.csv
 	grep "Florida" $@ >> data_cases_fl.csv
 
+data_states_cases.csv: \
+	symptom-survey \
+	fb/mobility_features_county_fb.csv \
+	google/mobility_features_county_google.csv \
+	google/weather_features_county.csv \
+	testing
+	python3 convert.py -with-features -source google -metric cases -resolution state
+
 data_deaths.csv: \
 	symptom-survey \
 	fb/mobility_features_county_fb.csv \
