@@ -44,6 +44,7 @@ jobs:
                     source ~/.bashrc
                     conda activate covid19_spread
                     apt install curl --assume-yes
+                    cd data/usa && python convert.py -source google && cd ../../
                     make data-usa
                     make data-ny
 
