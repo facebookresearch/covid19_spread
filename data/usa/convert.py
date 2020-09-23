@@ -104,10 +104,10 @@ def process_time_features(df, pth, shift=0, merge_nyc=False, input_resolution="c
         _v = _v[: end_ix - start_ix]
         try:
             _m[start_ix:end_ix] = th.from_numpy(_v.values)
-        except:
+        except Exception as e:
             print(region, query, _m.size(), _v.shape)
             print(_v)
-            fail
+            raise e
         assert (_m == _m).all()
         mob[region] = _m
     if input_resolution == "county_state":
@@ -240,11 +240,10 @@ if __name__ == "__main__":
         )
         process_time_features(df, f"google/weather_features_{res}.csv", 5, merge_nyc)
         process_time_features(df, f"google/epi_features_{res}.csv", 7, merge_nyc)
-        process_time_features(df, f"shifted_features_{res}.csv", 0, merge_nyc)
+        # process_time_features(df, f"shifted_features_{res}.csv", 0, merge_nyc)
         if res == "state":
             process_time_features(df, f"google/hosp_features_{res}.csv", 0, merge_nyc)
             process_time_features(df, f"shifted_features_{res}.csv", 0, merge_nyc)
-
 
 # n_policies = len(np.unique(state_policies["policy"]))
 # state_policies = {s: v for (s, v) in state_policies.groupby("state")}
