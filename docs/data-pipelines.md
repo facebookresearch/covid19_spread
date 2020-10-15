@@ -59,5 +59,5 @@ manifold get aiplatform_tools/tree/covid19_forecasts/usa/README.txt
 Edit the file locally, then re-upload it to manifold:
 
 ```bash
-manifold put README.txt aiplatform_tools/tree/covid19_forecasts/usa/README.txt
+manifold put README.txt aiplatform_tools/tree/covid19_forecasts/usa/README.txt NoPredicate
 ```
