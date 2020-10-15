@@ -47,3 +47,17 @@ If the forecasts look reasonable with respect to previous forecasts, you can pub
 cd ~/fbsource/fbcode/dataswarm-pipelines
 ./tester3 -c dataswarmadhoc tasks_adhoc/locations/covid19_forecasts/upload_forecasts.py <basedate>
 ```
+
+## Updating the README.txt
+
+First, fetch the current README from manifold:
+
+```bash
+manifold get aiplatform_tools/tree/covid19_forecasts/usa/README.txt
+```
+
+Edit the file locally, then re-upload it to manifold:
+
+```bash
+manifold put README.txt aiplatform_tools/tree/covid19_forecasts/usa/README.txt
+```
