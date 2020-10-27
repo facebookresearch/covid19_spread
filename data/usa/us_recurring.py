@@ -54,7 +54,7 @@ class USARRecurring(recurring.Recurring):
         msg = f"*New Data Available for US: {self.latest_date()}*"
         client.chat_postMessage(channel="#new-data", text=msg)
         return super().launch_job(
-            module="bar_time_features", cv_config="us_prod", **kwargs
+            module="bar", cv_config="us_prod", array_parallelism=32, **kwargs
         )
 
 
