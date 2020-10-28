@@ -5,7 +5,7 @@ validation:
   days: &vdays 7
   output: validation.csv
 test:
-  days: 30
+  days: &tdays 30
   output: validation.csv
 forecast:
   output: forecast.csv
@@ -85,4 +85,15 @@ bar:
     eta: [0.002, 0.02, 0.2]
     loss: nb
     t0: 0
-    test_on: 30
+    test_on: *tdays
+naive:
+  module: naive
+  output: naive_model.npy
+  data: data/usa/data_cases.csv
+  train:
+    test_on: *tdays
+  resources:
+    gpus: 0
+    cpus: 1
+    memgb: 15
+    timeout: 30
