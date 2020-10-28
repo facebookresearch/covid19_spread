@@ -300,18 +300,21 @@ def _run_cv(
 
     # -- prediction interval --
     if "prediction_interval" in cfg:
-        with th.no_grad():
-            # FIXME: refactor to use rebase_forecast_deltas
-            gt = metrics.load_ground_truth(val_in)
+        try:
+            with th.no_grad():
+                # FIXME: refactor to use rebase_forecast_deltas
+                gt = metrics.load_ground_truth(val_in)
 
-            _, stds = mod.run_prediction_interval_closed_form(
-                preprocessed,
-                train_params,
-                cfg["prediction_interval"]["intervals"],
-                model,
-            )
-            cum_stds = np.sqrt(stds.pow(2).cumsum())
-            cum_stds.to_csv(_path(prefix + "piv.csv"), index_label="date")
+                _, stds = mod.run_prediction_interval_closed_form(
+                    preprocessed,
+                    train_params,
+                    cfg["prediction_interval"]["intervals"],
+                    model,
+                )
+                cum_stds = np.sqrt(stds.pow(2).cumsum())
+                cum_stds.to_csv(_path(prefix + "piv.csv"), index_label="date")
+        except NotImplementedError:
+            pass  # naive model...
 
 
 def filter_validation_days(dset: str, val_in: str, validation_days: int):
@@ -412,11 +415,12 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
                 os.path.join(pth, f'final_model_{cfg["validation"]["output"]}'),
                 os.path.join(os.path.dirname(pth), f"forecasts/forecast_{tag}.csv"),
             )
-            if "prediction_interval" in cfg:
+            piv_pth = os.path.join(
+                pth, f'final_model_{cfg["prediction_interval"]["output_std"]}'
+            )
+            if "prediction_interval" in cfg and os.path.exists(piv_pth):
                 shutil.copy(
-                    os.path.join(
-                        pth, f'final_model_{cfg["prediction_interval"]["output"]}'
-                    ),
+                    piv_pth,
                     os.path.join(os.path.dirname(pth), f"forecasts/piv_{tag}.csv"),
                 )
 
