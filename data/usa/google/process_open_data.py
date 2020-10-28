@@ -81,7 +81,14 @@ df = pandas.read_csv(
     "https://storage.googleapis.com/covid19-open-data/v2/weather.csv",
     parse_dates=["date"],
 )
-cols = ["average_temperature", "minimum_temperature", "maximum_temperature", "rainfall"]
+cols = [
+    "average_temperature",
+    "minimum_temperature",
+    "maximum_temperature",
+    "rainfall",
+    "relative_humidity",
+    "dew_point",
+]
 weather = process_df(df, columns=cols, resolution="county", func_normalize=zscore)
 weather.round(3).to_csv("weather_features_county.csv")
 
