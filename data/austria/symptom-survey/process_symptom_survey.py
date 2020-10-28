@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+
+import sys
+import pandas as pd
+import argparse
+import numpy as np
+from datetime import datetime
+
+rename = {
+    "Islas Canarias": "Canarias",
+    "Comunidad Valenciana": "Valenciana",
+    "Comunidad de Madrid": "Madrid",
+    "Comunidad Foral de Navarra": "Navarra",
+    "Región de Murcia": "Murcia",
+    "Principado de Asturias": "Asturias",
+}
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-signal", default="smoothed_cli")
+opt = parser.parse_args()
+
+districts = pd.read_csv("../polbezirke.csv", encoding="ISO-8859-1", delimiter=";")
+print(districts)
+
+
+def get_df(signal):
+    df = pd.read_csv(f"raw/{opt.signal}/survey.csv", parse_dates=["date"])
+    df["region"] = df["region"].apply(lambda x: rename.get(x, x))
+    df = pd.merge(df, districts, left_on="region", right_on="Bundesland")
+    df = df[["date", "Politischer Bezirk", signal]].rename(
+        columns={"Politischer Bezirk": "region"}
+    )
+    df.dropna(axis=0, subset=["date"], inplace=True)
+
+    df = df.pivot(index="date", columns="region", values=signal).copy()
+    print(df)
+
+    # Fill in NaNs
+    df.iloc[0] = 0
+    # df = df.fillna(method="ffill")
+    df = df.fillna(0)
+    # Normalize
+    df = df.transpose()
+
+    df["type"] = f"{signal}"
+    print(df)
+    return df
+
+
+df = get_df(opt.signal)
+
+df = df[["type"] + [c for c in df.columns if isinstance(c, datetime)]]
+df.columns = [str(x.date()) if isinstance(x, datetime) else x for x in df.columns]
+
+df.round(5).to_csv(f"{opt.signal}.csv", index_label="region")
