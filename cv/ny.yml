@@ -12,6 +12,12 @@ validation:
 forecast:
   output: forecast.csv
   days: &fdays 21
+prediction_interval:
+  output_mean: mean.csv
+  output_std: std.csv
+  intervals: [0.99, 0.95, 0.8]
+  nsamples: 500
+  batch_size: 10
 backfill:
   # LANL
   #- 2020-04-05
@@ -128,6 +134,7 @@ bar:
     t0: 0
     n_models: 5
     test_on: *fdays
+    n_models: 5
 metasir:
   output: msir_model.bin
   data: data/usa/data_cases_ny.csv

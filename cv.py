@@ -104,68 +104,40 @@ class CV:
 
         return df
 
-    def run_prediction_interval_closed_form(self, dset, args, intervals, model=None):
-        args.fdat = dset
-        if model is None:
-            raise NotImplementedError
-
-        cases, regions, basedate, device = self.initialize(args)
-        tmax = cases.size(1)
-
-        means, stds = model.simulate(tmax, cases, args.test_on, True, True)
-        std = th.cat([x.narrow(-1, -1, 1) for x in stds], dim=-1)
-
-        def mk_df(t):
-            df = pd.DataFrame(t.cpu().data.numpy().T, columns=regions)
-            df.index = pd.date_range(
-                start=pd.to_datetime(basedate) + timedelta(days=1), periods=len(df)
-            )
-            return df
-
-        return mk_df(means), mk_df(std)
-
-    def run_prediction_interval(
-        self, dset, args, nsamples, intervals, orig_cases, model=None
+    def run_standard_deviation(
+        self, dset, args, nsamples, intervals, orig_cases, model=None, batch_size=1
     ):
-        args.fdat = dset
-        if model is None:
-            raise NotImplementedError
+        with th.no_grad():
+            args.fdat = dset
+            if model is None:
+                raise NotImplementedError
 
-        cases, regions, basedate, device = self.initialize(args)
-        tmax = cases.size(1)
-        samples = []
+            cases, regions, basedate, device = self.initialize(args)
+            tmax = cases.size(1)
+            samples = []
 
-        for i in tqdm(range(nsamples)):
-            test_preds = model.simulate(tmax, cases, args.test_on, False)
-            test_preds = test_preds.cpu().numpy()
-            # FIXME: refactor to use rebase_forecast_deltas
-            test_preds = np.cumsum(test_preds, axis=1)
-            test_preds = test_preds + orig_cases
-            samples.append(test_preds)
-        samples = np.stack(samples, axis=0)
-        test_preds_mean = np.mean(samples, axis=0)
-        test_preds_std = np.std(samples, axis=0)
-        df_mean = pd.DataFrame(test_preds_mean.T, columns=regions)
-        df_std = pd.DataFrame(test_preds_std.T, columns=regions)
+            if batch_size > 1:
+                cases = cases.repeat(batch_size, 1, 1)
+                nsamples = nsamples // batch_size
 
-        base = pd.to_datetime(basedate)
-        ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
-        df_mean["date"] = ds
-        df_std["date"] = ds
-        df_mean.set_index("date", inplace=True)
-        df_std.set_index("date", inplace=True)
-        _dfs = []
-        for p in intervals:
-            pim = pi_multipliers[p]
-            lower = df_mean - pim * df_std
-            upper = df_mean + pim * df_std
-            lower["piv"] = np.round(1 - p, 2)
-            upper["piv"] = p
-            _dfs += [lower, upper]
-        df_mean["piv"] = "mean"
-        df_std["piv"] = "std"
-        _df = pd.concat([df_mean] + _dfs + [df_std], axis=0)
-        return _df
+            for i in tqdm(range(nsamples)):
+                test_preds = model.simulate(tmax, cases, args.test_on, False)
+                test_preds = test_preds.cpu().numpy()
+                samples.append(test_preds)
+            samples = (
+                np.stack(samples, axis=0)
+                if batch_size <= 1
+                else np.concatenate(samples, axis=0)
+            )
+
+            base = pd.to_datetime(basedate)
+
+            def mk_df(arr):
+                df = pd.DataFrame(arr, columns=regions)
+                df.index = pd.date_range(base + timedelta(days=1), periods=args.test_on)
+                return df
+
+            return mk_df(np.std(samples, axis=0).T), mk_df(np.mean(samples, axis=0).T)
 
     def run_train(self, dset, model_params, model_out):
         """
@@ -241,18 +213,37 @@ class CV:
         """
         self.tb_writer = SummaryWriter(logdir=basedir)
 
+    def run_prediction_interval(
+        self, means_pth: str, stds_pth: str, intervals: List[float]
+    ):
+        ...
+
 
 def ensemble(basedirs, cfg, module, prefix, outdir):
-    dfs = []
-    for basedir in basedirs:
-        filename = os.path.join(basedir, prefix + cfg["validation"]["output"])
-        if os.path.exists(filename):
-            dfs.append(pd.read_csv(filename, index_col="date", parse_dates=["date"]))
+    def _path(x):
+        return os.path.join(basedir, prefix + x)
 
-    assert len(dfs) > 0, "All ensemble jobs failed!!!!"
-    df = pd.concat(dfs).groupby(level=0).median()
+    means = []
+    stds = []
+    mean_deltas = []
+    kwargs = {"index_col": "date", "parse_dates": ["date"]}
+    for basedir in basedirs:
+        if os.path.exists(cfg["validation"]["output"]):
+            means.append(pd.read_csv(cfg["validation"]["output"], **kwargs))
+        if os.path.exists(_path("std_csv.csv")):
+            stds.append(pd.read_csv(_path("std_csv.csv"), **kwargs))
+            mean_deltas.append(pd.read_csv(_path("validation_deltas.csv")), **kwargs)
+    if len(stds) > 0:
+        # Average the variance, and take square root
+        std = pd.concat(stds).pow(2).groupby(level=0).mean().pow(0.5)
+        std.to_csv(os.path.join(outdir, prefix + "std.csv"))
+        mean_deltas = pd.concat(mean_deltas).groupby(level=0).mean()
+        mean_deltas.to_csv(os.path.join(outdir, prefix + "validation_deltas.csv"))
+
+    assert len(means) > 0, "All ensemble jobs failed!!!!"
+    mean = pd.concat(means).groupby(level=0).median()
     outfile = os.path.join(outdir, prefix + cfg["validation"]["output"])
-    df.to_csv(outfile, index_label="date")
+    mean.to_csv(outfile, index_label="date")
 
     mod = importlib.import_module(module).CV_CLS()
 
@@ -265,6 +256,15 @@ def ensemble(basedirs, cfg, module, prefix, outdir):
     with open(os.path.join(outdir, prefix + "metrics.json"), "w") as fout:
         json.dump(json_val, fout)
     print(df_val)
+
+    if len(stds) > 0:
+        pred_interval = cfg.get("prediction_interval", {})
+        piv = mod.run_prediction_interval(
+            os.path.join(outdir, prefix + "validation_deltas.csv"),
+            os.path.join(outdir, prefix + "std.csv"),
+            pred_interval.get("intervals", [0.99, 0.95, 0.8]),
+        )
+        piv.to_csv(os.path.join(outdir, prefix + "piv.csv"), index=False)
 
 
 def run_cv(
@@ -346,27 +346,20 @@ def run_cv(
     train_params = Namespace(**cfg[module]["train"])
     n_models = getattr(train_params, "n_models", 1)
     print(f"Training {n_models} models")
-    for mod_id in range(n_models):
-        # -- train --
-        print("Training model", mod_id)
-        model = mod.run_train(
-            preprocessed, train_params, _path(prefix + cfg[module]["output"])
-        )
-        # weights.append(-nll)
+    # -- train --
+    model = mod.run_train(
+        preprocessed, train_params, _path(prefix + cfg[module]["output"])
+    )
 
-        # -- simulate --
-        with th.no_grad():
-            sim_params = cfg[module].get("simulate", {})
-            # Returns the number of new cases for each day
-            df_forecast_deltas = mod.run_simulate(
-                preprocessed, train_params, model, sim_params=sim_params
-            )
-            forecasts.append(rebase_forecast_deltas(val_in, df_forecast_deltas))
-    # weights = F.softmax(th.tensor(weights)).numpy()
-    # forecasts = [weights[i] * f for i, f in enumerate(forecasts)]
-    # df_forecast = pd.concat(forecasts).groupby(level=0).sum()
-    df_forecast = pd.concat(forecasts).groupby(level=0).median()
-    # print("Forecast weights", weights)
+    # -- simulate --
+    with th.no_grad():
+        sim_params = cfg[module].get("simulate", {})
+        # Returns the number of new cases for each day
+        df_forecast_deltas = mod.run_simulate(
+            preprocessed, train_params, model, sim_params=sim_params
+        )
+        df_forecast = rebase_forecast_deltas(val_in, df_forecast_deltas)
+
     mod.tb_writer.close()
 
     print(f"Storing validation in {val_out}")
@@ -383,23 +376,33 @@ def run_cv(
     print(df_val)
 
     # -- prediction interval --
-    if "prediction_interval" in cfg:
+    if "prediction_interval" in cfg and prefix == "final_model_":
         try:
             with th.no_grad():
                 # FIXME: refactor to use rebase_forecast_deltas
                 gt = metrics.load_ground_truth(val_in)
-
-                _, stds = mod.run_prediction_interval_closed_form(
+                basedate = gt.index.max()
+                prev_day = gt.loc[[basedate]]
+                pred_interval = cfg.get("prediction_interval", {})
+                df_std, df_mean = mod.run_standard_deviation(
                     preprocessed,
                     train_params,
-                    cfg["prediction_interval"]["intervals"],
+                    pred_interval.get("nsamples", 100),
+                    pred_interval.get("intervals", [0.99, 0.95, 0.8]),
+                    prev_day.values.T,
                     model,
+                    pred_interval.get("batch_size", 8),
                 )
-                cum_stds = np.sqrt(stds.pow(2).cumsum())
-                cum_stds.to_csv(_path(prefix + "piv.csv"), index_label="date")
+                df_std.to_csv(_path(f"{prefix}std.csv"), index_label="date")
+                df_mean.to_csv(_path(f"{prefix}mean.csv"), index_label="date")
+                piv = mod.run_prediction_interval(
+                    _path(f"{prefix}mean.csv"),
+                    _path(f"{prefix}std.csv"),
+                    pred_interval.get("intervals", [0.99, 0.95, 0.8]),
+                )
+                piv.to_csv(_path(f"{prefix}piv.csv"), index=False)
         except NotImplementedError:
-            pass  # naive model...
-    return []
+            pass  # naive...
 
 
 def filter_validation_days(dset: str, val_in: str, validation_days: int):
@@ -518,7 +521,7 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
                             shutil.copy(
                                 piv_pth,
                                 os.path.join(
-                                    os.path.dirname(pth), f"forecasts/piv_{tag}.csv"
+                                    os.path.dirname(pth), f"forecasts/std_{tag}.csv"
                                 ),
                             )
 
@@ -554,21 +557,20 @@ def cli():
 
 
 @cli.command()
-@click.argument("pth")
-@click.option("-prefix", default="")
-@click.option("-new", is_flag=True)
-def prediction_interval(pth, prefix, new):
-    chkpnts = []
-    if os.path.exists(pth) and pth.endswith(".bin"):
-        chkpnts = [pth]
-    else:
-        chkpnts = glob(os.path.join(pth, "**/{prefix}*.bin"), recursive=True)
-        if prefix == "":
-            chkpnts = [x for x in chkpnts if not x.startswith("final_model")]
-    for chkpnt_pth in chkpnts:
+@click.argument("chkpnts", nargs=-1)
+@click.option("-remote", is_flag=True)
+@click.option("-nsamples", type=click.INT)
+@click.option("-batchsize", type=int)
+def prediction_interval(chkpnts, remote, nsamples, batchsize):
+    def f(chkpnt_pth):
+        prefix = "final_model_" if "final_model_" in chkpnt_pth else ""
         chkpnt = th.load(chkpnt_pth)
         job_pth = os.path.dirname(chkpnt_pth)
-        cfg = load_config(os.path.join(job_pth, "../cfg.yml"))
+
+        cfg_pth = os.path.join(job_pth, "../cfg.yml")
+        if not os.path.exists(cfg_pth):
+            cfg_pth = os.path.join(job_pth, "../../cfg.yml")
+        cfg = load_config(cfg_pth)
         module = cfg["this_module"]
         job_config = load_config(os.path.join(job_pth, f"{prefix}{module}.yml"))
         opt = Namespace(**job_config["train"])
@@ -577,40 +579,39 @@ def prediction_interval(pth, prefix, new):
         model = mod.func
         model.load_state_dict(chkpnt)
 
-        if new:
-            dset = os.path.join(
-                job_pth, prefix + "preprocessed_" + os.path.basename(job_config["data"])
-            )
-            intervals = [0.99, 0.95, 0.8]
-            means, stds = mod.run_prediction_interval_closed_form(
-                dset, opt, intervals, model
-            )
+        dset = os.path.join(
+            job_pth, prefix + "preprocessed_" + os.path.basename(job_config["data"])
+        )
+        val_in = os.path.join(
+            job_pth, prefix + "filtered_" + os.path.basename(job_config["data"])
+        )
 
-            val_in = os.path.join(
-                job_pth, prefix + "filtered_" + os.path.basename(job_config["data"])
-            )
-            cum_stds = np.sqrt(stds.pow(2).cumsum())
-            cum_means = rebase_forecast_deltas(val_in, means)
-            cum_stds.to_csv(
-                os.path.join(job_pth, f"{prefix}piv.csv"), index_label="date"
-            )
-        else:
-            gt = metrics.load_ground_truth(cfg[module]["data"])
-            prev_day = gt.loc[[pd.to_datetime(basedate)]]
-            pred_interval = cfg.get(
-                "prediction_interval", {"intervals": [0.99, 0.95, 0.8], "nsamples": 100}
-            )
-            df_piv = mod.run_prediction_interval(
-                opt.fdat,
-                opt,
-                pred_interval["nsamples"],
-                pred_interval["intervals"],
-                prev_day.values.T,
-                model,
-            )
-            df_piv.to_csv(
-                os.path.join(job_pth, f"{prefix}old_piv.csv"), index_label="date"
-            )
+        gt = metrics.load_ground_truth(val_in)
+        prev_day = gt.loc[[pd.to_datetime(basedate)]]
+        pred_interval = cfg.get("prediction_interval", {})
+        df_std, df_mean = mod.run_standard_deviation(
+            dset,
+            opt,
+            nsamples or pred_interval.get("nsamples", 100),
+            pred_interval.get("intervals", [0.99, 0.95, 0.8]),
+            prev_day.values.T,
+            model,
+            batchsize or pred_interval.get("batch_size", 8),
+        )
+        df_std.to_csv(os.path.join(job_pth, f"{prefix}std.csv"), index_label="date")
+        df_mean.to_csv(os.path.join(job_pth, f"{prefix}mean.csv"), index_label="date")
+
+    if remote:
+        now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        folder = os.path.expanduser(f"~/.covid19/logs/{now}")
+        extra_params = {"gpus": 1, "cpus": 2, "memgb": 20, "timeout": 3600}
+        ex = mk_executor(
+            "prediction_interval", folder, extra_params, ex=submitit.AutoExecutor
+        )
+        ex.map_array(f, chkpnts)
+        print(folder)
+    else:
+        list(map(f, chkpnts))
 
 
 @cli.command()

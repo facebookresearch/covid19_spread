@@ -22,6 +22,10 @@ import sys
 from wavenet import Wavenet, CausalConv1d
 from functools import partial
 import math
+from scipy.stats import nbinom
+from bisect import bisect_left, bisect_right
+from tqdm import tqdm
+
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -436,7 +440,7 @@ class BAR(nn.Module):
 
     def score(self, t, ys):
         assert t.size(-1) == ys.size(-1), (t.size(), ys.size())
-        length = ys.size(1) - self.window + 1
+        length = ys.size(-1) - self.window + 1
         # cs = ys.cumsum(dim=1) + self.offset
         # _ys = cs * (self.population - cs) / self.population
 
@@ -449,7 +453,7 @@ class BAR(nn.Module):
             ws = ws.expand(self.M, self.z.size(1))
             # self-correlation
             Z = F.conv1d(
-                F.pad(ys.unsqueeze(0), (self.z.size(1) - 1, 0)),
+                F.pad(ys.unsqueeze(0) if ys.ndim == 2 else ys, (self.z.size(1) - 1, 0)),
                 ws.unsqueeze(1),
                 groups=self.M,
             )
@@ -463,12 +467,16 @@ class BAR(nn.Module):
             W = self.metapopulation_weights()
             Ys = th.stack(
                 [
-                    F.pad(ys.narrow(1, i, length), (self.window - 1, 0))
+                    F.pad(ys.narrow(-1, i, length), (self.window - 1, 0))
                     for i in range(self.window)
                 ]
             )
-            Ys = th.bmm(W.unsqueeze(0).expand(self.window, self.M, self.M), Ys).mean(
-                dim=0
+            orig_shape = Ys.shape
+            Ys = Ys.view(-1, Ys.size(-2), Ys.size(-1)) if Ys.ndim == 4 else Ys
+            Ys = (
+                th.bmm(W.unsqueeze(0).expand(Ys.size(0), self.M, self.M), Ys)
+                .view(orig_shape)
+                .mean(dim=0)
             )
             # Ys = th.bmm(W, Ys).mean(dim=0)
         with th.no_grad():
@@ -491,23 +499,21 @@ class BAR(nn.Module):
     def simulate(self, tobs, ys, days, deterministic=True, return_stds=False):
         preds = ys.clone()
         self.eval()
-        assert tobs == preds.size(1), (tobs, preds.size())
+        assert tobs == preds.size(-1), (tobs, preds.size())
         stds = []
         for d in range(days):
             t = th.arange(tobs + d).to(ys.device) + 1
             s, _, _ = self.score(t, preds)
             assert (s >= 0).all(), s.squeeze()
-            assert s.dim() == 2, s.size()
             if deterministic:
                 y = self.dist(s).mean
             else:
                 y = self.dist(s).sample()
-            assert y.dim() == 2, y.size()
             assert (y >= 0).all(), y.squeeze()
-            y = y.narrow(1, -1, 1).clamp(min=1e-8)
-            preds = th.cat([preds, y], dim=1)
+            y = y.narrow(-1, -1, 1).clamp(min=1e-8)
+            preds = th.cat([preds, y], dim=-1)
             stds.append(self.dist(s).stddev)
-        preds = preds.narrow(1, -days, days)
+        preds = preds.narrow(-1, -days, days)
         self.train()
         if return_stds:
             return preds, stds
@@ -829,6 +835,92 @@ class BARCV(cv.CV):
 
         model = train(self.func, new_cases, regions, optimizer, checkpoint, args)
         return model
+
+    def run_prediction_interval(
+        self, means_pth: str, stds_pth: str, intervals: List[float]
+    ):
+        pi_multipliers = {0.99: 2.58, 0.95: 1.96, 0.80: 1.28}
+
+        means = pd.read_csv(means_pth, index_col="date", parse_dates=["date"])
+        stds = pd.read_csv(stds_pth, index_col="date", parse_dates=["date"])
+
+        means_t = means.values
+        stds_t = stds.values
+
+        variances = stds_t ** 2
+        nfailures = means_t * means_t / (variances - means_t)
+        probs = (variances - means_t) / variances
+
+        multipliers = np.array([pi_multipliers[x] for x in intervals])
+        result = np.empty((means_t.shape[0], means_t.shape[1], len(intervals), 2))
+        with tqdm(total=means_t.size * len(intervals)) as pbar:
+            for i in range(means_t.shape[0]):
+                for j in range(means_t.shape[1]):
+                    if probs[i, j] < 0 or probs[i, j] > 1:
+                        result[i, j, :, 0] = np.clip(
+                            np.round(means_t[i, j] - multipliers * stds_t[i, j] - 0.5)
+                            + 1,
+                            a_min=0,
+                            a_max=None,
+                        )
+                        result[i, j, :, 1] = (
+                            np.round(means_t[i, j] + multipliers * stds_t[i, j] - 0.5)
+                            + 1
+                        )
+                        pbar.update(len(intervals))
+                        continue
+                    x = np.arange(0, max(2 * means_t[i, j] + 10 * stds_t[i, j], 20))
+                    y = nbinom.cdf(x, nfailures[i, j], probs[i, j])
+                    for k, interval in enumerate(intervals):
+                        lower = bisect_right(y, (1 - interval) / 2)
+                        upper = bisect_left(y, 1 - (1 - interval) / 2)
+                        if (
+                            lower == len(y)
+                            or upper == 0
+                            or lower > means_t[i, j]
+                            or upper < means_t[i, j]
+                        ):
+                            lower = np.clip(
+                                np.round(
+                                    means_t[i, j] - multipliers[k] * stds_t[i, j] - 0.5
+                                )
+                                + 1,
+                                a_min=0,
+                                a_max=None,
+                            )
+                            upper = (
+                                np.round(
+                                    means_t[i, j] + multipliers[k] * stds_t[i, j] - 0.5
+                                )
+                                + 1
+                            )
+                        result[i, j, k, 0] = lower
+                        result[i, j, k, 1] = upper
+                        pbar.update(1)
+        cols = pd.MultiIndex.from_product(
+            [means.columns, intervals, ["lower", "upper"]]
+        )
+        result_df = pd.DataFrame(result.reshape(30, -1), columns=cols)
+        result_df["date"] = means.index
+        melted = result_df.melt(
+            id_vars=["date"], var_name=["location", "interval", "lower/upper"]
+        )
+        pivot = melted.pivot(
+            index=["date", "location", "interval"],
+            columns="lower/upper",
+            values="value",
+        ).reset_index()
+        return pivot.merge(
+            means.reset_index().melt(
+                id_vars=["date"], var_name="location", value_name="mean"
+            ),
+            on=["date", "location"],
+        ).merge(
+            stds.reset_index().melt(
+                id_vars=["date"], var_name="location", value_name="std"
+            ),
+            on=["date", "location"],
+        )
 
 
 CV_CLS = BARCV

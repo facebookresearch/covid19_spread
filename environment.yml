@@ -38,3 +38,4 @@ dependencies:
     - hdx-python-api
     - covidcast
     - pscopyg2
+    - torchcontrib
