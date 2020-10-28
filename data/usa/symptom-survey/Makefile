@@ -4,7 +4,7 @@
 # @file
 # @version 0.1
 
-signals=fb-survey/smoothed_hh_cmnty_cli fb-survey/smoothed_wcli doctor-visits/smoothed_adj_cli
+signals=fb-survey/smoothed_hh_cmnty_cli fb-survey/smoothed_wcli fb-survey/smoothed_wearing_mask doctor-visits/smoothed_adj_cli
 
 define _fetch
 	mkdir -p $(resolution)/$(shell dirname $(signal))
@@ -38,10 +38,30 @@ county/fb-survey/smoothed_hh_cmnty_cli.csv: resolution=county
 county/fb-survey/smoothed_hh_cmnty_cli.csv:
 	$(call _fetch)
 
+
+state/fb-survey/smoothed_wearing_mask.csv: signal=fb-survey/smoothed_wearing_mask
+state/fb-survey/smoothed_wearing_mask.csv: startdate=20200908
+state/fb-survey/smoothed_wearing_mask.csv: resolution=state
+state/fb-survey/smoothed_wearing_mask.csv:
+	$(call _fetch)
+
+county/fb-survey/smoothed_wearing_mask.csv: signal=fb-survey/smoothed_wearing_mask
+county/fb-survey/smoothed_wearing_mask.csv: startdate=20200908
+county/fb-survey/smoothed_wearing_mask.csv: resolution=county
+county/fb-survey/smoothed_wearing_mask.csv:
+	$(call _fetch)
+
+
 state/fb-survey/smoothed_wcli.csv: signal=fb-survey/smoothed_wcli
 state/fb-survey/smoothed_wcli.csv: startdate=20200406
 state/fb-survey/smoothed_wcli.csv: resolution=state
 state/fb-survey/smoothed_wcli.csv:
+	$(call _fetch)
+
+state/fb-survey/raw_wcli.csv: signal=fb-survey/raw_wcli
+state/fb-survey/raw_wcli.csv: startdate=20200406
+state/fb-survey/raw_wcli.csv: resolution=state
+state/fb-survey/raw_wcli.csv:
 	$(call _fetch)
 
 county/fb-survey/smoothed_wcli.csv: signal=fb-survey/smoothed_wcli
