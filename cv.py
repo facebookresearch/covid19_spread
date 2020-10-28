@@ -551,6 +551,7 @@ def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
 @click.option("-max-jobs", type=click.INT, default=200)
 @click.option("-basedir", default=None, help="Path to sweep base directory")
 @click.option("-basedate", type=click.DateTime(), help="Date to treat as last date")
+@click.option("-ablation", is_flag=True)
 def cv(
     config_pth: str,
     module: str,
@@ -561,6 +562,7 @@ def cv(
     basedir: str,
     basedate: Optional[datetime] = None,
     executor=None,
+    ablation=False,
 ):
     """
     Run cross validation pipeline for a given module.
@@ -594,6 +596,17 @@ def cv(
     with open(os.path.join(basedir, "cfg.yml"), "w") as fout:
         yaml.dump(cfg, fout)
 
+    # if we are running an ablation, create new time features from ablation field
+    # all list entries in are assumed to be a single ablation
+    # all features in one list entry will be dropped from the full features to
+    #   perform the ablation
+    if ablation:
+        feats = []
+        all_feats = set(cfg[module]["train"]["time_features"][0])
+        for x in cfg[module]["train"]["ablation"]:
+            feats.append(list(all_feats - set(x)))
+        cfg[module]["train"]["time_features"] = feats
+
     cfgs = []
     sweep_params = [
         ([module, "train", k], v)
@@ -619,6 +632,7 @@ def cv(
         random.shuffle(cfgs)
         cfgs = cfgs[:max_jobs]
 
+    print(f"Launching {len(cfgs)} jobs")
     if remote:
         extra = cfg[module].get("resources", {})
         if executor is None:
@@ -683,6 +697,7 @@ def cv(
 @click.option("-remote", is_flag=True)
 @click.option("-array-parallelism", type=click.INT, default=20)
 @click.option("-max-jobs", type=click.INT, default=200)
+@click.option("-ablation", is_flag=True)
 @click.pass_context
 def backfill(
     ctx: click.Context,
@@ -695,6 +710,7 @@ def backfill(
     remote: bool = False,
     array_parallelism: int = 20,
     max_jobs: int = 200,
+    ablation: bool = False,
 ):
     """
     Run the cross validation pipeline over multiple time points.
