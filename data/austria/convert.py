@@ -84,6 +84,8 @@ if __name__ == "__main__":
     df = df.iloc[:, np.where(counts > 0)[0]]
 
     process_time_features(df, f"fb/mobility_features.csv", 5)
+    process_time_features(df, f"google/mobility_features_google.csv", 5)
     process_time_features(df, f"symptom-survey/smoothed_cli.csv", 0)
     process_time_features(df, f"symptom-survey/smoothed_mc.csv", 5)
     process_time_features(df, f"symptom-survey/smoothed_dc.csv", 5)
+    process_time_features(df, f"weather/weather_features.csv", 5)

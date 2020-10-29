@@ -113,6 +113,14 @@ grid-nys:
 	python3 sweep.py grids/nys.yml -remote -ncpus 40 -timeout-min 60 -partition "learnfair,scavenge" -comment "COVID-19 NY state Forecast" | tail -1 >> $(runlog)
 	tail -1 $(runlog)
 
+grid-at: runlog = runs/at/$(DATE).log
+grid-at:
+	# cd data/austria && python3 fetch_data.py
+	cd data/austria && make features
+	python3 cv.py cv cv/at.yml bar -remote | tail -1 >> $(runlog)
+	python3 cv.py cv cv/at.yml ar -remote | tail -1 >> $(runlog)
+	# git checkout data/austria
+
 
 analyze-nyc: sweepdir = $(shell tail -$(LAST) runs/nyc/$(DATE).log | head -n1)
 analyze-nyc: fdata = data/nystate/timeseries-nyc
@@ -126,7 +134,6 @@ analyze-nys: sweepname = nys_sweep
 analyze-nys: fdata = data/nystate/timeseries-nys
 analyze-nys: doubling-times = 10 11 12 13
 analyze-nys:
-	python3 sir.py -fdat data/nystate/timeseries.h5 -fpop data/population-data/US-states/new-york-population.csv -fsuffix ny-$(DATE) -dout forecasts/nys -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
 	$(call _analyze_sweep)
 
 mae-ny:
@@ -167,4 +174,9 @@ notebook:
 
 collect:
 	find $(sweepdir) -name "forecast_best_$(metric).csv" -exec sh -c 'x="{}"; cp -v "$$x" "/tmp/forecast_$$(echo \"$$x\" | cut -d/ -f8 | cut -d_ -f2).csv"' \;
+
+aws: latest=$(shell aws s3 ls s3://fairusersglobal/users/mattle/h2/covid19_forecasts/ | tail -1 | cut -d' ' -f 6)
+aws:
+	aws s3 cp s3://fairusersglobal/users/mattle/h2/covid19_forecasts/$(latest) /tmp/
+	bzip2 -zv9 /tmp/$(latest)
 # end
