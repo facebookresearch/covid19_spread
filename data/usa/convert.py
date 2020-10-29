@@ -148,9 +148,6 @@ if __name__ == "__main__":
         population["New York City, New York"] = sum(
             [population[b] for b in nyc_boroughs]
         )
-        # nyc_boroughs[1] = "Kings, New York"
-        # nyc_boroughs[3] = "New York, New York"
-        # df_feat.loc["New York City, New York"] = np.mean([df_feat.loc[b] for b in boroughs])
 
     dates = df.index
     df.columns = [c.split("_")[1] + ", " + c.split("_")[0] for c in df.columns]
@@ -220,6 +217,7 @@ if __name__ == "__main__":
             ("symptom-survey/doctor-visits_smoothed_adj_cli-{}.csv", 2),
             ("symptom-survey/fb-survey_smoothed_wcli-{}.csv", 0),
             ("symptom-survey/fb-survey_smoothed_hh_cmnty_cli-{}.csv", 0),
+            # ("symptom-survey/fb-survey_smoothed_wearing_mask-{}.csv", 5),
             ("fb/mobility_features_{}_fb.csv", 5),
             ("google/mobility_features_{}_google.csv", 5),
         ]:
