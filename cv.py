@@ -34,6 +34,7 @@ from lib.slurm_pool_executor import SlurmPoolExecutor, JobStatus
 from lib.mail import email_notebook
 import sqlite3
 from lib.context_managers import env_var
+from lib.slack import get_client as get_slack_client
 
 # FIXME: move snapshot to lib
 from timelord import snapshot
@@ -409,20 +410,25 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
     best_runs_df = pd.DataFrame(best_runs)
 
     def run_cv_and_copy_results(tags, module, pth, cfg, prefix):
-        run_cv(module, pth, cfg, prefix=prefix, basedate=basedate)
-        for tag in tags:
-            shutil.copy(
-                os.path.join(pth, f'final_model_{cfg["validation"]["output"]}'),
-                os.path.join(os.path.dirname(pth), f"forecasts/forecast_{tag}.csv"),
-            )
-            piv_pth = os.path.join(
-                pth, f'final_model_{cfg["prediction_interval"]["output_std"]}'
-            )
-            if "prediction_interval" in cfg and os.path.exists(piv_pth):
+        try:
+            run_cv(module, pth, cfg, prefix=prefix, basedate=basedate)
+            for tag in tags:
                 shutil.copy(
-                    piv_pth,
-                    os.path.join(os.path.dirname(pth), f"forecasts/piv_{tag}.csv"),
+                    os.path.join(pth, f'final_model_{cfg["validation"]["output"]}'),
+                    os.path.join(os.path.dirname(pth), f"forecasts/forecast_{tag}.csv"),
                 )
+                piv_pth = os.path.join(
+                    pth, f'final_model_{cfg["prediction_interval"]["output_std"]}'
+                )
+                if "prediction_interval" in cfg and os.path.exists(piv_pth):
+                    shutil.copy(
+                        piv_pth,
+                        os.path.join(os.path.dirname(pth), f"forecasts/piv_{tag}.csv"),
+                    )
+        except Exception as e:
+            msg = f"*Final run failed for {tags}*\nbasedir = {basedir}\nException was: {e}"
+            client = get_slack_client()
+            client.chat_postMessage(channel="#cron_errors", text=msg)
 
     for pth, tags in best_runs_df.groupby("pth")["name"].agg(list).items():
         os.makedirs(os.path.join(os.path.dirname(pth), f"forecasts"), exist_ok=True)
