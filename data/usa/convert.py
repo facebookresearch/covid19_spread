@@ -104,6 +104,8 @@ def process_time_features(df, pth, shift=0, merge_nyc=False, input_resolution="c
         _v = _v[: end_ix - start_ix]
         try:
             _m[start_ix:end_ix] = th.from_numpy(_v.values)
+            if end_ix < df.shape[1]:
+                _m[end_ix:] = _m[end_ix - 1]
         except Exception as e:
             print(region, query, _m.size(), _v.shape)
             print(_v)
