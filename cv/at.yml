@@ -25,12 +25,14 @@ ar:
   #preprocess:
   #  smooth: 7
   train:
+    n_models: 10
     fpop: *fpop
     activation: sigmoid
     no_cross_correlation: false
     decay: [latent2_1]
     #window: [15, 20, 25]
     window: [10, 15]
+    #window: [10, 15, 20]
     momentum: [0.99]
     lr: [0.001]
     weight_decay: [0.2, 0.3]
@@ -50,18 +52,26 @@ bar:
   #preprocess:
   #  smooth: 5
   train:
+    time_features:
+      -
+        - data/austria/fb/mobility_features.pt
+        - data/austria/google/mobility_features_google.pt
+        - data/austria/symptom-survey/smoothed_cli.pt
+        - data/austria/symptom-survey/smoothed_mc.pt
+        - data/austria/symptom-survey/smoothed_dc.pt
+        - data/austria/weather/weather_features.pt
     fpop: *fpop
     activation: sigmoid
     no_cross_correlation: false
     decay: [latent2_2]
-    window: [10, 15]
+    window: [5, 10, 15]
     lr: [0.001]
     momentum: [0.99]
     weight_decay: [0.2, 0.3]
     niters: [30000]
     granger: [0.5]
-    temporal: [0.5, 1, 2]
-    eta: [0.2, 0.3]
+    temporal: [100]
+    eta: [0.002, 0.02, 0.2]
     loss: nb
-    t0: 5
+    t0: 0
     test_on: *fdays
