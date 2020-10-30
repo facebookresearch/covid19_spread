@@ -417,18 +417,23 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
                     os.path.join(pth, f'final_model_{cfg["validation"]["output"]}'),
                     os.path.join(os.path.dirname(pth), f"forecasts/forecast_{tag}.csv"),
                 )
-                piv_pth = os.path.join(
-                    pth, f'final_model_{cfg["prediction_interval"]["output_std"]}'
-                )
-                if "prediction_interval" in cfg and os.path.exists(piv_pth):
-                    shutil.copy(
-                        piv_pth,
-                        os.path.join(os.path.dirname(pth), f"forecasts/piv_{tag}.csv"),
+
+                if "prediction_interval" in cfg:
+                    piv_pth = os.path.join(
+                        pth, f'final_model_{cfg["prediction_interval"]["output_std"]}'
                     )
+                    if os.path.exists(piv_pth):
+                        shutil.copy(
+                            piv_pth,
+                            os.path.join(
+                                os.path.dirname(pth), f"forecasts/piv_{tag}.csv"
+                            ),
+                        )
         except Exception as e:
             msg = f"*Final run failed for {tags}*\nbasedir = {basedir}\nException was: {e}"
             client = get_slack_client()
             client.chat_postMessage(channel="#cron_errors", text=msg)
+            raise e
 
     for pth, tags in best_runs_df.groupby("pth")["name"].agg(list).items():
         os.makedirs(os.path.join(os.path.dirname(pth), f"forecasts"), exist_ok=True)
