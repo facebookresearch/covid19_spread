@@ -17,6 +17,7 @@ import torch as th
 from tqdm import tqdm
 import torch.nn.functional as F
 import traceback
+import re
 import yaml
 from argparse import Namespace
 from collections import namedtuple
@@ -183,11 +184,30 @@ class CV:
             )
         return pd.DataFrame(runs)
 
-    def model_selection(self, basedir: str) -> List[BestRun]:
+    def model_selection(self, basedir: str, config, module) -> List[BestRun]:
         """
         Evaluate a sweep returning a list of models to retrain on the full dataset.
         """
         df = self.metric_df(basedir)
+        if "ablation" in config["train"]:
+            ablations = []
+            for _, row in df.iterrows():
+                job_cfg = load_config(os.path.join(row.pth, f"{module}.yml"))
+                ablations.append(
+                    ",".join(os.path.basename(x) for x in job_cfg["train"]["ablation"])
+                )
+            df["ablation"] = ablations
+            best_runs = []
+            for key in ["mae", "rmse", "mae_deltas", "rmse_deltas"]:
+                best = df.loc[df.groupby("ablation")[key].idxmin()]
+                best_runs.extend(
+                    [
+                        BestRun(x.pth, f"best_{key}_{x.ablation}")
+                        for _, x in best.iterrows()
+                    ]
+                )
+            return best_runs
+
         return [
             BestRun(df.sort_values(by="mae").iloc[0].pth, "best_mae"),
             BestRun(df.sort_values(by="rmse").iloc[0].pth, "best_rmse"),
@@ -395,7 +415,8 @@ def rebase_forecast_deltas(val_in, df_forecast_deltas):
 
 def run_best(config, module, remote, basedir, basedate=None, executor=None):
     mod = importlib.import_module(module).CV_CLS()
-    best_runs = mod.model_selection(basedir)
+    sweep_config = load_config(os.path.join(basedir, "cfg.yml"))
+    best_runs = mod.model_selection(basedir, config=sweep_config[module], module=module)
 
     if remote and executor is None:
         executor = mk_executor(
@@ -526,16 +547,23 @@ def notebook(config_pth, sweep_dir, module):
 
 
 @cli.command()
-@click.argument("sweep_dir")
+@click.argument("sweep_dirs", nargs=-1)
 @click.argument("module")
 @click.option("-remote", is_flag=True)
 @click.option("-basedate", type=click.DateTime(), default=None)
-def model_selection(sweep_dir, module, remote, basedate):
-    cfg = load_config(os.path.join(sweep_dir, "cfg.yml"))
-    executor = mk_executor(
-        "model_selection", sweep_dir, cfg[module].get("resources", {})
-    )
-    run_best(cfg, module, remote, sweep_dir, basedate, executor=executor)
+def model_selection(sweep_dirs, module, remote, basedate):
+    executor = None
+    for sweep_dir in sweep_dirs:
+        cfg = load_config(os.path.join(sweep_dir, "cfg.yml"))
+        if executor is None:
+            executor = mk_executor(
+                "model_selection", sweep_dir, cfg[module].get("resources", {})
+            )
+        match = re.search(r"\d{4}-\d{2}-\d{2}", os.path.basename(sweep_dir))
+        if basedate is None and match:
+            basedate = pd.to_datetime(match.group(0))
+
+        run_best(cfg, module, remote, sweep_dir, basedate, executor=executor)
     executor.launch(sweep_dir + "/workers", workers=4)
 
 
