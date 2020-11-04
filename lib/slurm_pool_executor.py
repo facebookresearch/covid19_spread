@@ -21,7 +21,8 @@ from contextlib import (
     AbstractContextManager,
 )
 import traceback
-import hashlib
+import pandas
+import itertools
 
 
 @contextmanager
@@ -65,6 +66,9 @@ class TransactionManager(AbstractContextManager):
 
     def __getstate__(self):
         state = self.__dict__.copy()
+        assert (
+            self.conn is None
+        ), "You should not pickle a transaction manager with an open connection!!!!"
         del state["conn"]
         return state
 
@@ -91,7 +95,7 @@ class TransactionManager(AbstractContextManager):
                     self.conn.rollback()
                     self.conn.close()
                     self.conn = None
-                    time.sleep(1)
+                    time.sleep(random.randint(1, 10))
                     exn = e
             if exn is not None:
                 print("Failed too many times!")
@@ -172,6 +176,7 @@ class Worker:
             if self.sleep > 0:
                 print(f"Sleeping...")
                 time.sleep(self.sleep)
+            print(f"Worker {self.worker_id} getting job to run")
             with transaction_manager as conn:
                 ready = self.fetch_ready_job(conn)
                 status = JobStatus.pending
@@ -198,6 +203,7 @@ class Worker:
                     "UPDATE jobs SET status=?, worker_id=? WHERE pickle=? AND status=?",
                     (running_status, worker_job_id, pickle, status),
                 )
+            print(f"Worker {self.worker_id} got job to run")
 
             # Run the job
             # Some environment variable trickery to get submitit to find the correct pickle file
@@ -205,6 +211,7 @@ class Worker:
                 "SLURM_JOB_ID": job_id,
                 "SLURM_ARRAY_JOB_ID": None,
                 "SLURM_ARRAY_TASK_ID": None,
+                "SLURM_PICKLE_PTH": pickle,
             }
             if re.match(r"job_(\d+)", job_id):
                 env_vars["SLURM_ARRAY_JOB_ID"] = "job"
@@ -236,6 +243,7 @@ class Worker:
                         f"UPDATE jobs SET status={status.value} WHERE pickle=?",
                         (pickle,),
                     )
+                print(f"Worker {self.worker_id} updated job status")
 
 
 class SlurmPoolExecutor(SlurmExecutor):
@@ -244,12 +252,9 @@ class SlurmPoolExecutor(SlurmExecutor):
         super().__init__(*args, **kwargs)
         self.nested = False
         os.makedirs(self.folder, exist_ok=True)
-
         if db_pth is None:
             # Place the actual database in ~/.slurm_pool/<unique_id>.db
-            m = hashlib.md5()
-            m.update(str(self.folder).encode("utf-8"))
-            unique_filename = m.hexdigest()
+            unique_filename = str(uuid.uuid4())
             self.db_pth = os.path.expanduser(f"~/.slurm_pool/{unique_filename}.db")
             os.makedirs(os.path.dirname(self.db_pth), exist_ok=True)
             if not os.path.exists(os.path.join(str(self.folder), ".job.db")):
@@ -258,7 +263,6 @@ class SlurmPoolExecutor(SlurmExecutor):
             self.db_pth = db_pth
 
         self.transaction_manager = TransactionManager(self.db_pth)
-
         with self.transaction_manager as conn:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS jobs(status int, pickle text, job_id text, worker_id text)"
@@ -276,35 +280,36 @@ class SlurmPoolExecutor(SlurmExecutor):
     def _internal_process_submissions(
         self, delayed_submissions: tp.List[utils.DelayedSubmission]
     ) -> tp.List[core.Job[tp.Any]]:
-        with self.transaction_manager as conn:
-            if len(delayed_submissions) == 1:
-                jobs = super()._internal_process_submissions(delayed_submissions)
-                vals = (
-                    JobStatus.pending,
-                    str(jobs[0].paths.submitted_pickle),
-                    jobs[0].job_id,
-                )
+        if len(delayed_submissions) == 1:
+            jobs = super()._internal_process_submissions(delayed_submissions)
+            vals = (
+                JobStatus.pending,
+                str(jobs[0].paths.submitted_pickle),
+                jobs[0].job_id,
+            )
+            with self.transaction_manager as conn:
                 conn.execute(
                     "INSERT INTO jobs(status, pickle, job_id) VALUES(?, ?, ?)", vals
                 )
                 return jobs
-            # array
-            folder = utils.JobPaths.get_first_id_independent_folder(self.folder)
-            folder.mkdir(parents=True, exist_ok=True)
-            pickle_paths = []
-            for d in delayed_submissions:
-                pickle_path = folder / f"{uuid.uuid4().hex}.pkl"
-                d.timeout_countdown = self.max_num_timeout
-                d.dump(pickle_path)
-                pickle_paths.append(pickle_path)
-            n = len(delayed_submissions)
-            self._throttle()
+        # array
+        folder = utils.JobPaths.get_first_id_independent_folder(self.folder)
+        folder.mkdir(parents=True, exist_ok=True)
+        pickle_paths = []
+        for d in delayed_submissions:
+            pickle_path = folder / f"{uuid.uuid4().hex}.pkl"
+            d.timeout_countdown = self.max_num_timeout
+            d.dump(pickle_path)
+            pickle_paths.append(pickle_path)
+        n = len(delayed_submissions)
+        self._throttle()
 
-            tasks_ids = list(range(len(pickle_paths)))
-            jobs: tp.List[core.Job[tp.Any]] = [
-                SlurmJob(folder=self.folder, job_id=f"job_{a}", tasks=tasks_ids)
-                for a in range(n)
-            ]
+        tasks_ids = list(range(len(pickle_paths)))
+        jobs: tp.List[core.Job[tp.Any]] = [
+            SlurmJob(folder=self.folder, job_id=f"job_{a}", tasks=tasks_ids)
+            for a in range(n)
+        ]
+        with self.transaction_manager as conn:
             for job, pickle_path in zip(jobs, pickle_paths):
                 job.paths.move_temporary_file(pickle_path, "submitted_pickle")
                 vals = (JobStatus.pending, str(job.paths.submitted_pickle), job.job_id)
@@ -331,7 +336,6 @@ class SlurmPoolExecutor(SlurmExecutor):
         **kwargs: tp.Any,
     ) -> core.Job[core.R]:
         job = self.submit(fn, *args, **kwargs)
-
         with self.transaction_manager as conn:
             for dep in depends_on:
                 vals = (
@@ -341,18 +345,36 @@ class SlurmPoolExecutor(SlurmExecutor):
                 conn.execute(
                     "INSERT INTO dependencies(pickle, depends_on) VALUES (?,?)", vals
                 )
+        return job
 
     def launch(self, folder=None, workers: int = 2):
         if not self.nested:
             with self.transaction_manager as conn:
                 (njobs,) = conn.execute("SELECT COUNT(1) FROM jobs").fetchone()
-            workers = min(workers, njobs)
+            # workers = min(workers, njobs)
+            workers = njobs if workers == -1 else workers
             ex = SlurmExecutor(folder or self.folder)
             ex.update_parameters(**self.parameters)
             ex.map_array(
                 lambda x: x.run(), [Worker(self.db_pth, i) for i in range(workers)]
             )
             # ex.map_array(partial(worker, self.db_pth), list(range(workers)))
+
+    def extend_dependencies(self, jobs: tp.List[core.Job]):
+        with self.transaction_manager as conn:
+            my_deps = conn.execute(
+                """
+            SELECT pickle
+            FROM dependencies
+            WHERE depends_on=?
+            """,
+                (os.environ["SLURM_PICKLE_PTH"],),
+            )
+            for (pickle,), depends_on in itertools.product(my_deps, jobs):
+                vals = (str(pickle), str(depends_on.paths.submitted_pickle))
+                conn.execute(
+                    "INSERT INTO dependencies (pickle, depends_on) VALUES(?,?)", vals
+                )
 
     @contextmanager
     def nest(self):
