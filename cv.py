@@ -45,6 +45,20 @@ BestRun = namedtuple("BestRun", ("pth", "name"))
 pi_multipliers = {0.99: 2.58, 0.95: 1.96, 0.80: 1.28}
 
 
+def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
+    """
+    update a dict using a nested list of keys.
+    Ex:
+        x = {'a': {'b': {'c': 2}}}
+        set_dict(x, ['a', 'b'], 4) == {'a': {'b': 4}}
+    """
+    if len(keys) > 0:
+        d[keys[0]] = set_dict(d[keys[0]], keys[1:], v)
+        return d
+    else:
+        return v
+
+
 def mk_executor(
     name: str, folder: str, extra_params: Dict[str, Any], ex=SlurmPoolExecutor, **kwargs
 ):
@@ -228,17 +242,35 @@ class CV:
         self.tb_writer = SummaryWriter(logdir=basedir)
 
 
-def run_cv(module: str, basedir: str, cfg: Dict[str, Any], prefix="", basedate=None):
-    return _run_cv(module, basedir, cfg, prefix, basedate)
+def ensemble(basedirs, cfg, module, prefix, outdir):
+    dfs = []
+    for basedir in basedirs:
+        filename = os.path.join(basedir, prefix + cfg["validation"]["output"])
+        dfs.append(pd.read_csv(filename, index_col="date", parse_dates=["date"]))
+    df = pd.concat(dfs).groupby(level=0).median()
+    outfile = os.path.join(outdir, prefix + cfg["validation"]["output"])
+    df.to_csv(outfile, index_label="date")
+
+    mod = importlib.import_module(module).CV_CLS()
+
+    # -- metrics --
+    metric_args = cfg[module].get("metrics", {})
+    df_val, json_val = mod.compute_metrics(
+        cfg[module]["data"], outfile, None, metric_args
+    )
+    df_val.to_csv(os.path.join(outdir, prefix + "metrics.csv"))
+    with open(os.path.join(outdir, prefix + "metrics.json"), "w") as fout:
+        json.dump(json_val, fout)
+    print(df_val)
 
 
-def _run_cv(
+def run_cv(
     module: str,
     basedir: str,
     cfg: Dict[str, Any],
     prefix="",
     basedate=None,
-    n_models=1,
+    executor=None,
 ):
     """Runs cross validaiton for one set of hyperaparmeters"""
     try:
@@ -246,11 +278,39 @@ def _run_cv(
     except Exception:
         pass  # running locally, basedir is fine...
     os.makedirs(basedir, exist_ok=True)
-
     print(f"CWD = {os.getcwd()}")
 
     def _path(path):
         return os.path.join(basedir, path)
+
+    log_configs(cfg, module, _path(prefix + f"{module}.yml"))
+
+    n_models = cfg[module]["train"].get("n_models", 1)
+    if n_models > 1:
+        launcher = map if executor is None else executor.map_array
+        fn = partial(
+            run_cv, module, prefix=prefix, basedate=basedate, executor=executor
+        )
+        configs = [
+            set_dict(copy.deepcopy(cfg), [module, "train", "n_models"], 1)
+            for _ in range(n_models)
+        ]
+        basedirs = [os.path.join(basedir, f"job_{i}") for i in range(n_models)]
+        with ExitStack() as stack:
+            if executor is not None:
+                stack.enter_context(executor.set_folder(os.path.join(basedir, "%j")))
+
+            jobs = list(launcher(fn, basedirs, configs))
+            launcher = (
+                ensemble
+                if executor is None
+                else partial(executor.submit_dependent, jobs, ensemble)
+            )
+            ensemble_job = launcher(basedirs, cfg, module, prefix, basedir)
+            if executor is not None:
+                # Whatever jobs depend on "this" job, should be extended to the newly created jobs
+                executor.extend_dependencies(jobs + [ensemble_job])
+            return jobs + [ensemble_job]
 
     # setup input/output paths
     dset = cfg[module]["data"]
@@ -336,6 +396,7 @@ def _run_cv(
                 cum_stds.to_csv(_path(prefix + "piv.csv"), index_label="date")
         except NotImplementedError:
             pass  # naive model...
+    return []
 
 
 def filter_validation_days(dset: str, val_in: str, validation_days: int):
@@ -432,24 +493,36 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
 
     def run_cv_and_copy_results(tags, module, pth, cfg, prefix):
         try:
-            run_cv(module, pth, cfg, prefix=prefix, basedate=basedate)
-            for tag in tags:
-                shutil.copy(
-                    os.path.join(pth, f'final_model_{cfg["validation"]["output"]}'),
-                    os.path.join(os.path.dirname(pth), f"forecasts/forecast_{tag}.csv"),
-                )
+            jobs = run_cv(
+                module, pth, cfg, prefix=prefix, basedate=basedate, executor=executor
+            )
 
-                if "prediction_interval" in cfg:
-                    piv_pth = os.path.join(
-                        pth, f'final_model_{cfg["prediction_interval"]["output_std"]}'
+            def rest():
+                for tag in tags:
+                    shutil.copy(
+                        os.path.join(pth, f'final_model_{cfg["validation"]["output"]}'),
+                        os.path.join(
+                            os.path.dirname(pth), f"forecasts/forecast_{tag}.csv"
+                        ),
                     )
-                    if os.path.exists(piv_pth):
-                        shutil.copy(
-                            piv_pth,
-                            os.path.join(
-                                os.path.dirname(pth), f"forecasts/piv_{tag}.csv"
-                            ),
+
+                    if "prediction_interval" in cfg:
+                        piv_pth = os.path.join(
+                            pth,
+                            f'final_model_{cfg["prediction_interval"]["output_std"]}',
                         )
+                        if os.path.exists(piv_pth):
+                            shutil.copy(
+                                piv_pth,
+                                os.path.join(
+                                    os.path.dirname(pth), f"forecasts/piv_{tag}.csv"
+                                ),
+                            )
+
+            if cfg[module]["train"].get("n_models", 1) > 1:
+                executor.submit_dependent(jobs, rest)
+            else:
+                rest()
         except Exception as e:
             msg = f"*Final run failed for {tags}*\nbasedir = {basedir}\nException was: {e}"
             client = get_slack_client()
@@ -567,20 +640,6 @@ def model_selection(sweep_dirs, module, remote, basedate):
     executor.launch(sweep_dir + "/workers", workers=4)
 
 
-def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
-    """
-    update a dict using a nested list of keys.
-    Ex:
-        x = {'a': {'b': {'c': 2}}}
-        set_dict(x, ['a', 'b'], 4) == {'a': {'b': 4}}
-    """
-    if len(keys) > 0:
-        d[keys[0]] = set_dict(d[keys[0]], keys[1:], v)
-        return d
-    else:
-        return v
-
-
 @cli.command()
 @click.argument("config_pth")
 @click.argument("module")
@@ -696,7 +755,11 @@ def cv(
                 )
             )
         jobs = list(
-            launcher(partial(run_cv, module, basedate=basedate), basedirs, cfgs)
+            launcher(
+                partial(run_cv, module, basedate=basedate, executor=executor),
+                basedirs,
+                cfgs,
+            )
         )
 
         # Find the best model and retrain on the full dataset
