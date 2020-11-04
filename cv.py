@@ -246,7 +246,10 @@ def ensemble(basedirs, cfg, module, prefix, outdir):
     dfs = []
     for basedir in basedirs:
         filename = os.path.join(basedir, prefix + cfg["validation"]["output"])
-        dfs.append(pd.read_csv(filename, index_col="date", parse_dates=["date"]))
+        if os.path.exists(filename):
+            dfs.append(pd.read_csv(filename, index_col="date", parse_dates=["date"]))
+
+    assert len(dfs) > 0, "All ensemble jobs failed!!!!"
     df = pd.concat(dfs).groupby(level=0).median()
     outfile = os.path.join(outdir, prefix + cfg["validation"]["output"])
     df.to_csv(outfile, index_label="date")

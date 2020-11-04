@@ -335,8 +335,9 @@ class SlurmPoolExecutor(SlurmExecutor):
         *args: tp.Any,
         **kwargs: tp.Any,
     ) -> core.Job[core.R]:
-        job = self.submit(fn, *args, **kwargs)
+        ds = utils.DelayedSubmission(fn, *args, **kwargs)
         with self.transaction_manager as conn:
+            job = self._internal_process_submissions([ds])[0]
             for dep in depends_on:
                 vals = (
                     str(job.paths.submitted_pickle),
