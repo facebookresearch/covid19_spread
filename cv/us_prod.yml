@@ -23,7 +23,7 @@ bar:
     memgb: 15
     timeout: 3600
   train:
-    n_models: 1
+    n_models: 5
     fpop: data/usa/population_county.csv
     time_features:
       -
