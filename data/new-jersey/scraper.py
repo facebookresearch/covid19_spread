@@ -12,7 +12,7 @@ import numpy as np
 from subprocess import check_call, check_output
 from glob import glob
 from lib.slack import get_client as get_slack_client
-
+import json
 
 URL = "https://services7.arcgis.com/Z0rixLlManVefxqY/arcgis/rest/services/DailyCaseCounts/FeatureServer/0/query?f=json&where=1%3D1&returnGeometry=false&spatialRel=esriSpatialRelIntersects&outFields=*&orderByFields=TOTAL_CASES%20desc"
 # UNK_URL = "https://services7.arcgis.com/Z0rixLlManVefxqY/arcgis/rest/services/survey123_cb9a6e9a53ae45f6b9509a23ecdf7bcf/FeatureServer/0/query?f=json&where=1=1&returnGeometry=false&outFields=*&resultOffset=0&resultRecordCount=1&resultType=standard&orderByFields=_date%20desc"
@@ -26,7 +26,8 @@ def get_latest_with_nyt(metric="cases"):
     # Fetch newest data from NJ DOH ESRI API
     unk = requests.get(UNK_URL).json()
     unk = unk["features"][0]["attributes"]
-    data = requests.get(URL).json()
+    # data = requests.get(URL).json()
+    data = json.loads(check_output(['curl', URL]).decode('utf-8').strip())
     df = pandas.DataFrame([x["attributes"] for x in data["features"]])
     # unk_time = datetime.fromtimestamp(unk["_date"] / 1000)
     unk_time = pandas.to_datetime(unk["CreationDate"], unit="ms")
@@ -69,7 +70,8 @@ def get_latest():
     # Fetch newest data from NJ DOH ESRI API
     unk = requests.get(UNK_URL).json()
     unk = unk["features"][0]["attributes"]
-    data = requests.get(URL).json()
+    # data = requests.get(URL, headers={'Cache-Control': 'no-cache'}).json()
+    data = json.loads(check_output(['curl', URL]).decode('utf-8').strip())
     new_df = pandas.DataFrame([x["attributes"] for x in data["features"]])
     unk_time = pandas.to_datetime(unk["CreationDate"], unit="ms")
 
@@ -94,18 +96,18 @@ def get_latest():
     if new_df.index.item() > df.index.max():
         new_df["Start day"] = df["Start day"].max() + 1
         # Make sure we have all the same columns
-        assert len(new_df.columns.intersection(df.columns)) == len(
-            df.columns
-        ), f"Inconsistent columns!!!!"
+        ncommon = len(new_df.columns.intersection(df.columns))
+        missing = set(df.columns).difference(set(new_df.columns))
+        msg = f"Inconsistent columns, found {ncommon}, expected {df.shape[1]}.  Missing: {missing}"
+        assert ncommon == len(df.columns), msg
         df = pandas.concat([df, new_df])
     # Make sure there aren't any missing values
     assert not df.isnull().any().any(), "Found NaNs in data!!!!"
     # Check there are no gaps or redundant days in the dataset
     assert (pandas.Series(df.index).diff().dt.components.days[1:] == 1).all()
     counties = [c for c in df.columns if c not in {"Start day", "Unknown"}]
-    assert not np.all(
-        df[counties].diff().iloc[-1].values == 0
-    ), "Today's values are the same as yesterday's!!!!"
+    if np.all(df[counties].diff().iloc[-1].values == 0):
+        return None
     return df.rename_axis("Date").reset_index()
 
 
@@ -114,6 +116,9 @@ def main():
     script_dir = os.path.dirname(os.path.realpath(__file__))
     check_call(["git", "pull"], cwd=script_dir)
     df = get_latest()
+    if df is None:
+        print(f'Today\'s values are the same as yesterday\'s')
+        return
     date_fmt = df["Date"].max().date().strftime("%Y%m%d")
     fout = os.path.join(script_dir, f"data-{date_fmt}.csv")
     update = not os.path.exists(fout)
