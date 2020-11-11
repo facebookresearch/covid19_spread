@@ -28,7 +28,7 @@ data_cases.csv: \
 	google/mobility_features_county_google.csv \
 	google/weather_features_county.csv \
 	testing
-	python3 convert.py -with-features -source google -metric cases
+	python3 convert.py -with-features -source nyt -metric cases
 	head -1 $@ > data_cases_ny.csv
 	head -1 $@ > data_cases_fl.csv
 	grep "New York" $@ >> data_cases_ny.csv
