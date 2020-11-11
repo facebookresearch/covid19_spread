@@ -174,7 +174,7 @@ if __name__ == "__main__":
     )
 
     df = df.transpose()  # row for each county, columns correspond to dates...
-    county_id = {c: i for i, c in enumerate(df.index)}
+
     # make sure counts are strictly increasing
     df = df.cummax(axis=1)
 
@@ -189,6 +189,10 @@ if __name__ == "__main__":
             errors="ignore",
         )
         df_pop = df_pop.groupby(lambda x: x.split(", ")[-1]).sum()
+
+    common_idx = df_pop.index.intersection(df.index)
+    df = df.loc[common_idx]
+    county_id = {c: i for i, c in enumerate(df.index)}
 
     assert df.shape[0] == len(df_pop.loc[df.index])
     df_pop = df_pop.loc[df.index]
