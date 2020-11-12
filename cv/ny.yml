@@ -104,23 +104,29 @@ bar:
     # features: [[data/usa/county_features.pt]]
     time_features:
       -
-        - data/usa/testing/features.pt
-        - data/usa/fb/mobility_features.pt
-    #    - data/usa/symptom-survey/features.pt
-        - data/usa/google/mobility_features.pt
+        - data/usa/testing/total_features_county.pt
+        - data/usa/fb/mobility_features_county_fb.pt
+        - data/usa/fb/mobility_features_county_state_fb.pt
+        - data/usa/google/mobility_features_county_google.pt
+        - data/usa/google/mobility_features_county_state_google.pt
+        - data/usa/google/weather_features_county.pt
+        - data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-county_state.pt
+        - data/usa/symptom-survey/fb-survey_smoothed_wcli-county_state.pt
+        - data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-county.pt
     activation: sigmoid
     decay: [latent2_2]
     #window: [20, 25]
-    window: [25, 30]
+    window: [25]
     lr: [0.001]
     momentum: [0.99]
     weight_decay: [0.2, 0.3]
-    niters: [50000]
+    niters: [5000]
     granger: [0.5]
-    temporal: [0.5, 1, 2]
+    temporal: [2]
     eta: [0.5]
     loss: nb
     t0: 0
+    n_models: 5
     test_on: *fdays
 metasir:
   output: msir_model.bin
