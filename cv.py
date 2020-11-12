@@ -228,8 +228,8 @@ def ensemble(basedirs, cfg, module, prefix, outdir):
     mean_deltas = []
     kwargs = {"index_col": "date", "parse_dates": ["date"]}
     for basedir in basedirs:
-        if os.path.exists(cfg["validation"]["output"]):
-            means.append(pd.read_csv(cfg["validation"]["output"], **kwargs))
+        if os.path.exists(_path(cfg["validation"]["output"])):
+            means.append(pd.read_csv(_path(cfg["validation"]["output"]), **kwargs))
         if os.path.exists(_path("std_csv.csv")):
             stds.append(pd.read_csv(_path("std_csv.csv"), **kwargs))
             mean_deltas.append(pd.read_csv(_path("validation_deltas.csv")), **kwargs)

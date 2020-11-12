@@ -900,7 +900,7 @@ class BARCV(cv.CV):
         cols = pd.MultiIndex.from_product(
             [means.columns, intervals, ["lower", "upper"]]
         )
-        result_df = pd.DataFrame(result.reshape(30, -1), columns=cols)
+        result_df = pd.DataFrame(result.reshape(result.shape[0], -1), columns=cols)
         result_df["date"] = means.index
         melted = result_df.melt(
             id_vars=["date"], var_name=["location", "interval", "lower/upper"]
