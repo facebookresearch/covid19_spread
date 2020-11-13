@@ -18,6 +18,7 @@ dependencies:
   - tqdm
   - click
   - postgresql
+  - psycopg2
   - pip:
     - bokeh
     - pyyaml
@@ -37,5 +38,4 @@ dependencies:
     - google-auth-oauthlib
     - hdx-python-api
     - covidcast
-    - pscopyg2
     - torchcontrib
