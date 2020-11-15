@@ -17,6 +17,8 @@ dependencies:
   - seaborn
   - tqdm
   - click
+  - postgresql
+  - psycopg2
   - pip:
     - bokeh==2.0.2
     - pyyaml
@@ -36,3 +38,4 @@ dependencies:
     - google-auth-oauthlib
     - hdx-python-api
     - covidcast
+    - torchcontrib

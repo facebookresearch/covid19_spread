@@ -219,6 +219,11 @@ class SIRCV(cv.CV):
         # Return new cases per day (instead of cumulative cases)
         return pd.concat([cases_df, df]).sort_index().diff().loc[df.index]
 
+    def run_standard_deviation(
+        self, dset, args, nsamples, intervals, orig_cases, model=None, batch_size=1
+    ):
+        raise NotImplementedError
+
 
 CV_CLS = SIRCV
 

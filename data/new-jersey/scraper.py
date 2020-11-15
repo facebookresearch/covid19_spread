@@ -27,7 +27,7 @@ def get_latest_with_nyt(metric="cases"):
     unk = requests.get(UNK_URL).json()
     unk = unk["features"][0]["attributes"]
     # data = requests.get(URL).json()
-    data = json.loads(check_output(['curl', URL]).decode('utf-8').strip())
+    data = json.loads(check_output(["curl", URL]).decode("utf-8").strip())
     df = pandas.DataFrame([x["attributes"] for x in data["features"]])
     # unk_time = datetime.fromtimestamp(unk["_date"] / 1000)
     unk_time = pandas.to_datetime(unk["CreationDate"], unit="ms")
@@ -71,7 +71,7 @@ def get_latest():
     unk = requests.get(UNK_URL).json()
     unk = unk["features"][0]["attributes"]
     # data = requests.get(URL, headers={'Cache-Control': 'no-cache'}).json()
-    data = json.loads(check_output(['curl', URL]).decode('utf-8').strip())
+    data = json.loads(check_output(["curl", URL]).decode("utf-8").strip())
     new_df = pandas.DataFrame([x["attributes"] for x in data["features"]])
     unk_time = pandas.to_datetime(unk["CreationDate"], unit="ms")
 
@@ -117,7 +117,7 @@ def main():
     check_call(["git", "pull"], cwd=script_dir)
     df = get_latest()
     if df is None:
-        print(f'Today\'s values are the same as yesterday\'s')
+        print(f"Today's values are the same as yesterday's")
         return
     date_fmt = df["Date"].max().date().strftime("%Y%m%d")
     fout = os.path.join(script_dir, f"data-{date_fmt}.csv")

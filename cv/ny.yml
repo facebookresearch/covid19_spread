@@ -12,6 +12,12 @@ validation:
 forecast:
   output: forecast.csv
   days: &fdays 21
+prediction_interval:
+  output_mean: mean.csv
+  output_std: std.csv
+  intervals: [0.99, 0.95, 0.8]
+  nsamples: 500
+  batch_size: 10
 backfill:
   # LANL
   #- 2020-04-05
@@ -111,38 +117,34 @@ bar:
     self_correlation: True
     time_features:
       -
-         - data/usa/testing/ratio_features.pt
-         - data/usa/testing/total_features.pt
-         - data/usa/fb/mobility_features.pt
-         - data/usa/google/mobility_features.pt
-         - data/usa/google/weather_features.pt
-         - data/usa/symptom-survey/features_state.pt
-         - data/usa/symptom-survey/features_county.pt
+        - data/usa/testing/total_features_county.pt
+        - data/usa/fb/mobility_features_county_fb.pt
+        - data/usa/fb/mobility_features_county_state_fb.pt
+        - data/usa/google/mobility_features_county_google.pt
+        - data/usa/google/mobility_features_county_state_google.pt
+        - data/usa/google/weather_features_county.pt
+        - data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-county_state.pt
+        - data/usa/symptom-survey/fb-survey_smoothed_wcli-county_state.pt
+        - data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-county.pt
     activation: sigmoid
     decay: [lstm2_2]
-    # decay: attn
-    # decay: [wave1_4_2_3, wave1_4_2_5]
-    # decay: [conv14_3]
-    # window: [14, 21]
-    window: [7, 14, 21, 28]
+    #window: [20, 25]
+    window: [14, 21, 28]
     lr: [0.001]
-    # lr: [0.05]
-    momentum: [0.9]
+    momentum: [0.99]
     dropout: [0.1]
-    #weight_decay: [0.2, 0.3]
     weight_decay: [0.1, 0.2]
-    #niters: [30000]
     niters: [25000]
     granger: [0.5]
-    #temporal: [0.1, 1]
-    temporal: [100, 1000]
+    temporal: [2]
     eta: [0.1, 0.2]
-    # eta: [0.3, 0.4, 0.5]
     loss: nb
     t0: 0
+    n_models: 5
     test_on: *fdays
-diffsir:
-  output: dsir_model.bin
+    n_models: 5
+metasir:
+  output: msir_model.bin
   data: data/usa/data_cases_ny.csv
   resources:
     gpus: 1

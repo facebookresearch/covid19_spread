@@ -21,19 +21,36 @@ import datetime
 from glob import glob
 
 
+def get_index():
+    index = pandas.read_csv(
+        "https://storage.googleapis.com/covid19-open-data/v2/index.csv"
+    )
+    index = index[index["key"].str.match("^US_[A-Z]+_\d{5}$").fillna(False)]
+    fips = pandas.read_csv(
+        "https://raw.githubusercontent.com/kjhealy/fips-codes/master/state_and_county_fips_master.csv"
+    )
+    fips["fips"] = fips["fips"].astype(str).str.zfill(5)
+    index = index.merge(fips, left_on="subregion2_code", right_on="fips")
+    index["name"] = index["name"].str.replace(
+        " (County|Municipality|Parish|Borough)", ""
+    )
+    return index
+
+
 def get_nyt(metric="cases"):
+    print("NYT")
     CASES_URL = (
         "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv"
     )
-    df = pandas.read_csv(CASES_URL)
-    df["loc"] = df["state"] + "_" + df["county"]
+    df = pandas.read_csv(CASES_URL, dtype={"fips": str})
+    index = get_index()
+    df = df.merge(index[["fips", "subregion1_name", "name"]], on="fips")
+    df["loc"] = df["subregion1_name"] + "_" + df["name"]
     pivot = df.pivot_table(values=metric, columns=["loc"], index="date")
     pivot = pivot.fillna(0)
     pivot.index = pandas.to_datetime(pivot.index)
     if metric == "deaths":
         return pivot
-
-    # If we want cases, then patch NY State data with data from NYS DOH
 
     # Swap out NYTimes NY state data with the NY DOH data.
     NYSTATE_URL = (
