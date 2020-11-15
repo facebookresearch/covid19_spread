@@ -18,7 +18,7 @@ dependencies:
   - tqdm
   - click
   - pip:
-    - bokeh
+    - bokeh==2.0.2
     - pyyaml
     - sqlalchemy
     - submitit
