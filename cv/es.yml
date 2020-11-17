@@ -1,5 +1,5 @@
 region: es
-population: &fpop data/spain/population.csv
+population: &fpop data/population-data/spain-region-population.csv
 basegraph: &fgraph data/spain/state_graph.pt
 validation:
   days: &vdays 21
@@ -11,6 +11,19 @@ prediction_interval:
   intervals: [0.99, 0.95]
   output: piv.csv
 backfill:
+  - 2020-03-22
+  - 2020-04-05
+  - 2020-04-12
+  - 2020-04-19
+  - 2020-05-10
+  - 2020-05-17
+  - 2020-05-24
+  - 2020-06-10
+  - 2020-06-28
+  - 2020-07-10
+  - 2020-07-28
+  - 2020-08-10
+backfill_:
   - 2020-04-22
   - 2020-04-29
   - 2020-05-05
@@ -21,77 +34,75 @@ backfill:
   - 2020-05-01
 ar:
   output: ar_model.bin
-  data: data/spain/data_deaths.csv
+  data: data/spain/data_cases.csv
   resources:
     gpus: 1
     cpus: 1
     memgb: 15
-    timeout: 30
+    timeout: 3600
   #preprocess:
   #  smooth: 5
   train:
+    n_models: 1
     fpop: *fpop
     # features: data/usa/county_features.pt
     # time_features: data/usa/policy_features.pt
     # graph: *fgraph
     # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
+    no_cross_correlation: False
+    activation: sigmoid
     decay: [latent2_1]
     window: [10, 15, 20, 25]
-    # window: [15]
+    dropout: [0.1, 0.2]
     lr: [0.001]
-    momentum: [0.99]
+    momentum: [0.9]
     # weight_decay: [0.2]
-    weight_decay: [0, 0.2, 0.5]
+    weight_decay: [0.1, 0.2]
     niters: [30000]
+    temp_smoothing: [10]
     loss: nb
-    t0: 5
+    t0: 0
     test_on: *vdays
-gar:
-  output: var_model.bin
-  data: data/spain/data_deaths.csv
+bar:
+  output: bar_model.bin
+  data: data/spain/data_cases.csv
   resources:
     gpus: 1
     cpus: 1
     memgb: 15
-    timeout: 30
+    timeout: 3600
+  #preprocess:
+  #  smooth: 7
   train:
+    n_models: 1
     fpop: *fpop
     # features: data/usa/county_features.pt
-    # time_features: data/usa/policy_features.pt
+    time_features_:
+      -
+        - data/spain/shifted_features_province.pt
+    time_features:
+      -
+        - data/spain/fb/mobility_features_fb.pt
+        - data/spain/google/mobility_features_google.pt
+        - data/spain/symptom-survey/smoothed_cli.pt
+        - data/spain/symptom-survey/smoothed_mc.pt
+        - data/spain/symptom-survey/smoothed_dc.pt
+        # - data/spain/testing/total_features.pt
+        - data/spain/weather/weather_features.pt
     # graph: *fgraph
-    dim: 64
-    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    blocks: [4]
-    layers: [6]
-    window: [2]
-    lr: [0.001]
+    no_cross_correlation: False
+    activation: sigmoid
+    decay: [lstm2_2]
+    window: [14, 21, 28]
+    dropout: [0.1, 0.2]
+    lr: [0.005]
     momentum: [0.9]
-    weight_decay: [0.1]
-    niters: [20000]
+    # weight_decay: [0.2]
+    weight_decay: [0.1, 0.2]
+    niters: [30000]
+    temporal: [10]
+    granger: 0.5
+    eta: [0.002, 0.02, 0.2]
     loss: nb
-    t0: 5
-    test_on: *vdays
-dar:
-  output: var_model.bin
-  data: data/usa/data_deaths.csv
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 15
-    timeout: 30
-  train:
-    fpop: *fpop
-    # features: data/usa/county_features.pt
-    # time_features: data/usa/policy_features.pt
-    # graph: *fgraph
-    dim: 64
-    # decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    decay: [latent16_1]
-    window: [10, 15, 20]
-    lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.1]
-    niters: [20000]
-    loss: nb
-    t0: 5
+    t0: 0
     test_on: *vdays
