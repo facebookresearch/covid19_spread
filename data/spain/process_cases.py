@@ -52,13 +52,7 @@ def _fetch_data(metric: str = "cases"):
     )
     df = df[~df["FECHA"].isnull()]
     df["loc"] = df["CCAA"].apply(lambda x: regions[x])
-    df = df.rename(
-        columns={
-            "FECHA": "date",
-            "PCR+": "cases",
-            "Fallecidos": "deaths",
-        }
-    )
+    df = df.rename(columns={"FECHA": "date", "PCR+": "cases", "Fallecidos": "deaths",})
     return df.pivot_table(values=metric, columns="loc", index="date").sort_index()
 
 
