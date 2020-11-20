@@ -16,7 +16,7 @@ import os
 Configuration.create(hdx_site="prod", user_agent="A_Quick_Example", hdx_read_only=True)
 dataset = Dataset.read_from_hdx("movement-range-maps")
 resources = dataset.get_resources()
-resource = [x for x in resources if x.get_file_type() == "ZIP"]
+resource = [x for x in resources if x.get_file_type().lower() == "zip"]
 assert len(resource) == 1
 resource = resource[0]
 url, path = resource.download()
