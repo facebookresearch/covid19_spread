@@ -27,6 +27,9 @@ import socket
 from lib.slack import get_client as get_slack_client
 import boto3
 import geopandas
+from metrics import load_ground_truth
+from epiweeks import Week
+from forecast_db import update_repo
 
 
 license_txt = (
@@ -122,15 +125,19 @@ def get_index():
     return grouped
 
 
+def get_best(pth, metric):
+    model_selection = json.load(open(os.path.join(pth, "model_selection.json")))
+    model_selection = {x["name"]: x["pth"] for x in model_selection}
+    model_selection[metric]
+    return os.path.join(pth, os.path.basename(model_selection[metric]))
+
+
 @cli.command()
 @click.argument("pth")
 @click.option("--metric", default="best_mae")
 def submit_s3(pth, metric):
     index = get_index()
-    model_selection = json.load(open(os.path.join(pth, "model_selection.json")))
-    model_selection = {x["name"]: x["pth"] for x in model_selection}
-    model_selection[metric]
-    job = os.path.join(pth, os.path.basename(model_selection[metric]))
+    job = get_best(pth, metric)
     forecast = pandas.read_csv(
         os.path.join(job, "final_model_validation.csv"), parse_dates=["date"]
     )
@@ -188,6 +195,64 @@ def submit_s3(pth, metric):
     client = get_slack_client()
     msg = f"*Forecast for US is in S3: {basedate}*"
     client.chat_postMessage(channel="#sweep-updates", text=msg)
+
+
+@cli.command()
+@click.argument("pth")
+def submit_reichlab(pth):
+    job_pth = get_best(pth, "best_mae")
+    kwargs = {"index_col": "date", "parse_dates": ["date"]}
+    forecast = pandas.read_csv(
+        os.path.join(job_pth, "final_model_validation.csv"), **kwargs
+    )
+    gt = load_ground_truth(os.path.join(pth, "data_cases.csv"))
+    forecast_date = forecast.index.min() - timedelta(days=1)
+    forecast.loc[forecast_date] = gt.loc[forecast_date]
+    deltas = forecast.sort_index().diff()
+
+    next_week = (
+        Week.fromdate(forecast_date).daydate(5)
+        if forecast_date.weekday() in {0, 6}
+        else Week.fromdate(forecast_date).daydate(5) + timedelta(days=7)
+    )
+    submission = []
+    prev_date = forecast_date
+    # Generate 2 epi weeks worth of data
+    for i in range(1, 3):
+        submission.append(deltas.loc[prev_date:next_week].sum(0).reset_index())
+        submission[-1]["target"] = f"{i} wk ahead inc case"
+        submission[-1]["target_end_date"] = next_week
+        next_week += timedelta(days=7)
+    submission = pandas.concat(submission).rename(columns={"index": "loc", 0: "value"})
+    submission["type"] = "point"
+    submission["quantile"] = "NA"
+    submission["forecast_date"] = forecast_date
+    index = get_index()
+    index["loc"] = index["name"] + ", " + index["subregion1_name"]
+    merged = submission.merge(index[["loc", "fips"]], on="loc").drop(columns=["loc"])
+    merged = merged.rename(columns={"fips": "location"})
+
+    data_pth = update_repo("git@github.com:lematt1991/covid19-forecast-hub.git")
+    upstream_repo = "git@github.com:reichlab/covid19-forecast-hub.git"
+    # This is bad, but not sure how to add a remote if it already exists
+    try:
+        check_call(["git", "remote", "add", "upstream", upstream_repo], cwd=data_pth)
+    except Exception:
+        pass
+
+    # Update this fork to upstream's master
+    check_call(["git", "checkout", "master"], cwd=data_pth)
+    check_call(["git", "fetch", "upstream"], cwd=data_pth)
+    check_call(["git", "merge", "upstream/master"], cwd=data_pth)
+    check_call(["git", "push"], cwd=data_pth)
+    check_call(
+        ["git", "checkout", "-b", f"forecast-{forecast_date.date()}"], cwd=data_pth
+    )
+    team_name = "FAIR-NRAR"
+    filename = str(forecast_date.date()) + f"-{team_name}.csv"
+    outpth = os.path.join(data_pth, "data-processed", team_name, filename)
+    merged.to_csv(outpth, index=False)
+    print(outpth)
 
 
 @cli.command()

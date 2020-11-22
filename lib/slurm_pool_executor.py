@@ -154,12 +154,14 @@ class Worker:
         return conn.fetchone()[0] == 0
 
     def count_running(self, conn):
-        conn.execute(f"SELECT COUNT(1) FROM jobs WHERE status > {len(JobStatus)}")
+        conn.execute(
+            f"SELECT COUNT(1) FROM jobs WHERE status > {len(JobStatus)} AND id='{self.db_pth}'"
+        )
         return conn.fetchone()[0]
 
     def get_final_jobs(self, conn):
         conn.execute(
-            f"SELECT pickle, job_id FROM jobs WHERE status={JobStatus.final} LIMIT 1"
+            f"SELECT pickle, job_id FROM jobs WHERE status={JobStatus.final} AND id='{self.db_pth}' LIMIT 1"
         )
         return conn.fetchall()
 
@@ -239,7 +241,7 @@ class Worker:
                 print(f"Worker {self.worker_id} finished job with status {status}")
                 with transaction_manager as conn:
                     conn.execute(
-                        f"UPDATE jobs SET status={status.value} WHERE pickle='{pickle}'"
+                        f"UPDATE jobs SET status={status.value} WHERE pickle='{pickle}' AND id='{self.db_pth}'"
                     )
                 print(f"Worker {self.worker_id} updated job status")
 
