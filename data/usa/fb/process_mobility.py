@@ -104,16 +104,27 @@ def process_df(df, cols):
     cols = ["region"] + [x for x in df.columns if x != "region"]
     df = df[cols]
 
-    df = df.fillna(0)
     df = df.rename(columns={"index": "type"})
     return df
 
 
 county = process_df(df, cols)
-county.round(4).to_csv("mobility_features_county_fb.csv", index=False)
-
+# county["state"] = county["region"].apply(lambda x: x.split(", ")[-1])
 state = df.copy()
 state["region"] = state["region"].apply(lambda x: x.split(", ")[-1])
-state = state.groupby(["region", "date"]).sum().reset_index()
+state = state.groupby(["region", "date"]).mean().reset_index()
 state = process_df(state, cols)
+# county2 = state.merge(
+#     county[["state", "region"]].drop_duplicates(),
+#     left_on="region",
+#     right_on="state",
+#     suffixes=("_x", None),
+# )[county.columns]
+# county2["type"] = county2["type"].apply(lambda x: x + "_state")
+# county = pd.concat([county, county2]).drop(columns=["state"])
+
+
+county = county.fillna(0)
+state = state.fillna(0)
+county.round(4).to_csv("mobility_features_county_fb.csv", index=False)
 state.round(4).to_csv("mobility_features_state_fb.csv", index=False)
