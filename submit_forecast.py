@@ -222,6 +222,7 @@ def submit_reichlab(pth):
         submission.append(deltas.loc[prev_date:next_week].sum(0).reset_index())
         submission[-1]["target"] = f"{i} wk ahead inc case"
         submission[-1]["target_end_date"] = next_week
+        prev_date = next_week
         next_week += timedelta(days=7)
     submission = pandas.concat(submission).rename(columns={"index": "loc", 0: "value"})
     submission["type"] = "point"
