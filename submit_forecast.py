@@ -132,19 +132,10 @@ def get_best(pth, metric):
     return os.path.join(pth, os.path.basename(model_selection[metric]))
 
 
-@cli.command()
-@click.argument("pth")
-@click.option("--metric", default="best_mae")
-def submit_s3(pth, metric):
+def pivot_forecast(forecast, limit=True):
     index = get_index()
-    job = get_best(pth, metric)
-    forecast = pandas.read_csv(
-        os.path.join(job, "final_model_validation.csv"), parse_dates=["date"]
-    )
     forecast = format_df(forecast, "estimated_cases")
     forecast = forecast[["date", "estimated_cases", "loc1", "loc2", "loc3"]]
-    basedate = str((forecast["date"].min() - timedelta(days=1)).date())
-
     dates = pandas.DataFrame.from_dict({"date": forecast["date"].unique(), "dummy": 1})
     index["dummy"] = 1
     index = index.merge(dates, on="dummy")
@@ -165,7 +156,9 @@ def submit_s3(pth, metric):
     assert not merged["geometry"].isnull().any()
     merged["geometry"] = merged["geometry"].apply(lambda x: x.wkt)
 
-    merged = merged[(merged["date"] - merged["date"].min()).dt.days < 30]
+    if limit:
+        # limit forecasts to 30 days
+        merged = merged[(merged["date"] - merged["date"].min()).dt.days < 30]
 
     # std = pandas.read_csv(
     #     os.path.join(job, "final_model_piv.csv"), parse_dates=["date"]
@@ -188,10 +181,25 @@ def submit_s3(pth, metric):
         ]
     ].copy()
     merged["measurement_type"] = "cases"
+    return merged
+
+
+def prepare_forecast(path):
+    forecast = pandas.read_csv(path, parse_dates=["date"])
+    return pivot_forecast(forecast)
+
+
+@cli.command()
+@click.argument("pth")
+@click.option("--metric", default="best_mae")
+def submit_s3(pth, metric):
+    job = get_best(pth, metric)
+    df = prepare_forecast(os.path.join(job, "final_model_validation.csv"))
     client = boto3.client("s3")
+    basedate = (df["date"].min() - timedelta(days=1)).date()
     object_name = f"users/mattle/h2/covid19_forecasts/forecast_{basedate}.csv"
     with tempfile.NamedTemporaryFile() as tfile:
-        merged.to_csv(tfile.name, index=False, sep="\t")
+        df.to_csv(tfile.name, index=False, sep="\t")
         client.upload_file(tfile.name, "fairusersglobal", object_name)
     client = get_slack_client()
     msg = f"*Forecast for US is in S3: {basedate}*"
@@ -254,7 +262,22 @@ def submit_reichlab(pth):
     filename = str(forecast_date.date()) + f"-{team_name}.csv"
     outpth = os.path.join(data_pth, "data-processed", team_name, filename)
     merged.to_csv(outpth, index=False)
-    print(outpth)
+    check_call(["git", "add", outpth], cwd=data_pth)
+    check_call(
+        [
+            "git",
+            "commit",
+            "-m",
+            f"Adding FAIR-NRAR forecast for {forecast_date.date()}",
+        ],
+        cwd=data_pth,
+    )
+    check_call(
+        ["git", "push", "--set-upstream", "origin", f"forecast-{forecast_date.date()}"],
+        cwd=data_pth,
+    )
+    print("Create pull request by going to:")
+    print("https://github.com/lematt1991/covid19-forecast-hub")
 
 
 @cli.command()
@@ -385,33 +408,34 @@ def check_unsubmitted(ctx):
 
 
 @cli.command()
-@click.option("--dry", is_flag=True)
-def submit_to_dropbox(dry: bool = False):
-    conn = sqlite3.connect(DB)
-    res = conn.execute(
-        """
-    SELECT path, module
-    FROM sweeps
-    WHERE module IN ('ar', 'ar_daily')
-    """
-    )
+@click.argument("pth")
+@click.option("--skip-gt", is_flag=True)
+def submit_dropbox(pth, skip_gt=False):
+    job = get_best(pth, "best_mae")
+    cfg = yaml.safe_load(open(os.path.join(pth, "cfg.yml")))
     uploader = Uploader()
-    for path, module in res:
-        cfg = yaml.safe_load(open(f"{path}/cfg.yml"))
-        fcsts = glob(f'{path}/forecasts/forecast-{cfg["region"]}*_{module}.csv')
-        if len(fcsts) == 1:
-            forecast_pth = fcsts[0]
-            db_file = (
-                f"/covid19_forecasts/{cfg['region']}/{os.path.basename(forecast_pth)}"
-            )
-            try:
-                uploader.client.files_get_metadata(db_file)
-                continue  # file already exists, skip it...
-            except dropbox.exceptions.ApiError:
-                pass
+
+    if not skip_gt:
+        gt = pandas.read_csv(os.path.join(pth, "data_cases.csv"), index_col="region")
+        gt = gt.transpose()
+        gt.index = pandas.to_datetime(gt.index)
+        gt = pivot_forecast(gt.rename_axis("date").reset_index(), limit=False)
+        gt = gt.drop(columns=["std_dev", "geometry"])
+        gt = gt.rename(columns={"estimated_cases": "cases"})
+        with tempfile.NamedTemporaryFile() as tfile:
+            gt.to_csv(tfile.name, index=False)
+            db_file = f"/covid19_forecasts/{cfg['region']}/ground_truth.csv"
             print(f"Uploading: {db_file}")
-            if not dry:
-                uploader.upload(forecast_pth, db_file)
+            uploader.upload(tfile.name, db_file)
+
+    df = prepare_forecast(os.path.join(job, "final_model_validation.csv"))
+    df = df.drop(columns=["geometry", "std_dev"])
+    basedate = (df["date"].min() - timedelta(days=1)).date()
+    with tempfile.NamedTemporaryFile() as tfile:
+        df.to_csv(tfile.name, index=False)
+        db_file = f"/covid19_forecasts/{cfg['region']}/forecast_{basedate}.csv"
+        print(f"Uploading: {db_file}")
+        uploader.upload(tfile.name, db_file)
 
 
 if __name__ == "__main__":
