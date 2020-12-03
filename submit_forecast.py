@@ -201,6 +201,9 @@ def submit_s3(pth, metric):
     with tempfile.NamedTemporaryFile() as tfile:
         df.to_csv(tfile.name, index=False, sep="\t")
         client.upload_file(tfile.name, "fairusersglobal", object_name)
+    conn = sqlite3.connect(DB)
+    vals = (pth, datetime.now().timestamp())
+    conn.execute("INSERT INTO submitted (sweep_path, submitted_at) VALUES(?,?)", vals)
     client = get_slack_client()
     msg = f"*Forecast for US is in S3: {basedate}*"
     client.chat_postMessage(channel="#sweep-updates", text=msg)
@@ -305,10 +308,6 @@ def check_s3_unsubmitted(ctx, dry):
             cfg = yaml.safe_load(open(os.path.join(path, "cfg.yml")))
             ctx.invoke(submit_s3, pth=path, metric="best_mae")
             vals = (path, datetime.now().timestamp())
-            conn.execute(
-                "INSERT INTO submitted (sweep_path, submitted_at) VALUES(?,?)", vals
-            )
-            conn.commit()
             print(f"submitting: {path}")
 
 
