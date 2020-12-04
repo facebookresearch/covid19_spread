@@ -30,6 +30,7 @@ import geopandas
 from metrics import load_ground_truth
 from epiweeks import Week
 from forecast_db import update_repo
+from io import BytesIO
 
 
 license_txt = (
@@ -201,17 +202,61 @@ def submit_s3(pth, metric):
     with tempfile.NamedTemporaryFile() as tfile:
         df.to_csv(tfile.name, index=False, sep="\t")
         client.upload_file(tfile.name, "fairusersglobal", object_name)
+    with BytesIO() as fout:
+        obj = {
+            "fair_cluster_path": pth,
+            "metric": metric,
+            "basedate": str(basedate),
+        }
+        fout.write(json.dumps(obj).encode("utf-8"))
+        fout.seek(0)
+        client.upload_fileobj(
+            fout,
+            "fairusersglobal",
+            f"users/mattle/h2/covid19_forecasts/metadata/forecast_{basedate}.json",
+        )
     conn = sqlite3.connect(DB)
     vals = (pth, datetime.now().timestamp())
     conn.execute("INSERT INTO submitted (sweep_path, submitted_at) VALUES(?,?)", vals)
+    conn.commit()
     client = get_slack_client()
     msg = f"*Forecast for US is in S3: {basedate}*"
     client.chat_postMessage(channel="#sweep-updates", text=msg)
 
 
+def is_date(x):
+    try:
+        pandas.to_datetime(x)
+        return True
+    except Exception:
+        return False
+
+
+PR_TEXT = """
+## Description
+
+If you are **adding new forecasts** to an existing model, please include the following details:- 
+- Team name: Facebook AI Research (FAIR)
+- Model name that is being updated: Neural Relational Autoregression
+---
+
+## Checklist
+
+- [x] Specify a proper PR title with your team name.
+- [x] All validation checks ran successfully on your branch. Instructions to run the tests locally is present [here](https://github.com/reichlab/covid19-forecast-hub/wiki/Running-Checks-Locally).
+"""
+
+
 @cli.command()
 @click.argument("pth")
 def submit_reichlab(pth):
+    if not os.path.exists(pth) and is_date(pth):
+        client = boto3.client("s3")
+        basedate = pandas.to_datetime(pth).date()
+        key = f"users/mattle/h2/covid19_forecasts/metadata/forecast_{basedate}.json"
+        val = client.get_object(Bucket="fairusersglobal", Key=key)
+        meta = json.loads(val["Body"].read().decode("utf-8"))
+        pth = meta["fair_cluster_path"]
     job_pth = get_best(pth, "best_mae")
     kwargs = {"index_col": "date", "parse_dates": ["date"]}
     forecast = pandas.read_csv(
@@ -281,6 +326,8 @@ def submit_reichlab(pth):
     )
     print("Create pull request by going to:")
     print("https://github.com/lematt1991/covid19-forecast-hub")
+    print("-------------------------")
+    print(PR_TEXT)
 
 
 @cli.command()
