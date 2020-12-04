@@ -31,6 +31,7 @@ from metrics import load_ground_truth
 from epiweeks import Week
 from forecast_db import update_repo
 from io import BytesIO
+from string import Template
 
 
 license_txt = (
@@ -247,16 +248,20 @@ If you are **adding new forecasts** to an existing model, please include the fol
 """
 
 
+def get_prod_forecast_by_date(date):
+    client = boto3.client("s3")
+    basedate = pandas.to_datetime(date).date()
+    key = f"users/mattle/h2/covid19_forecasts/metadata/forecast_{basedate}.json"
+    val = client.get_object(Bucket="fairusersglobal", Key=key)
+    meta = json.loads(val["Body"].read().decode("utf-8"))
+    return meta["fair_cluster_path"]
+
+
 @cli.command()
 @click.argument("pth")
 def submit_reichlab(pth):
     if not os.path.exists(pth) and is_date(pth):
-        client = boto3.client("s3")
-        basedate = pandas.to_datetime(pth).date()
-        key = f"users/mattle/h2/covid19_forecasts/metadata/forecast_{basedate}.json"
-        val = client.get_object(Bucket="fairusersglobal", Key=key)
-        meta = json.loads(val["Body"].read().decode("utf-8"))
-        pth = meta["fair_cluster_path"]
+        pth = get_prod_forecast_by_date(pth)
     job_pth = get_best(pth, "best_mae")
     kwargs = {"index_col": "date", "parse_dates": ["date"]}
     forecast = pandas.read_csv(
@@ -456,10 +461,16 @@ def check_unsubmitted(ctx):
 @cli.command()
 @click.argument("pth")
 @click.option("--skip-gt", is_flag=True)
-def submit_dropbox(pth, skip_gt=False):
+def submit_mbox(pth, skip_gt=False):
+    if not os.path.exists(pth) and is_date(pth):
+        pth = get_prod_forecast_by_date(pth)
+    with open(
+        "/checkpoint/mattle/covid19/SDX-CLI/my_commands.txt.template", "r"
+    ) as fin:
+        template = Template(fin.read())
     job = get_best(pth, "best_mae")
     cfg = yaml.safe_load(open(os.path.join(pth, "cfg.yml")))
-    uploader = Uploader()
+    sdxpth = "/checkpoint/mattle/covid19/SDX-CLI"
 
     if not skip_gt:
         gt = pandas.read_csv(os.path.join(pth, "data_cases.csv"), index_col="region")
@@ -468,20 +479,39 @@ def submit_dropbox(pth, skip_gt=False):
         gt = pivot_forecast(gt.rename_axis("date").reset_index(), limit=False)
         gt = gt.drop(columns=["std_dev", "geometry"])
         gt = gt.rename(columns={"estimated_cases": "cases"})
-        with tempfile.NamedTemporaryFile() as tfile:
+        with tempfile.NamedTemporaryFile() as tfile, tempfile.NamedTemporaryFile() as cmdfile:
             gt.to_csv(tfile.name, index=False)
-            db_file = f"/covid19_forecasts/{cfg['region']}/ground_truth.csv"
-            print(f"Uploading: {db_file}")
-            uploader.upload(tfile.name, db_file)
+            dest_file = f"{cfg['region']}/ground_truth.csv"
+            with open(cmdfile.name, "w") as fout:
+                cmd_string = template.substitute(
+                    FORECAST_FILE_PATH=tfile.name, DEST_FILE_PATH=dest_file
+                )
+                print(cmd_string, file=fout)
+            print(f"Uploading to mbox...")
+            check_call(
+                ["./CrushFTP_Transfer.sh"],
+                cwd=sdxpth,
+                env={**os.environ, "TUNNEL_CMDS": cmdfile.name},
+            )
 
+    # https://mboxnaprd.jnj.com/#/
     df = prepare_forecast(os.path.join(job, "final_model_validation.csv"))
     df = df.drop(columns=["geometry", "std_dev"])
     basedate = (df["date"].min() - timedelta(days=1)).date()
-    with tempfile.NamedTemporaryFile() as tfile:
+    with tempfile.NamedTemporaryFile() as tfile, tempfile.NamedTemporaryFile() as cmdfile:
         df.to_csv(tfile.name, index=False)
-        db_file = f"/covid19_forecasts/{cfg['region']}/forecast_{basedate}.csv"
-        print(f"Uploading: {db_file}")
-        uploader.upload(tfile.name, db_file)
+        db_file = f"{cfg['region']}/forecast_{basedate}.csv"
+        with open(cmdfile.name, "w") as fout:
+            cmd_string = template.substitute(
+                FORECAST_FILE_PATH=tfile.name, DEST_FILE_PATH=db_file
+            )
+            print(cmd_string, file=fout)
+        print(f"Uploading to mbox...")
+        check_call(
+            ["./CrushFTP_Transfer.sh"],
+            cwd=sdxpth,
+            env={**os.environ, "TUNNEL_CMDS": cmdfile.name},
+        )
 
 
 if __name__ == "__main__":
