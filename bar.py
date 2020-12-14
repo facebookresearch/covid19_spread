@@ -25,6 +25,7 @@ import math
 from scipy.stats import nbinom
 from bisect import bisect_left, bisect_right
 from tqdm import tqdm
+import timeit
 
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -536,6 +537,7 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
     # target = new_cases.narrow(1, args.window, size_pred)
     target = new_cases.narrow(1, days_ahead, size_pred)
 
+    start_time = timeit.default_timer()
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
         scores, beta, W = model.score(t, new_cases)
@@ -578,6 +580,7 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
 
         # control
         if itr % 100 == 0:
+            time = timeit.default_timer() - start_time
             with th.no_grad(), np.printoptions(precision=3, suppress=True):
                 length = scores.size(1) - 1
                 maes = th.abs(dist.mean - new_cases.narrow(1, 1, length))
@@ -598,11 +601,13 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                     f"alpha ({W.min().item():.2f}, {W.mean().item():.2f}, {W.max().item():.2f}) | "
                     f"nu ({nu.min().item():.2f}, {nu.mean().item():.2f}, {nu.max().item():.2f}) | "
                     f"nb_stddev ({stddev.data.mean().item():.2f}) | "
-                    f"scale ({th.exp(model.scale).mean():.2f})"
+                    f"scale ({th.exp(model.scale).mean():.2f}) | "
+                    f"time = {time:.2f}s"
                 )
                 # optimizer.swap_swa_sgd()
                 th.save(model.state_dict(), checkpoint)
                 # optimizer.swap_swa_sgd()
+                start_time = timeit.default_timer()
     # optimizer.swap_swa_sgd()
     print(f"Train MAE,{maes.mean():.2f}")
     return model  # , loss.item(), maes.mean()
