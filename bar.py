@@ -22,7 +22,7 @@ import sys
 from wavenet import Wavenet, CausalConv1d
 from functools import partial
 import math
-from scipy.stats import nbinom
+from scipy.stats import nbinom, norm
 from bisect import bisect_left, bisect_right
 from tqdm import tqdm
 import timeit
@@ -341,7 +341,9 @@ class BetaLatent(nn.Module):
             if self.time_features.size(0) > t.size(0):
                 f = self.time_features.narrow(0, 0, t.size(0))
             else:
-                f = th.zeros(t.size(0), self.M, self.time_features.size(2)).to(t.device)
+                f = th.zeros(
+                    t.size(0), self.M, self.time_features.size(2), device=t.device
+                )
                 f.copy_(self.time_features.narrow(0, -1, 1))
                 f.narrow(0, 0, self.time_features.size(0)).copy_(self.time_features)
             x.append(f)
@@ -503,7 +505,7 @@ class BAR(nn.Module):
         assert tobs == preds.size(-1), (tobs, preds.size())
         stds = []
         for d in range(days):
-            t = th.arange(tobs + d).to(ys.device) + 1
+            t = th.arange(tobs + d, device=ys.device) + 1
             s, _, _ = self.score(t, preds)
             assert (s >= 0).all(), s.squeeze()
             if deterministic:
@@ -530,10 +532,10 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
     M = len(regions)
     device = new_cases.device
     tmax = new_cases.size(1)
-    t = th.arange(tmax).to(device) + 1
+    t = th.arange(tmax, device=device) + 1
     # size_pred = tmax - args.window
     size_pred = tmax - days_ahead
-    reg = th.tensor([0]).to(device)
+    reg = th.tensor([0], device=device)
     # target = new_cases.narrow(1, args.window, size_pred)
     target = new_cases.narrow(1, days_ahead, size_pred)
 
@@ -842,10 +844,8 @@ class BARCV(cv.CV):
         return model
 
     def run_prediction_interval(
-        self, means_pth: str, stds_pth: str, intervals: List[float]
+        self, means_pth: str, stds_pth: str, intervals: List[float], quiet=False
     ):
-        pi_multipliers = {0.99: 2.58, 0.95: 1.96, 0.80: 1.28}
-
         means = pd.read_csv(means_pth, index_col="date", parse_dates=["date"])
         stds = pd.read_csv(stds_pth, index_col="date", parse_dates=["date"])
 
@@ -856,9 +856,9 @@ class BARCV(cv.CV):
         nfailures = means_t * means_t / (variances - means_t)
         probs = (variances - means_t) / variances
 
-        multipliers = np.array([pi_multipliers[x] for x in intervals])
-        result = np.empty((means_t.shape[0], means_t.shape[1], len(intervals), 2))
-        with tqdm(total=means_t.size * len(intervals)) as pbar:
+        multipliers = np.array([norm.ppf(1 - (1 - x) / 2) for x in intervals])
+        result = np.empty((means_t.shape[0], means_t.shape[1], len(intervals), 3))
+        with tqdm(total=means_t.size * len(intervals), disable=quiet) as pbar:
             for i in range(means_t.shape[0]):
                 for j in range(means_t.shape[1]):
                     if probs[i, j] < 0 or probs[i, j] > 1:
@@ -872,6 +872,7 @@ class BARCV(cv.CV):
                             np.round(means_t[i, j] + multipliers * stds_t[i, j] - 0.5)
                             + 1
                         )
+                        result[i, j, :, 2] = 1  # fallback to old method
                         pbar.update(len(intervals))
                         continue
                     x = np.arange(0, max(2 * means_t[i, j] + 10 * stds_t[i, j], 20))
@@ -879,12 +880,14 @@ class BARCV(cv.CV):
                     for k, interval in enumerate(intervals):
                         lower = bisect_right(y, (1 - interval) / 2)
                         upper = bisect_left(y, 1 - (1 - interval) / 2)
+                        fallback = 0
                         if (
                             lower == len(y)
                             or upper == 0
                             or lower > means_t[i, j]
                             or upper < means_t[i, j]
                         ):
+                            fallback = 1
                             lower = np.clip(
                                 np.round(
                                     means_t[i, j] - multipliers[k] * stds_t[i, j] - 0.5
@@ -901,9 +904,10 @@ class BARCV(cv.CV):
                             )
                         result[i, j, k, 0] = lower
                         result[i, j, k, 1] = upper
+                        result[i, j, k, 2] = fallback
                         pbar.update(1)
         cols = pd.MultiIndex.from_product(
-            [means.columns, intervals, ["lower", "upper"]]
+            [means.columns, intervals, ["lower", "upper", "fallback"]]
         )
         result_df = pd.DataFrame(result.reshape(result.shape[0], -1), columns=cols)
         result_df["date"] = means.index
