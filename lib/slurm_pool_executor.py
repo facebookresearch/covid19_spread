@@ -27,7 +27,9 @@ import timeit
 import psycopg2
 
 
-DB_HOST = os.environ.get("SLURM_DB_HOST", "devfair0222")
+def get_db_client():
+    DB_HOST = os.environ.get("SLURM_DB_HOST", "devfair0222")
+    return psycopg2.connect(dbname="slurm_pool", host=DB_HOST)
 
 
 @contextmanager
@@ -82,10 +84,27 @@ class TransactionManager(AbstractContextManager):
         self.__dict__.update(state)
         self.conn = None
 
+    def run(self, txn, ntries: int = 10):
+        exn = None
+        for _ in range(ntries):
+            with self as conn:
+                try:
+                    conn.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;")
+                    conn.execute("BEGIN")
+                    return txn(conn)
+                except Exception as e:
+                    self.conn.rollback()
+                    sleep_time = random.randint(0, 10)
+                    print(f"Transaction failed!  Sleeping for {sleep_time} seconds")
+                    time.sleep(sleep_time)
+                    exn = e
+        print("Failed too many times!!!!")
+        raise exn
+
     def __enter__(self):
         print(f"Entering transaction, nesting = {self.nesting}")
         if self.conn is None:
-            self.conn = psycopg2.connect(dbname="slurm_pool", host=DB_HOST)
+            self.conn = get_db_client()
             self.cursor = self.conn.cursor()
             self.start_time = timeit.default_timer()
         self.nesting += 1
@@ -119,6 +138,7 @@ class Worker:
         self.db_pth = db_pth
         self.worker_id = worker_id
         self.sleep = 0
+        self.worker_finished = False
 
     def fetch_ready_job(self, conn):
         # Select a pending job that doesn't have any unfinished dependencies
@@ -166,44 +186,53 @@ class Worker:
         return conn.fetchall()
 
     def run(self):
+        self.worker_finished = False
         worker_job_id = f"worker_{self.worker_id}"
         running_status = (
             len(JobStatus) + self.worker_id + 1
         )  # mark in progress with this code
         transaction_manager = TransactionManager(self.db_pth)
-        while True:
+        while not self.worker_finished:
             if self.sleep > 0:
                 print(f"Sleeping...")
                 time.sleep(self.sleep)
             print(f"Worker {self.worker_id} getting job to run")
-            with transaction_manager as conn:
+
+            def txn(conn):
                 ready = self.fetch_ready_job(conn)
                 status = JobStatus.pending
                 if len(ready) == 0:  # no jobs ready
                     if self.finished(conn):
-                        return  # all jobs are finished, exiting...
+                        self.worker_finished = True
+                        return None  # all jobs are finished, exiting...
 
                     if self.count_running(conn) > 0:
                         self.sleep = min(max(self.sleep * 2, 1), 30)
-                        continue
+                        return None
 
                     ready = self.get_final_jobs(conn)
                     status = JobStatus.final
                     if len(ready) == 0:
                         self.sleep = min(max(self.sleep * 2, 1), 30)
-                        continue
+                        return None
                     print(
                         f"Worker {self.worker_id} is executing final_job: {ready[0][0]}"
                     )
 
                 pickle, job_id = ready[0][0], ready[0][1]
                 # Mark that we're working on this job.
-                res = conn.execute(
+                conn.execute(
                     f"""
                     UPDATE jobs SET status={running_status}, worker_id='{worker_job_id}'
                     WHERE pickle='{pickle}' AND status={status} AND id='{self.db_pth}'
                     """
                 )
+                return pickle, job_id
+
+            res = transaction_manager.run(txn)
+            if res is None:
+                continue
+            pickle, job_id = res
             print(f"Worker {self.worker_id} got job to run")
 
             # Run the job
@@ -239,10 +268,11 @@ class Worker:
                             traceback.print_exc(file=sys.stderr)
 
                 print(f"Worker {self.worker_id} finished job with status {status}")
-                with transaction_manager as conn:
-                    conn.execute(
+                transaction_manager.run(
+                    lambda conn: conn.execute(
                         f"UPDATE jobs SET status={status.value} WHERE pickle='{pickle}' AND id='{self.db_pth}'"
                     )
+                )
                 print(f"Worker {self.worker_id} updated job status")
 
 
@@ -351,7 +381,8 @@ class SlurmPoolExecutor(SlurmExecutor):
         **kwargs: tp.Any,
     ) -> core.Job[core.R]:
         ds = utils.DelayedSubmission(fn, *args, **kwargs)
-        with self.transaction_manager as conn:
+
+        def txn(conn):
             job = self._internal_process_submissions([ds])[0]
             for dep in depends_on:
                 vals = (
@@ -363,7 +394,9 @@ class SlurmPoolExecutor(SlurmExecutor):
                     "INSERT INTO dependencies(pickle, depends_on, id) VALUES (%s,%s,%s)",
                     vals,
                 )
-        return job
+            return job
+
+        return self.transaction_manager.run(txn)
 
     def launch(self, folder=None, workers: int = 2):
         if not self.nested:
@@ -381,7 +414,7 @@ class SlurmPoolExecutor(SlurmExecutor):
             # ex.map_array(partial(worker, self.db_pth), list(range(workers)))
 
     def extend_dependencies(self, jobs: tp.List[core.Job]):
-        with self.transaction_manager as conn:
+        def txn(conn):
             conn.execute(
                 """
             SELECT pickle
@@ -401,6 +434,8 @@ class SlurmPoolExecutor(SlurmExecutor):
                     "INSERT INTO dependencies (pickle, depends_on, id) VALUES(%s,%s,%s)",
                     vals,
                 )
+
+        self.transaction_manager.run(txn)
 
     @contextmanager
     def nest(self):
