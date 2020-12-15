@@ -43,8 +43,6 @@ from timelord import snapshot
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
 
-pi_multipliers = {0.99: 2.58, 0.95: 1.96, 0.80: 1.28}
-
 
 def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
     """
