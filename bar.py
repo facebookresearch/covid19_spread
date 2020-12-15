@@ -589,10 +589,12 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                 z = model.z
                 nu = th.sigmoid(model.nu)
                 means = model.dist(scores).mean
-                hist = np.histogram(
-                    W.cpu().numpy().flatten(), bins=np.arange(0, 1.1, 0.1), density=True
-                )
-                print("W hist =", hist[0])
+                # For some reason, the following `np.histogram` can be non-determinstically very slow.
+                # No idea why...
+                # hist = np.histogram(
+                #     W.cpu().contiguous().numpy().flatten(), bins=np.arange(0, 1.1, 0.1), density=True
+                # )
+                # print("W hist =", hist[0])
                 print(
                     f"[{itr:04d}] Loss {loss.item():.2f} | "
                     f"Temporal {reg.item():.5f} | "
