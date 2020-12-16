@@ -84,20 +84,19 @@ class TransactionManager(AbstractContextManager):
         self.__dict__.update(state)
         self.conn = None
 
-    def run(self, txn, ntries: int = 10):
+    def run(self, txn, ntries: int = 100):
         exn = None
         for _ in range(ntries):
-            with self as conn:
-                try:
+            try:
+                with self as conn:
                     conn.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;")
                     conn.execute("BEGIN")
                     return txn(conn)
-                except Exception as e:
-                    self.conn.rollback()
-                    sleep_time = random.randint(0, 10)
-                    print(f"Transaction failed!  Sleeping for {sleep_time} seconds")
-                    time.sleep(sleep_time)
-                    exn = e
+            except Exception as e:
+                sleep_time = random.randint(0, 10)
+                print(f"Transaction failed!  Sleeping for {sleep_time} seconds")
+                time.sleep(sleep_time)
+                exn = e
         print("Failed too many times!!!!")
         raise exn
 
@@ -110,11 +109,14 @@ class TransactionManager(AbstractContextManager):
         self.nesting += 1
         return self.cursor
 
-    def __exit__(self, *args, **kwargs):
+    def __exit__(self, exc_type, exc_val, traceback):
         self.nesting -= 1
         print(f"Exiting transaction, nesting = {self.nesting}")
         if self.nesting == 0:
-            self.conn.commit()
+            if exc_type is None:
+                self.conn.commit()
+            else:
+                self.conn.rollback()
             self.cursor.close()
             self.cursor = None
             self.conn = None
