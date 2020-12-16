@@ -28,7 +28,7 @@ jobs:
                     conda activate covid19_spread
                     git submodule sync
                     git submodule update --init --recursive
-                    cd timelord && N_COMPILE_JOBS=1 python3 setup.py build -f develop
+                    cd timelord && MAX_JOBS=1 python3 setup.py build -f develop
 
             - run:
                 name: Check Formatting
