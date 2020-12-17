@@ -240,11 +240,21 @@ def ensemble(basedirs, cfg, module, prefix, outdir):
         mean_deltas.to_csv(os.path.join(outdir, prefix + "mean.csv"))
 
     assert len(means) > 0, "All ensemble jobs failed!!!!"
+
+    mod = importlib.import_module(module).CV_CLS()
+
+    if len(stds) > 0:
+        pred_interval = cfg.get("prediction_interval", {})
+        piv = mod.run_prediction_interval(
+            os.path.join(outdir, prefix + "mean.csv"),
+            os.path.join(outdir, prefix + "std.csv"),
+            pred_interval.get("intervals", [0.99, 0.95, 0.8]),
+        )
+        piv.to_csv(os.path.join(outdir, prefix + "piv.csv"), index=False)
+
     mean = pd.concat(means).groupby(level=0).median()
     outfile = os.path.join(outdir, prefix + cfg["validation"]["output"])
     mean.to_csv(outfile, index_label="date")
-
-    mod = importlib.import_module(module).CV_CLS()
 
     # -- metrics --
     metric_args = cfg[module].get("metrics", {})
@@ -255,15 +265,6 @@ def ensemble(basedirs, cfg, module, prefix, outdir):
     with open(os.path.join(outdir, prefix + "metrics.json"), "w") as fout:
         json.dump(json_val, fout)
     print(df_val)
-
-    if len(stds) > 0:
-        pred_interval = cfg.get("prediction_interval", {})
-        piv = mod.run_prediction_interval(
-            os.path.join(outdir, prefix + "mean.csv"),
-            os.path.join(outdir, prefix + "std.csv"),
-            pred_interval.get("intervals", [0.99, 0.95, 0.8]),
-        )
-        piv.to_csv(os.path.join(outdir, prefix + "piv.csv"), index=False)
 
 
 def run_cv(
@@ -788,8 +789,8 @@ def cv(
             jobs.append(job)
 
         if remote:
-            if not executor.nested:
-                executor.submit_final_job(attach_notebook, cfg, "cv", module, basedir)
+            # if not executor.nested:
+            #     executor.submit_final_job(attach_notebook, cfg, "cv", module, basedir)
             executor.launch(basedir + "/workers", array_parallelism)
 
     print(basedir)
@@ -887,9 +888,9 @@ def backfill(
                 )
 
         if remote:
-            executor.submit_final_job(
-                attach_notebook, config, "backfill", module, basedir
-            )
+            # executor.submit_final_job(
+            #     attach_notebook, config, "backfill", module, basedir
+            # )
             executor.launch(basedir + "/workers", array_parallelism)
 
 
@@ -928,7 +929,7 @@ def add_workers(sweep_dir, workers):
 
 @cli.command()
 @click.argument("sweep_dir")
-@click.option("-workers", type=click.INT)
+@click.option("-workers", type=click.INT, default=10)
 def repair(sweep_dir, workers=None):
     db_file = next(iglob(os.path.join(sweep_dir, "**/.job.db"), recursive=True))
     conn = get_db_client()
