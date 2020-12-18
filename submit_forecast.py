@@ -259,7 +259,10 @@ def get_prod_forecast_by_date(date):
 
 @cli.command()
 @click.argument("pth")
-def submit_reichlab(pth):
+@click.option("-no-push", is_flag=True)
+@click.option("-team", default="FAIR-NRAR")
+@click.option("-nweeks", type=click.INT)
+def submit_reichlab(pth, no_push, team, nweeks):
     if not os.path.exists(pth) and is_date(pth):
         pth = get_prod_forecast_by_date(pth)
     job_pth = get_best(pth, "best_mae")
@@ -271,29 +274,58 @@ def submit_reichlab(pth):
     forecast_date = forecast.index.min() - timedelta(days=1)
     forecast.loc[forecast_date] = gt.loc[forecast_date]
     deltas = forecast.sort_index().diff()
-
-    next_week = (
-        Week.fromdate(forecast_date).daydate(5)
-        if forecast_date.weekday() in {0, 6}
-        else Week.fromdate(forecast_date).daydate(5) + timedelta(days=7)
-    )
-    submission = []
-    prev_date = forecast_date
-    # Generate 2 epi weeks worth of data
-    for i in range(1, 3):
-        submission.append(deltas.loc[prev_date:next_week].sum(0).reset_index())
-        submission[-1]["target"] = f"{i} wk ahead inc case"
-        submission[-1]["target_end_date"] = next_week
-        prev_date = next_week
-        next_week += timedelta(days=7)
-    submission = pandas.concat(submission).rename(columns={"index": "loc", 0: "value"})
-    submission["type"] = "point"
-    submission["quantile"] = "NA"
-    submission["forecast_date"] = forecast_date
     index = get_index()
-    index["loc"] = index["name"] + ", " + index["subregion1_name"]
-    merged = submission.merge(index[["loc", "fips"]], on="loc").drop(columns=["loc"])
-    merged = merged.rename(columns={"fips": "location"})
+
+    def format_df(df, type_, quantile):
+        next_week = (
+            Week.fromdate(forecast_date).daydate(5)
+            if forecast_date.weekday() in {0, 6}
+            else Week.fromdate(forecast_date).daydate(5) + timedelta(days=7)
+        )
+        submission = []
+        prev_date = forecast_date
+        # Generate 2 epi weeks worth of data
+        for i in range(1, (nweeks + 1) if nweeks is not None else 5):
+            submission.append(df.loc[prev_date:next_week].sum(0).reset_index())
+            submission[-1]["target"] = f"{i} wk ahead inc case"
+            submission[-1]["target_end_date"] = next_week
+            prev_date = next_week
+            next_week += timedelta(days=7)
+        submission = pandas.concat(submission).rename(
+            columns={"index": "loc", 0: "value", "location": "loc"}
+        )
+        submission["type"] = type_
+        submission["quantile"] = quantile
+        submission["forecast_date"] = forecast_date
+        index["loc"] = index["name"] + ", " + index["subregion1_name"]
+        merged = submission.merge(index[["loc", "fips"]], on="loc").drop(
+            columns=["loc"]
+        )
+        return merged.rename(columns={"fips": "location"})
+
+    point_estimates = format_df(deltas, "point", "NA")
+
+    q50 = point_estimates.copy()
+    q50["quantile"] = 0.5
+    q50["type"] = "quantile"
+
+    pred_intervals = [q50]
+    if os.path.exists(os.path.join(job_pth, "final_model_piv.csv")):
+        piv = pandas.read_csv(
+            os.path.join(job_pth, "final_model_piv.csv"), parse_dates=["date"]
+        )
+        for interval, group in piv.groupby("interval"):
+            pivot = group.pivot(
+                index="date", columns="location", values="lower"
+            ).sort_index()
+            quantile = round(1 - interval, len(str(interval).split(".")[1]))
+            pred_intervals.append(format_df(pivot, type_="quantile", quantile=quantile))
+            pivot = group.pivot(
+                index="date", columns="location", values="upper"
+            ).sort_index()
+            pred_intervals.append(format_df(pivot, type_="quantile", quantile=interval))
+
+    merged = pandas.concat(pred_intervals + [point_estimates])
 
     data_pth = update_repo("git@github.com:lematt1991/covid19-forecast-hub.git")
     upstream_repo = "git@github.com:reichlab/covid19-forecast-hub.git"
@@ -308,31 +340,37 @@ def submit_reichlab(pth):
     check_call(["git", "fetch", "upstream"], cwd=data_pth)
     check_call(["git", "merge", "upstream/master"], cwd=data_pth)
     check_call(["git", "push"], cwd=data_pth)
-    check_call(
-        ["git", "checkout", "-b", f"forecast-{forecast_date.date()}"], cwd=data_pth
-    )
-    team_name = "FAIR-NRAR"
-    filename = str(forecast_date.date()) + f"-{team_name}.csv"
-    outpth = os.path.join(data_pth, "data-processed", team_name, filename)
+    filename = str(forecast_date.date()) + f"-{team}.csv"
+    outpth = os.path.join(data_pth, "data-processed", team, filename)
     merged.to_csv(outpth, index=False)
-    check_call(["git", "add", outpth], cwd=data_pth)
-    check_call(
-        [
-            "git",
-            "commit",
-            "-m",
-            f"Adding FAIR-NRAR forecast for {forecast_date.date()}",
-        ],
-        cwd=data_pth,
-    )
-    check_call(
-        ["git", "push", "--set-upstream", "origin", f"forecast-{forecast_date.date()}"],
-        cwd=data_pth,
-    )
-    print("Create pull request by going to:")
-    print("https://github.com/lematt1991/covid19-forecast-hub")
-    print("-------------------------")
-    print(PR_TEXT)
+    if not no_push:
+        check_call(
+            ["git", "checkout", "-b", f"forecast-{forecast_date.date()}"], cwd=data_pth
+        )
+        check_call(["git", "add", outpth], cwd=data_pth)
+        check_call(
+            [
+                "git",
+                "commit",
+                "-m",
+                f"Adding FAIR-NRAR forecast for {forecast_date.date()}",
+            ],
+            cwd=data_pth,
+        )
+        check_call(
+            [
+                "git",
+                "push",
+                "--set-upstream",
+                "origin",
+                f"forecast-{forecast_date.date()}",
+            ],
+            cwd=data_pth,
+        )
+        print("Create pull request by going to:")
+        print("https://github.com/lematt1991/covid19-forecast-hub")
+        print("-------------------------")
+        print(PR_TEXT)
 
 
 @cli.command()
