@@ -159,8 +159,8 @@ def pivot_forecast(forecast, limit=True):
     merged["geometry"] = merged["geometry"].apply(lambda x: x.wkt)
 
     if limit:
-        # limit forecasts to 30 days
-        merged = merged[(merged["date"] - merged["date"].min()).dt.days < 30]
+        # limit forecasts to 41 days
+        merged = merged[(merged["date"] - merged["date"].min()).dt.days < 41]
 
     # std = pandas.read_csv(
     #     os.path.join(job, "final_model_piv.csv"), parse_dates=["date"]
