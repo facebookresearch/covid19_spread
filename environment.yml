@@ -1,7 +1,8 @@
 name: covid19_spread
 dependencies:
   - python=3.7
-  - pytorch=1.4.0
+  - pytorch::pytorch=1.7.0
+  - pytorch::cudatoolkit=10.1
   - matplotlib=3.0.3
   - ccache
   - h5py

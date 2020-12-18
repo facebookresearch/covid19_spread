@@ -30,6 +30,8 @@ import geopandas
 from metrics import load_ground_truth
 from epiweeks import Week
 from forecast_db import update_repo
+from io import BytesIO
+from string import Template
 
 
 license_txt = (
@@ -132,19 +134,10 @@ def get_best(pth, metric):
     return os.path.join(pth, os.path.basename(model_selection[metric]))
 
 
-@cli.command()
-@click.argument("pth")
-@click.option("--metric", default="best_mae")
-def submit_s3(pth, metric):
+def pivot_forecast(forecast, limit=True):
     index = get_index()
-    job = get_best(pth, metric)
-    forecast = pandas.read_csv(
-        os.path.join(job, "final_model_validation.csv"), parse_dates=["date"]
-    )
     forecast = format_df(forecast, "estimated_cases")
     forecast = forecast[["date", "estimated_cases", "loc1", "loc2", "loc3"]]
-    basedate = str((forecast["date"].min() - timedelta(days=1)).date())
-
     dates = pandas.DataFrame.from_dict({"date": forecast["date"].unique(), "dummy": 1})
     index["dummy"] = 1
     index = index.merge(dates, on="dummy")
@@ -165,14 +158,17 @@ def submit_s3(pth, metric):
     assert not merged["geometry"].isnull().any()
     merged["geometry"] = merged["geometry"].apply(lambda x: x.wkt)
 
-    merged = merged[(merged["date"] - merged["date"].min()).dt.days < 30]
+    if limit:
+        # limit forecasts to 30 days
+        merged = merged[(merged["date"] - merged["date"].min()).dt.days < 30]
 
-    std = pandas.read_csv(
-        os.path.join(job, "final_model_piv.csv"), parse_dates=["date"]
-    )
-    std = format_df(std, "std_dev")
-    merged = merged.merge(std, on=["date", "loc1", "loc2", "loc3"], how="left")
-    merged["std_dev"] = merged["std_dev"].fillna(0)
+    # std = pandas.read_csv(
+    #     os.path.join(job, "final_model_piv.csv"), parse_dates=["date"]
+    # )
+    # std = format_df(std, "std_dev")
+    # merged = merged.merge(std, on=["date", "loc1", "loc2", "loc3"], how="left")
+    # merged["std_dev"] = merged["std_dev"].fillna(0)
+    merged["std_dev"] = 0
     merged = merged[
         [
             "date",
@@ -187,19 +183,85 @@ def submit_s3(pth, metric):
         ]
     ].copy()
     merged["measurement_type"] = "cases"
+    return merged
+
+
+def prepare_forecast(path):
+    forecast = pandas.read_csv(path, parse_dates=["date"])
+    return pivot_forecast(forecast)
+
+
+@cli.command()
+@click.argument("pth")
+@click.option("--metric", default="best_mae")
+def submit_s3(pth, metric):
+    job = get_best(pth, metric)
+    df = prepare_forecast(os.path.join(job, "final_model_validation.csv"))
     client = boto3.client("s3")
+    basedate = (df["date"].min() - timedelta(days=1)).date()
     object_name = f"users/mattle/h2/covid19_forecasts/forecast_{basedate}.csv"
     with tempfile.NamedTemporaryFile() as tfile:
-        merged.to_csv(tfile.name, index=False, sep="\t")
+        df.to_csv(tfile.name, index=False, sep="\t")
         client.upload_file(tfile.name, "fairusersglobal", object_name)
+    with BytesIO() as fout:
+        obj = {
+            "fair_cluster_path": pth,
+            "metric": metric,
+            "basedate": str(basedate),
+        }
+        fout.write(json.dumps(obj).encode("utf-8"))
+        fout.seek(0)
+        client.upload_fileobj(
+            fout,
+            "fairusersglobal",
+            f"users/mattle/h2/covid19_forecasts/metadata/forecast_{basedate}.json",
+        )
+    conn = sqlite3.connect(DB)
+    vals = (pth, datetime.now().timestamp())
+    conn.execute("INSERT INTO submitted (sweep_path, submitted_at) VALUES(?,?)", vals)
+    conn.commit()
     client = get_slack_client()
     msg = f"*Forecast for US is in S3: {basedate}*"
     client.chat_postMessage(channel="#sweep-updates", text=msg)
 
 
+def is_date(x):
+    try:
+        pandas.to_datetime(x)
+        return True
+    except Exception:
+        return False
+
+
+PR_TEXT = """
+## Description
+
+If you are **adding new forecasts** to an existing model, please include the following details:- 
+- Team name: Facebook AI Research (FAIR)
+- Model name that is being updated: Neural Relational Autoregression
+---
+
+## Checklist
+
+- [x] Specify a proper PR title with your team name.
+- [x] All validation checks ran successfully on your branch. Instructions to run the tests locally is present [here](https://github.com/reichlab/covid19-forecast-hub/wiki/Running-Checks-Locally).
+"""
+
+
+def get_prod_forecast_by_date(date):
+    client = boto3.client("s3")
+    basedate = pandas.to_datetime(date).date()
+    key = f"users/mattle/h2/covid19_forecasts/metadata/forecast_{basedate}.json"
+    val = client.get_object(Bucket="fairusersglobal", Key=key)
+    meta = json.loads(val["Body"].read().decode("utf-8"))
+    return meta["fair_cluster_path"]
+
+
 @cli.command()
 @click.argument("pth")
 def submit_reichlab(pth):
+    if not os.path.exists(pth) and is_date(pth):
+        pth = get_prod_forecast_by_date(pth)
     job_pth = get_best(pth, "best_mae")
     kwargs = {"index_col": "date", "parse_dates": ["date"]}
     forecast = pandas.read_csv(
@@ -222,6 +284,7 @@ def submit_reichlab(pth):
         submission.append(deltas.loc[prev_date:next_week].sum(0).reset_index())
         submission[-1]["target"] = f"{i} wk ahead inc case"
         submission[-1]["target_end_date"] = next_week
+        prev_date = next_week
         next_week += timedelta(days=7)
     submission = pandas.concat(submission).rename(columns={"index": "loc", 0: "value"})
     submission["type"] = "point"
@@ -252,7 +315,24 @@ def submit_reichlab(pth):
     filename = str(forecast_date.date()) + f"-{team_name}.csv"
     outpth = os.path.join(data_pth, "data-processed", team_name, filename)
     merged.to_csv(outpth, index=False)
-    print(outpth)
+    check_call(["git", "add", outpth], cwd=data_pth)
+    check_call(
+        [
+            "git",
+            "commit",
+            "-m",
+            f"Adding FAIR-NRAR forecast for {forecast_date.date()}",
+        ],
+        cwd=data_pth,
+    )
+    check_call(
+        ["git", "push", "--set-upstream", "origin", f"forecast-{forecast_date.date()}"],
+        cwd=data_pth,
+    )
+    print("Create pull request by going to:")
+    print("https://github.com/lematt1991/covid19-forecast-hub")
+    print("-------------------------")
+    print(PR_TEXT)
 
 
 @cli.command()
@@ -280,10 +360,6 @@ def check_s3_unsubmitted(ctx, dry):
             cfg = yaml.safe_load(open(os.path.join(path, "cfg.yml")))
             ctx.invoke(submit_s3, pth=path, metric="best_mae")
             vals = (path, datetime.now().timestamp())
-            conn.execute(
-                "INSERT INTO submitted (sweep_path, submitted_at) VALUES(?,?)", vals
-            )
-            conn.commit()
             print(f"submitting: {path}")
 
 
@@ -383,33 +459,59 @@ def check_unsubmitted(ctx):
 
 
 @cli.command()
-@click.option("--dry", is_flag=True)
-def submit_to_dropbox(dry: bool = False):
-    conn = sqlite3.connect(DB)
-    res = conn.execute(
-        """
-    SELECT path, module
-    FROM sweeps
-    WHERE module IN ('ar', 'ar_daily')
-    """
-    )
-    uploader = Uploader()
-    for path, module in res:
-        cfg = yaml.safe_load(open(f"{path}/cfg.yml"))
-        fcsts = glob(f'{path}/forecasts/forecast-{cfg["region"]}*_{module}.csv')
-        if len(fcsts) == 1:
-            forecast_pth = fcsts[0]
-            db_file = (
-                f"/covid19_forecasts/{cfg['region']}/{os.path.basename(forecast_pth)}"
+@click.argument("pth")
+@click.option("--skip-gt", is_flag=True)
+def submit_mbox(pth, skip_gt=False):
+    if not os.path.exists(pth) and is_date(pth):
+        pth = get_prod_forecast_by_date(pth)
+    with open(
+        "/checkpoint/mattle/covid19/SDX-CLI/my_commands.txt.template", "r"
+    ) as fin:
+        template = Template(fin.read())
+    job = get_best(pth, "best_mae")
+    cfg = yaml.safe_load(open(os.path.join(pth, "cfg.yml")))
+    sdxpth = "/checkpoint/mattle/covid19/SDX-CLI"
+
+    if not skip_gt:
+        gt = pandas.read_csv(os.path.join(pth, "data_cases.csv"), index_col="region")
+        gt = gt.transpose()
+        gt.index = pandas.to_datetime(gt.index)
+        gt = pivot_forecast(gt.rename_axis("date").reset_index(), limit=False)
+        gt = gt.drop(columns=["std_dev", "geometry"])
+        gt = gt.rename(columns={"estimated_cases": "cases"})
+        with tempfile.NamedTemporaryFile() as tfile, tempfile.NamedTemporaryFile() as cmdfile:
+            gt.to_csv(tfile.name, index=False)
+            dest_file = f"{cfg['region']}/ground_truth.csv"
+            with open(cmdfile.name, "w") as fout:
+                cmd_string = template.substitute(
+                    FORECAST_FILE_PATH=tfile.name, DEST_FILE_PATH=dest_file
+                )
+                print(cmd_string, file=fout)
+            print(f"Uploading to mbox...")
+            check_call(
+                ["./CrushFTP_Transfer.sh"],
+                cwd=sdxpth,
+                env={**os.environ, "TUNNEL_CMDS": cmdfile.name},
             )
-            try:
-                uploader.client.files_get_metadata(db_file)
-                continue  # file already exists, skip it...
-            except dropbox.exceptions.ApiError:
-                pass
-            print(f"Uploading: {db_file}")
-            if not dry:
-                uploader.upload(forecast_pth, db_file)
+
+    # https://mboxnaprd.jnj.com/#/
+    df = prepare_forecast(os.path.join(job, "final_model_validation.csv"))
+    df = df.drop(columns=["geometry", "std_dev"])
+    basedate = (df["date"].min() - timedelta(days=1)).date()
+    with tempfile.NamedTemporaryFile() as tfile, tempfile.NamedTemporaryFile() as cmdfile:
+        df.to_csv(tfile.name, index=False)
+        db_file = f"{cfg['region']}/forecast_{basedate}.csv"
+        with open(cmdfile.name, "w") as fout:
+            cmd_string = template.substitute(
+                FORECAST_FILE_PATH=tfile.name, DEST_FILE_PATH=db_file
+            )
+            print(cmd_string, file=fout)
+        print(f"Uploading to mbox...")
+        check_call(
+            ["./CrushFTP_Transfer.sh"],
+            cwd=sdxpth,
+            env={**os.environ, "TUNNEL_CMDS": cmdfile.name},
+        )
 
 
 if __name__ == "__main__":

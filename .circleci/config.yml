@@ -17,7 +17,8 @@ jobs:
             - run:
                 name: Install dependencies
                 command: |
-                    conda env create -f environment.yml
+                    cat environment.yml | grep -v cudatoolkit > environment_cpu.yml
+                    conda env create -f environment_cpu.yml
 
             - run:
                 name: Build extensions
@@ -27,7 +28,7 @@ jobs:
                     conda activate covid19_spread
                     git submodule sync
                     git submodule update --init --recursive
-                    cd timelord && N_COMPILE_JOBS=1 python3 setup.py build -f develop
+                    cd timelord && MAX_JOBS=1 python3 setup.py build -f develop
 
             - run:
                 name: Check Formatting

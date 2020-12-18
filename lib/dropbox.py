@@ -6,11 +6,12 @@ from dropbox import DropboxOAuth2FlowNoRedirect
 import datetime
 import time
 import json
+import sys
 
 
 class Uploader:
     def __init__(self, cache_loc=None):
-        cache_loc = cache_loc or os.path.expanduser("~/.covid19/credentials.json")
+        cache_loc = cache_loc or os.path.expanduser("~mattle/.covid19/credentials.json")
         if not os.path.exists(cache_loc):
             raise ValueError("Missing credentials file!")
         cred = json.load(open(cache_loc))

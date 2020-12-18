@@ -5,7 +5,7 @@ validation:
   days: &vdays 7
   output: validation.csv
 test:
-  days: &tdays 30
+  days: &tdays 41
   output: validation.csv
 forecast:
   output: forecast.csv

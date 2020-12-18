@@ -22,9 +22,12 @@ import sys
 from wavenet import Wavenet, CausalConv1d
 from functools import partial
 import math
-from scipy.stats import nbinom
+from scipy.stats import nbinom, norm
 from bisect import bisect_left, bisect_right
 from tqdm import tqdm
+import timeit
+from typing import List
+import os
 
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -87,19 +90,11 @@ class BetaLSTM(BetaRNN):
     def __init__(self, M, layers, dim, input_dim, dropout=0.0):
         super().__init__(M, layers, dim, input_dim, dropout)
         self.rnn = nn.LSTM(input_dim, dim, layers, dropout=dropout)
-        # self.rnn = nn.LSTM(4 * dim, dim, layers, dropout=dropout)
         self.rnn.reset_parameters()
         self.h0 = nn.Parameter(th.zeros(layers, M, dim))
         self.c0 = nn.Parameter(th.randn(layers, M, dim))
-        # self.dropout = nn.Dropout(dropout)
-        # self.mlp = MLP(2, 4 * dim, input_dim)
 
     def forward(self, x):
-        # print(x.max())
-        # x = self.emb(x.long()).reshape(x.size(0), x.size(1), self.input_dim)
-        # print(x.size())
-        # x = th.tanh(self.mlp(x))
-        # x = self.dropout(x)
         ht, (hn, cn) = self.rnn(x, (self.h0, self.c0))
         beta = self.fpos(self.v(ht))
         return beta
@@ -167,11 +162,8 @@ class SelfAttention(nn.Module):
                 Use -inf to mask out
         """
         pos_idxs = th.arange(x.size(0), device=x.device).float()
-        # pos = self.positional_embeddings(pos_idxs)
         seq, bsz, emb = x.shape
-        proj = self.in_proj(x).view(
-            seq, bsz, emb, 3
-        )  # + pos.unsqueeze(1).unsqueeze(-1)
+        proj = self.in_proj(x).view(seq, bsz, emb, 3)
         query, key, val = map(lambda x: x.squeeze(), proj.chunk(3, -1))
 
         scaling = float(self.embed_dim) ** -0.5
@@ -184,13 +176,9 @@ class SelfAttention(nn.Module):
         attn_output_weights = query.bmm(key.transpose(1, 2))  # Bsx x Seq x Seq
         attn_output_weights += attn_mask.unsqueeze(0)
 
-        # time_decay = (x.size(0) - 1 - pos_idxs.float()).neg()
         time_decay = (pos_idxs.unsqueeze(0) - pos_idxs.unsqueeze(1)) / x.size(0)
 
         attn_output_weights = F.softmax(attn_output_weights + time_decay, dim=-1)
-        # attn_output_weights = F.dropout(
-        #    attn_output_weights, p=self.dropout, training=self.training
-        # )
 
         attn_output = attn_output_weights.bmm(val)  # Bsz x Seq x Emb
         attn_output = attn_output.transpose(0, 1)  # Seq x Bsz x Emb
@@ -253,13 +241,11 @@ class BetaWavenet(nn.Module):
             nlin=self.nlin,
             nfilters=nfilters,
         )
-        # self.W1 = nn.Linear(channels, channels)
         self.v = nn.Linear(channels, 1, bias=True)
 
     def forward(self, x):
         hs = self.wv(x.permute(0, 2, 1))
         hs = hs.permute(0, 2, 1)
-        # hs = self.nlin(self.W1(hs))
         beta = self.v(hs)
         beta = th.sigmoid(beta)
         return beta
@@ -325,31 +311,20 @@ class BetaLatent(nn.Module):
         self.fbeta = fbeta(self.M, input_dim)
 
     def forward(self, t, ys):
-        # _ys = th.zeros_like(ys)
-        # _ys.narrow(1, 1, ys.size(1) - 1).copy_(ys[:, 1:] - ys[:, :-1])
-        # _ys.narrow(1, 1, ys.size(1) - 1).copy_(
-        #    th.log(ys[:, 1:] + 1) - th.log(ys[:, :-1] + 1)
-        # )
-        # t = t.unsqueeze(-1).unsqueeze(-1).float()  # .div_(self.tmax)
-        # t = t.expand(t.size(0), self.M, 1)
-        # x = [t, _ys.t().unsqueeze(-1)]
-        # x = [t]
-        # x = [_ys.t().unsqueeze(-1)]
         x = []
         if self.time_features is not None:
             if self.time_features.size(0) > t.size(0):
                 f = self.time_features.narrow(0, 0, t.size(0))
             else:
-                f = th.zeros(t.size(0), self.M, self.time_features.size(2)).to(t.device)
+                f = th.zeros(
+                    t.size(0), self.M, self.time_features.size(2), device=t.device
+                )
                 f.copy_(self.time_features.narrow(0, -1, 1))
                 f.narrow(0, 0, self.time_features.size(0)).copy_(self.time_features)
             x.append(f)
         x = th.cat(x, dim=2)
         beta = self.fbeta(x)
-        # beta = beta.permute(2, 1, 0)
-        # beta = beta.expand(beta.size(0), self.M, 1)
         return beta.squeeze().t()
-        # return beta[0].squeeze(), beta[1].squeeze()
 
     def apply(self, x):
         ht, hn = self.rnn(x, self.h0)
@@ -382,12 +357,8 @@ class BAR(nn.Module):
         self.self_correlation = self_correlation
         self.cross_correlation = cross_correlation
         self.window = window
-        # self.z = nn.Parameter(th.ones((1, window)).fill_(1))
-        # self.z = nn.Parameter(th.ones((self.M, window)).fill_(1))
         self.z = nn.Parameter(th.ones((self.M, 7)).fill_(1))
-        # self.z = nn.Parameter(th.ones((1, 7)).fill_(1))
         self._alphas = nn.Parameter(th.zeros((self.M, self.M)).fill_(-3))
-        # self._alpha_weights = nn.Parameter(th.zeros((self.M, self.M)).fill_(1))
         self.nu = nn.Parameter(th.ones((self.M, 1)).fill_(8))
         self.scale = nn.Parameter(th.ones((self.M, 1)))
         self._dist = dist
@@ -403,19 +374,14 @@ class BAR(nn.Module):
             self.w_feat = nn.Linear(features.size(1), 1)
             nn.init.xavier_normal_(self.w_feat.weight)
 
-    # nn.init.xavier_normal_(self.z)
-    # nn.init.xavier_normal_(self._alphas)
-
     def dist(self, scores):
         nu = th.zeros_like(scores)
         if self._dist == "poisson":
             return Poisson(scores)
         elif self._dist == "nb":
             return NegativeBinomial(scores, logits=self.nu)
-            # return NegativeBinomial(scores, logits=self.nu * self.nu_scale)
         elif self._dist == "normal":
             return Normal(scores, th.exp(self.nu))
-            # return Normal(scores, 1)
         else:
             raise RuntimeError(f"Unknown loss")
 
@@ -429,9 +395,6 @@ class BAR(nn.Module):
     def metapopulation_weights(self):
         alphas = self.alphas()
         W = th.sigmoid(alphas)
-        # W = W * F.softplus(self._alpha_weights)
-        # W = W * th.sigmoid(self._alpha_weights)
-        # W = W * self._alpha_weights
         W = self.adjdrop(W.unsqueeze(0).unsqueeze(-1))
         W = W.squeeze(0).squeeze(-1).t()
         if self.graph is not None:
@@ -441,8 +404,6 @@ class BAR(nn.Module):
     def score(self, t, ys):
         assert t.size(-1) == ys.size(-1), (t.size(), ys.size())
         length = ys.size(-1) - self.window + 1
-        # cs = ys.cumsum(dim=1) + self.offset
-        # _ys = cs * (self.population - cs) / self.population
 
         # beta evolution
         beta = self.beta(t, ys)
@@ -478,22 +439,13 @@ class BAR(nn.Module):
                 .view(orig_shape)
                 .mean(dim=0)
             )
-            # Ys = th.bmm(W, Ys).mean(dim=0)
         with th.no_grad():
             self.train_stats = (Z.mean().item(), Ys.mean().item())
 
-        # nu_scale = nu.narrow(-1, -ys.size(1), ys.size(1))
         if self.features is not None:
             Ys = Ys + F.softplus(self.w_feat(self.features))
 
-        # Ys = F.softplus(self.out_proj(th.stack([beta, Z, Ys], dim=-1)).squeeze())
-        # Ys = beta * (Z + th.exp(self.scale) * Ys) / self.neighbors
         Ys = beta * (Z + Ys) / self.neighbors
-        # Ys = beta * (Z + Ys)
-        # Ys = beta * Ys
-
-        # assert Ys.size(-1) == t.size(-1) - offset, (Ys.size(-1), t.size(-1), offset)
-        # self.nu_scale = nu_scale
         return Ys, beta, W
 
     def simulate(self, tobs, ys, days, deterministic=True, return_stds=False):
@@ -502,7 +454,7 @@ class BAR(nn.Module):
         assert tobs == preds.size(-1), (tobs, preds.size())
         stds = []
         for d in range(days):
-            t = th.arange(tobs + d).to(ys.device) + 1
+            t = th.arange(tobs + d, device=ys.device) + 1
             s, _, _ = self.score(t, preds)
             assert (s >= 0).all(), s.squeeze()
             if deterministic:
@@ -529,13 +481,12 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
     M = len(regions)
     device = new_cases.device
     tmax = new_cases.size(1)
-    t = th.arange(tmax).to(device) + 1
-    # size_pred = tmax - args.window
+    t = th.arange(tmax, device=device) + 1
     size_pred = tmax - days_ahead
-    reg = th.tensor([0]).to(device)
-    # target = new_cases.narrow(1, args.window, size_pred)
+    reg = th.tensor([0], device=device)
     target = new_cases.narrow(1, days_ahead, size_pred)
 
+    start_time = timeit.default_timer()
     for itr in range(1, args.niters + 1):
         optimizer.zero_grad()
         scores, beta, W = model.score(t, new_cases)
@@ -545,7 +496,6 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
         assert beta.size(0) == M
 
         # compute loss
-        # model.nu_scale = model.nu_scale.narrow(1, 0, size_pred)
         dist = model.dist(scores.narrow(1, days_ahead - 1, size_pred))
         _loss = dist.log_prob(target)
         loss = -_loss.sum(axis=1).mean()
@@ -578,16 +528,19 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
 
         # control
         if itr % 100 == 0:
+            time = timeit.default_timer() - start_time
             with th.no_grad(), np.printoptions(precision=3, suppress=True):
                 length = scores.size(1) - 1
                 maes = th.abs(dist.mean - new_cases.narrow(1, 1, length))
                 z = model.z
                 nu = th.sigmoid(model.nu)
                 means = model.dist(scores).mean
-                hist = np.histogram(
-                    W.cpu().numpy().flatten(), bins=np.arange(0, 1.1, 0.1), density=True
-                )
-                print("W hist =", hist[0])
+                # For some reason, the following `np.histogram` can be non-determinstically very slow.
+                # No idea why...
+                # hist = np.histogram(
+                #     W.cpu().contiguous().numpy().flatten(), bins=np.arange(0, 1.1, 0.1), density=True
+                # )
+                # print("W hist =", hist[0])
                 print(
                     f"[{itr:04d}] Loss {loss.item():.2f} | "
                     f"Temporal {reg.item():.5f} | "
@@ -598,14 +551,13 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                     f"alpha ({W.min().item():.2f}, {W.mean().item():.2f}, {W.max().item():.2f}) | "
                     f"nu ({nu.min().item():.2f}, {nu.mean().item():.2f}, {nu.max().item():.2f}) | "
                     f"nb_stddev ({stddev.data.mean().item():.2f}) | "
-                    f"scale ({th.exp(model.scale).mean():.2f})"
+                    f"scale ({th.exp(model.scale).mean():.2f}) | "
+                    f"time = {time:.2f}s"
                 )
-                # optimizer.swap_swa_sgd()
                 th.save(model.state_dict(), checkpoint)
-                # optimizer.swap_swa_sgd()
-    # optimizer.swap_swa_sgd()
+                start_time = timeit.default_timer()
     print(f"Train MAE,{maes.mean():.2f}")
-    return model  # , loss.item(), maes.mean()
+    return model
 
 
 def _get_arg(args, v, device, regions):
@@ -630,23 +582,15 @@ def _get_dict(args, v, device, regions):
             feats = None
             for i, r in enumerate(regions):
                 if r not in d:
-                    # print(r)
                     continue
                 _f = d[r]
                 if feats is None:
                     feats = th.zeros(len(regions), d[r].size(0), _f.size(1))
                 feats[i, :, : _f.size(1)] = _f
-            # feats.div_(feats.abs().max())
             _feats.append(feats.to(device).float())
         return th.cat(_feats, dim=2)
     else:
         return None
-
-
-from glob import glob
-from typing import List
-from cv import BestRun
-import os
 
 
 def to_one_hot(feats, nbins):
@@ -680,13 +624,6 @@ class BARCV(cv.CV):
         assert (new_cases >= 0).all(), new_cases[th.where(new_cases < 0)]
         new_cases = new_cases.float().to(device)[:, args.t0 :]
 
-        # prepare population
-        # populations = load.load_populations_by_region(args.fpop, regions=regions)
-        # print(set(regions) - set(populations["region"].values))
-        # populations = th.from_numpy(populations["population"].values).to(device)
-        # assert (populations > 0).all()
-        # assert populations.size(0) == len(regions), (len(regions), populations.size(0))
-        # populations = populations.unsqueeze(1).float()  # / 1000
         populations = None
 
         print("Number of Regions =", new_cases.size(0))
@@ -715,7 +652,6 @@ class BARCV(cv.CV):
             time_features = time_features.narrow(0, args.t0, new_cases.size(1))
             print("Feature size = {} x {} x {}".format(*time_features.size()))
             print(time_features.min(), time_features.max())
-            # time_features = to_one_hot(time_features, 15)
 
         self.weight_decay = 0
         # setup beta function
@@ -811,7 +747,6 @@ class BARCV(cv.CV):
         new_cases, regions, _, device = self.initialize(args)
 
         params = []
-        # exclude = {"nu", "beta.w_feat.weight", "beta.w_feat.bias"}
         exclude = {
             "z",
             "nu",
@@ -830,17 +765,13 @@ class BARCV(cv.CV):
             params.append({"params": p, "weight_decay": wd})
 
         optimizer = optim.AdamW(params, lr=args.lr, betas=[args.momentum, 0.999])
-        # optimizer = optim.SGD(params, lr=args.lr, momentum=args.momentum)
-        # optimizer = SWA(optimizer, swa_start=200, swa_freq=5, swa_lr=args.lr)
 
         model = train(self.func, new_cases, regions, optimizer, checkpoint, args)
         return model
 
     def run_prediction_interval(
-        self, means_pth: str, stds_pth: str, intervals: List[float]
+        self, means_pth: str, stds_pth: str, intervals: List[float], quiet=False
     ):
-        pi_multipliers = {0.99: 2.58, 0.95: 1.96, 0.80: 1.28}
-
         means = pd.read_csv(means_pth, index_col="date", parse_dates=["date"])
         stds = pd.read_csv(stds_pth, index_col="date", parse_dates=["date"])
 
@@ -851,9 +782,9 @@ class BARCV(cv.CV):
         nfailures = means_t * means_t / (variances - means_t)
         probs = (variances - means_t) / variances
 
-        multipliers = np.array([pi_multipliers[x] for x in intervals])
-        result = np.empty((means_t.shape[0], means_t.shape[1], len(intervals), 2))
-        with tqdm(total=means_t.size * len(intervals)) as pbar:
+        multipliers = np.array([norm.ppf(1 - (1 - x) / 2) for x in intervals])
+        result = np.empty((means_t.shape[0], means_t.shape[1], len(intervals), 3))
+        with tqdm(total=means_t.size * len(intervals), disable=quiet) as pbar:
             for i in range(means_t.shape[0]):
                 for j in range(means_t.shape[1]):
                     if probs[i, j] < 0 or probs[i, j] > 1:
@@ -867,6 +798,7 @@ class BARCV(cv.CV):
                             np.round(means_t[i, j] + multipliers * stds_t[i, j] - 0.5)
                             + 1
                         )
+                        result[i, j, :, 2] = 1  # fallback to old method
                         pbar.update(len(intervals))
                         continue
                     x = np.arange(0, max(2 * means_t[i, j] + 10 * stds_t[i, j], 20))
@@ -874,12 +806,14 @@ class BARCV(cv.CV):
                     for k, interval in enumerate(intervals):
                         lower = bisect_right(y, (1 - interval) / 2)
                         upper = bisect_left(y, 1 - (1 - interval) / 2)
+                        fallback = 0
                         if (
                             lower == len(y)
                             or upper == 0
                             or lower > means_t[i, j]
                             or upper < means_t[i, j]
                         ):
+                            fallback = 1
                             lower = np.clip(
                                 np.round(
                                     means_t[i, j] - multipliers[k] * stds_t[i, j] - 0.5
@@ -896,9 +830,10 @@ class BARCV(cv.CV):
                             )
                         result[i, j, k, 0] = lower
                         result[i, j, k, 1] = upper
+                        result[i, j, k, 2] = fallback
                         pbar.update(1)
         cols = pd.MultiIndex.from_product(
-            [means.columns, intervals, ["lower", "upper"]]
+            [means.columns, intervals, ["lower", "upper", "fallback"]]
         )
         result_df = pd.DataFrame(result.reshape(result.shape[0], -1), columns=cols)
         result_df["date"] = means.index

@@ -23,7 +23,7 @@ from argparse import Namespace
 from collections import namedtuple
 from datetime import datetime, timedelta
 from functools import partial
-from glob import glob
+from glob import glob, iglob
 from typing import Dict, Any, List, Optional, Tuple
 from tensorboardX import SummaryWriter
 from contextlib import nullcontext, ExitStack
@@ -31,18 +31,17 @@ import common
 import metrics
 from lib import cluster
 from lib.click_lib import DefaultGroup, OptionNArgs
-from lib.slurm_pool_executor import SlurmPoolExecutor, JobStatus
+from lib.slurm_pool_executor import SlurmPoolExecutor, JobStatus, get_db_client
 from lib.mail import email_notebook
 import sqlite3
 from lib.context_managers import env_var
 from lib.slack import get_client as get_slack_client
 
+
 # FIXME: move snapshot to lib
 from timelord import snapshot
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
-
-pi_multipliers = {0.99: 2.58, 0.95: 1.96, 0.80: 1.28}
 
 
 def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
@@ -230,22 +229,32 @@ def ensemble(basedirs, cfg, module, prefix, outdir):
     for basedir in basedirs:
         if os.path.exists(_path(cfg["validation"]["output"])):
             means.append(pd.read_csv(_path(cfg["validation"]["output"]), **kwargs))
-        if os.path.exists(_path("std_csv.csv")):
-            stds.append(pd.read_csv(_path("std_csv.csv"), **kwargs))
-            mean_deltas.append(pd.read_csv(_path("validation_deltas.csv")), **kwargs)
+        if os.path.exists(_path("std.csv")):
+            stds.append(pd.read_csv(_path("std.csv"), **kwargs))
+            mean_deltas.append(pd.read_csv(_path("mean.csv"), **kwargs))
     if len(stds) > 0:
         # Average the variance, and take square root
         std = pd.concat(stds).pow(2).groupby(level=0).mean().pow(0.5)
         std.to_csv(os.path.join(outdir, prefix + "std.csv"))
         mean_deltas = pd.concat(mean_deltas).groupby(level=0).mean()
-        mean_deltas.to_csv(os.path.join(outdir, prefix + "validation_deltas.csv"))
+        mean_deltas.to_csv(os.path.join(outdir, prefix + "mean.csv"))
 
     assert len(means) > 0, "All ensemble jobs failed!!!!"
+
+    mod = importlib.import_module(module).CV_CLS()
+
+    if len(stds) > 0:
+        pred_interval = cfg.get("prediction_interval", {})
+        piv = mod.run_prediction_interval(
+            os.path.join(outdir, prefix + "mean.csv"),
+            os.path.join(outdir, prefix + "std.csv"),
+            pred_interval.get("intervals", [0.99, 0.95, 0.8]),
+        )
+        piv.to_csv(os.path.join(outdir, prefix + "piv.csv"), index=False)
+
     mean = pd.concat(means).groupby(level=0).median()
     outfile = os.path.join(outdir, prefix + cfg["validation"]["output"])
     mean.to_csv(outfile, index_label="date")
-
-    mod = importlib.import_module(module).CV_CLS()
 
     # -- metrics --
     metric_args = cfg[module].get("metrics", {})
@@ -256,15 +265,6 @@ def ensemble(basedirs, cfg, module, prefix, outdir):
     with open(os.path.join(outdir, prefix + "metrics.json"), "w") as fout:
         json.dump(json_val, fout)
     print(df_val)
-
-    if len(stds) > 0:
-        pred_interval = cfg.get("prediction_interval", {})
-        piv = mod.run_prediction_interval(
-            os.path.join(outdir, prefix + "validation_deltas.csv"),
-            os.path.join(outdir, prefix + "std.csv"),
-            pred_interval.get("intervals", [0.99, 0.95, 0.8]),
-        )
-        piv.to_csv(os.path.join(outdir, prefix + "piv.csv"), index=False)
 
 
 def run_cv(
@@ -600,6 +600,12 @@ def prediction_interval(chkpnts, remote, nsamples, batchsize):
         )
         df_std.to_csv(os.path.join(job_pth, f"{prefix}std.csv"), index_label="date")
         df_mean.to_csv(os.path.join(job_pth, f"{prefix}mean.csv"), index_label="date")
+        pred_intervals = mod.run_prediction_interval(
+            os.path.join(job_pth, f"{prefix}mean.csv"),
+            os.path.join(job_pth, f"{prefix}std.csv"),
+            pred_interval.get("intervals", [0.99, 0.95, 0.8]),
+        )
+        pred_intervals.to_csv(os.path.join(job_pth, f"{prefix}piv.csv"), index=False)
 
     if remote:
         now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
@@ -783,8 +789,8 @@ def cv(
             jobs.append(job)
 
         if remote:
-            if not executor.nested:
-                executor.submit_final_job(attach_notebook, cfg, "cv", module, basedir)
+            # if not executor.nested:
+            #     executor.submit_final_job(attach_notebook, cfg, "cv", module, basedir)
             executor.launch(basedir + "/workers", array_parallelism)
 
     print(basedir)
@@ -882,9 +888,9 @@ def backfill(
                 )
 
         if remote:
-            executor.submit_final_job(
-                attach_notebook, config, "backfill", module, basedir
-            )
+            # executor.submit_final_job(
+            #     attach_notebook, config, "backfill", module, basedir
+            # )
             executor.launch(basedir + "/workers", array_parallelism)
 
 
@@ -892,10 +898,13 @@ def backfill(
 @click.argument("sweep_dir")
 def progress(sweep_dir):
     sweep_dir = os.path.realpath(sweep_dir)
-    DB = glob(f"{sweep_dir}/**/.job.db", recursive=True)[0]
-    conn = sqlite3.connect(DB)
-    conn.execute("PRAGMA read_uncommitted = true;")
-    df = pd.read_sql("SELECT status, worker_id FROM jobs", conn)
+    db_file = next(iglob(os.path.join(sweep_dir, "**/.job.db"), recursive=True))
+    db_file = os.path.realpath(db_file)
+    conn = get_db_client()
+    with conn.cursor() as cur:
+        df = pd.read_sql(
+            f"SELECT status, worker_id FROM jobs WHERE id='{db_file}'", conn
+        )
     msg = {
         "success": int((df["status"] == JobStatus.success.value).sum()),
         "failed": int((df["status"] == JobStatus.failure.value).sum()),
@@ -916,6 +925,38 @@ def add_workers(sweep_dir, workers):
         "add_workers", os.path.dirname(DB), extra_params, db_pth=os.path.realpath(DB)
     )
     executor.launch(f"{sweep_dir}/workers", workers)
+
+
+@cli.command()
+@click.argument("sweep_dir")
+@click.option("-workers", type=click.INT, default=10)
+def repair(sweep_dir, workers=None):
+    db_file = next(iglob(os.path.join(sweep_dir, "**/.job.db"), recursive=True))
+    conn = get_db_client()
+    with conn.cursor() as cur:
+        df = pd.read_sql(
+            f"SELECT * FROM jobs WHERE id='{os.path.realpath(db_file)}'", conn
+        )
+        df = df.drop_duplicates(["pickle"]).copy()
+        df.loc[
+            (df["status"] == JobStatus.failure) | (df["status"] >= len(JobStatus)),
+            "status",
+        ] = JobStatus.pending
+        cur.execute(f"DELETE FROM jobs WHERE id='{os.path.realpath(db_file)}'")
+        cols = df.columns
+        for _, row in df.iterrows():
+            vals = tuple(row[c] for c in cols)
+            cur.execute(
+                f"INSERT INTO jobs ({', '.join(cols)}) VALUES({','.join(['%s' for _ in cols])})",
+                vals,
+            )
+    conn.commit()
+    cfg = load_config(next(iglob(f"{sweep_dir}/**/cfg.yml", recursive=True)))
+    extra_params = cfg[cfg["this_module"]].get("resources", {})
+    executor = mk_executor(
+        "repair", sweep_dir, extra_params, db_pth=os.path.realpath(db_file)
+    )
+    executor.launch(os.path.join(sweep_dir, "workers"), workers or -1)
 
 
 if __name__ == "__main__":
