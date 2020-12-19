@@ -770,7 +770,12 @@ class BARCV(cv.CV):
         return model
 
     def run_prediction_interval(
-        self, means_pth: str, stds_pth: str, intervals: List[float], quiet=False
+        self,
+        means_pth: str,
+        stds_pth: str,
+        intervals: List[float],
+        quiet=False,
+        gaussian=True,
     ):
         means = pd.read_csv(means_pth, index_col="date", parse_dates=["date"])
         stds = pd.read_csv(stds_pth, index_col="date", parse_dates=["date"])
@@ -778,60 +783,79 @@ class BARCV(cv.CV):
         means_t = means.values
         stds_t = stds.values
 
-        variances = stds_t ** 2
-        nfailures = means_t * means_t / (variances - means_t)
-        probs = (variances - means_t) / variances
-
         multipliers = np.array([norm.ppf(1 - (1 - x) / 2) for x in intervals])
         result = np.empty((means_t.shape[0], means_t.shape[1], len(intervals), 3))
-        with tqdm(total=means_t.size * len(intervals), disable=quiet) as pbar:
-            for i in range(means_t.shape[0]):
-                for j in range(means_t.shape[1]):
-                    if probs[i, j] < 0 or probs[i, j] > 1:
-                        result[i, j, :, 0] = np.clip(
-                            np.round(means_t[i, j] - multipliers * stds_t[i, j] - 0.5)
-                            + 1,
-                            a_min=0,
-                            a_max=None,
-                        )
-                        result[i, j, :, 1] = (
-                            np.round(means_t[i, j] + multipliers * stds_t[i, j] - 0.5)
-                            + 1
-                        )
-                        result[i, j, :, 2] = 1  # fallback to old method
-                        pbar.update(len(intervals))
-                        continue
-                    x = np.arange(0, max(2 * means_t[i, j] + 10 * stds_t[i, j], 20))
-                    y = nbinom.cdf(x, nfailures[i, j], probs[i, j])
-                    for k, interval in enumerate(intervals):
-                        lower = bisect_right(y, (1 - interval) / 2)
-                        upper = bisect_left(y, 1 - (1 - interval) / 2)
-                        fallback = 0
-                        if (
-                            lower == len(y)
-                            or upper == 0
-                            or lower > means_t[i, j]
-                            or upper < means_t[i, j]
-                        ):
-                            fallback = 1
-                            lower = np.clip(
+        if gaussian:
+            lower = (
+                means_t[:, :, None] - multipliers.reshape(1, 1, -1) * stds_t[:, :, None]
+            )
+            upper = (
+                means_t[:, :, None] + multipliers.reshape(1, 1, -1) * stds_t[:, :, None]
+            )
+            result = np.stack(
+                [np.clip(lower, a_min=0, a_max=None), upper, np.ones(lower.shape)],
+                axis=-1,
+            )
+        else:
+            variances = stds_t ** 2
+            nfailures = means_t * means_t / (variances - means_t)
+            probs = (variances - means_t) / variances
+            with tqdm(total=means_t.size * len(intervals), disable=quiet) as pbar:
+                for i in range(means_t.shape[0]):
+                    for j in range(means_t.shape[1]):
+                        if probs[i, j] < 0 or probs[i, j] > 1:
+                            result[i, j, :, 0] = np.clip(
                                 np.round(
-                                    means_t[i, j] - multipliers[k] * stds_t[i, j] - 0.5
+                                    means_t[i, j] - multipliers * stds_t[i, j] - 0.5
                                 )
                                 + 1,
                                 a_min=0,
                                 a_max=None,
                             )
-                            upper = (
+                            result[i, j, :, 1] = (
                                 np.round(
-                                    means_t[i, j] + multipliers[k] * stds_t[i, j] - 0.5
+                                    means_t[i, j] + multipliers * stds_t[i, j] - 0.5
                                 )
                                 + 1
                             )
-                        result[i, j, k, 0] = lower
-                        result[i, j, k, 1] = upper
-                        result[i, j, k, 2] = fallback
-                        pbar.update(1)
+                            result[i, j, :, 2] = 1  # fallback to old method
+                            pbar.update(len(intervals))
+                            continue
+                        x = np.arange(0, max(2 * means_t[i, j] + 10 * stds_t[i, j], 20))
+                        y = nbinom.cdf(x, nfailures[i, j], probs[i, j])
+                        for k, interval in enumerate(intervals):
+                            lower = bisect_right(y, (1 - interval) / 2)
+                            upper = bisect_left(y, 1 - (1 - interval) / 2)
+                            fallback = 0
+                            if (
+                                lower == len(y)
+                                or upper == 0
+                                or lower > means_t[i, j]
+                                or upper < means_t[i, j]
+                            ):
+                                fallback = 1
+                                lower = np.clip(
+                                    np.round(
+                                        means_t[i, j]
+                                        - multipliers[k] * stds_t[i, j]
+                                        - 0.5
+                                    )
+                                    + 1,
+                                    a_min=0,
+                                    a_max=None,
+                                )
+                                upper = (
+                                    np.round(
+                                        means_t[i, j]
+                                        + multipliers[k] * stds_t[i, j]
+                                        - 0.5
+                                    )
+                                    + 1
+                                )
+                            result[i, j, k, 0] = lower
+                            result[i, j, k, 1] = upper
+                            result[i, j, k, 2] = fallback
+                            pbar.update(1)
         cols = pd.MultiIndex.from_product(
             [means.columns, intervals, ["lower", "upper", "fallback"]]
         )
