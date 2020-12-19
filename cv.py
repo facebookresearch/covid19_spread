@@ -104,7 +104,15 @@ class CV:
         return df
 
     def run_standard_deviation(
-        self, dset, args, nsamples, intervals, orig_cases, model=None, batch_size=1
+        self,
+        dset,
+        args,
+        nsamples,
+        intervals,
+        orig_cases,
+        model=None,
+        batch_size=1,
+        closed_form=False,
     ):
         with th.no_grad():
             args.fdat = dset
@@ -112,7 +120,23 @@ class CV:
                 raise NotImplementedError
 
             cases, regions, basedate, device = self.initialize(args)
+
             tmax = cases.size(1)
+
+            base = pd.to_datetime(basedate)
+
+            def mk_df(arr):
+                df = pd.DataFrame(arr, columns=regions)
+                df.index = pd.date_range(base + timedelta(days=1), periods=args.test_on)
+                return df
+
+            if closed_form:
+                preds, stds = model.simulate(
+                    tmax, cases, args.test_on, deterministic=True, return_stds=True
+                )
+                stds = th.cat([x.narrow(-1, -1, 1) for x in stds], dim=-1)
+                return mk_df(stds.cpu().numpy().T), mk_df(preds.cpu().numpy().T)
+
             samples = []
 
             if batch_size > 1:
@@ -128,13 +152,6 @@ class CV:
                 if batch_size <= 1
                 else np.concatenate(samples, axis=0)
             )
-
-            base = pd.to_datetime(basedate)
-
-            def mk_df(arr):
-                df = pd.DataFrame(arr, columns=regions)
-                df.index = pd.date_range(base + timedelta(days=1), periods=args.test_on)
-                return df
 
             return mk_df(np.std(samples, axis=0).T), mk_df(np.mean(samples, axis=0).T)
 
@@ -178,9 +195,14 @@ class CV:
             ablations = []
             for _, row in df.iterrows():
                 job_cfg = load_config(os.path.join(row.pth, f"{module}.yml"))
-                ablations.append(
-                    ",".join(os.path.basename(x) for x in job_cfg["train"]["ablation"])
-                )
+                if job_cfg["train"]["ablation"] is not None:
+                    ablations.append(
+                        ",".join(
+                            os.path.basename(x) for x in job_cfg["train"]["ablation"]
+                        )
+                    )
+                else:
+                    ablations.append("null")
             df["ablation"] = ablations
             best_runs = []
             for key in ["mae", "rmse", "mae_deltas", "rmse_deltas"]:
@@ -226,18 +248,20 @@ def ensemble(basedirs, cfg, module, prefix, outdir):
     stds = []
     mean_deltas = []
     kwargs = {"index_col": "date", "parse_dates": ["date"]}
+    stdfile = "std_closed_form.csv"
+    meanfile = "mean_closed_form.csv"
     for basedir in basedirs:
         if os.path.exists(_path(cfg["validation"]["output"])):
             means.append(pd.read_csv(_path(cfg["validation"]["output"]), **kwargs))
-        if os.path.exists(_path("std.csv")):
-            stds.append(pd.read_csv(_path("std.csv"), **kwargs))
-            mean_deltas.append(pd.read_csv(_path("mean.csv"), **kwargs))
+        if os.path.exists(_path(stdfile)):
+            stds.append(pd.read_csv(_path(stdfile), **kwargs))
+            mean_deltas.append(pd.read_csv(_path(meanfile), **kwargs))
     if len(stds) > 0:
         # Average the variance, and take square root
         std = pd.concat(stds).pow(2).groupby(level=0).mean().pow(0.5)
-        std.to_csv(os.path.join(outdir, prefix + "std.csv"))
+        std.to_csv(os.path.join(outdir, prefix + stdfile))
         mean_deltas = pd.concat(mean_deltas).groupby(level=0).mean()
-        mean_deltas.to_csv(os.path.join(outdir, prefix + "mean.csv"))
+        mean_deltas.to_csv(os.path.join(outdir, prefix + meanfile))
 
     assert len(means) > 0, "All ensemble jobs failed!!!!"
 
@@ -246,9 +270,10 @@ def ensemble(basedirs, cfg, module, prefix, outdir):
     if len(stds) > 0:
         pred_interval = cfg.get("prediction_interval", {})
         piv = mod.run_prediction_interval(
-            os.path.join(outdir, prefix + "mean.csv"),
-            os.path.join(outdir, prefix + "std.csv"),
+            os.path.join(outdir, prefix + meanfile),
+            os.path.join(outdir, prefix + stdfile),
             pred_interval.get("intervals", [0.99, 0.95, 0.8]),
+            gaussian=True,
         )
         piv.to_csv(os.path.join(outdir, prefix + "piv.csv"), index=False)
 
@@ -339,8 +364,6 @@ def run_cv(
     preprocessed = _path(prefix + "preprocessed_" + os.path.basename(dset))
     mod.preprocess(val_in, preprocessed, cfg[module].get("preprocess", {}))
 
-    forecasts = []
-    # weights = []
     mod.setup_tensorboard(basedir)
     # setup logging
     train_params = Namespace(**cfg[module]["train"])
@@ -392,12 +415,15 @@ def run_cv(
                     prev_day.values.T,
                     model,
                     pred_interval.get("batch_size", 8),
+                    closed_form=True,
                 )
-                df_std.to_csv(_path(f"{prefix}std.csv"), index_label="date")
-                df_mean.to_csv(_path(f"{prefix}mean.csv"), index_label="date")
+                df_std.to_csv(_path(f"{prefix}std_closed_form.csv"), index_label="date")
+                df_mean.to_csv(
+                    _path(f"{prefix}mean_closed_form.csv"), index_label="date"
+                )
                 piv = mod.run_prediction_interval(
-                    _path(f"{prefix}mean.csv"),
-                    _path(f"{prefix}std.csv"),
+                    _path(f"{prefix}mean_closed_form.csv"),
+                    _path(f"{prefix}std_closed_form.csv"),
                     pred_interval.get("intervals", [0.99, 0.95, 0.8]),
                 )
                 piv.to_csv(_path(f"{prefix}piv.csv"), index=False)
@@ -561,7 +587,8 @@ def cli():
 @click.option("-remote", is_flag=True)
 @click.option("-nsamples", type=click.INT)
 @click.option("-batchsize", type=int)
-def prediction_interval(chkpnts, remote, nsamples, batchsize):
+@click.option("-closed-form", is_flag=True)
+def prediction_interval(chkpnts, remote, nsamples, batchsize, closed_form):
     def f(chkpnt_pth):
         prefix = "final_model_" if "final_model_" in chkpnt_pth else ""
         chkpnt = th.load(chkpnt_pth)
@@ -597,15 +624,24 @@ def prediction_interval(chkpnts, remote, nsamples, batchsize):
             prev_day.values.T,
             model,
             batchsize or pred_interval.get("batch_size", 8),
+            closed_form=closed_form,
         )
-        df_std.to_csv(os.path.join(job_pth, f"{prefix}std.csv"), index_label="date")
-        df_mean.to_csv(os.path.join(job_pth, f"{prefix}mean.csv"), index_label="date")
+        suffix = "_closed_form" if closed_form else ""
+        df_std.to_csv(
+            os.path.join(job_pth, f"{prefix}std{suffix}.csv"), index_label="date"
+        )
+        df_mean.to_csv(
+            os.path.join(job_pth, f"{prefix}mean{suffix}.csv"), index_label="date"
+        )
         pred_intervals = mod.run_prediction_interval(
-            os.path.join(job_pth, f"{prefix}mean.csv"),
-            os.path.join(job_pth, f"{prefix}std.csv"),
+            os.path.join(job_pth, f"{prefix}mean{suffix}.csv"),
+            os.path.join(job_pth, f"{prefix}std{suffix}.csv"),
             pred_interval.get("intervals", [0.99, 0.95, 0.8]),
+            gaussian=True,
         )
-        pred_intervals.to_csv(os.path.join(job_pth, f"{prefix}piv.csv"), index=False)
+        pred_intervals.to_csv(
+            os.path.join(job_pth, f"{prefix}piv{suffix}.csv"), index=False
+        )
 
     if remote:
         now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
@@ -895,6 +931,20 @@ def backfill(
 
 
 @cli.command()
+@click.argument("paths", nargs=-1)
+def ensemble_jobs(paths):
+    for path in paths:
+        ms = json.load(open(os.path.join(path, "model_selection.json")))
+        ms = {x["name"]: x["pth"] for x in ms}
+        jobs = [
+            x for x in glob(os.path.join(ms["best_mae"], "job_*")) if os.path.isdir(x)
+        ]
+        cfg = load_config(os.path.join(path, "cfg.yml"))
+        cfg["prediction_interval"]["intervals"] = [0.95, 0.8, 0.5]
+        ensemble(jobs, cfg, cfg["this_module"], "final_model_", ms["best_mae"])
+
+
+@cli.command()
 @click.argument("sweep_dir")
 def progress(sweep_dir):
     sweep_dir = os.path.realpath(sweep_dir)
@@ -939,7 +989,7 @@ def repair(sweep_dir, workers=None):
         )
         df = df.drop_duplicates(["pickle"]).copy()
         df.loc[
-            (df["status"] == JobStatus.failure) | (df["status"] >= len(JobStatus)),
+            (df["status"] == JobStatus.failure),  # | (df["status"] >= len(JobStatus)),
             "status",
         ] = JobStatus.pending
         cur.execute(f"DELETE FROM jobs WHERE id='{os.path.realpath(db_file)}'")
