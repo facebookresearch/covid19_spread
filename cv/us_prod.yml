@@ -9,12 +9,12 @@ test:
   output: validation.csv
 forecast:
   output: forecast.csv
-# prediction_interval:
-#   output_mean: mean.csv
-#   output_std: std.csv
-#   intervals: [0.99, 0.95, 0.8]
-#   nsamples: 5000
-#   batch_size: 10
+prediction_interval:
+  output_mean: mean.csv
+  output_std: std.csv
+  intervals: [.95, 0.8, .5]
+  nsamples: 5000
+  batch_size: 10
 bar:
   output: bar_model.bin
   data: data/usa/data_cases.csv
