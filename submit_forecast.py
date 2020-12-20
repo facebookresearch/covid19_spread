@@ -258,22 +258,35 @@ def get_prod_forecast_by_date(date):
 
 
 @cli.command()
+@click.argument("date")
+def pth(date):
+    print(get_prod_forecast_by_date(date))
+
+
+@cli.command()
 @click.argument("pth")
 @click.option("-no-push", is_flag=True)
 @click.option("-team", default="FAIR-NRAR")
 @click.option("-nweeks", type=click.INT)
-def submit_reichlab(pth, no_push, team, nweeks):
+@click.option("-pivfile")
+def submit_reichlab(pth, no_push, team, nweeks, pivfile):
     if not os.path.exists(pth) and is_date(pth):
         pth = get_prod_forecast_by_date(pth)
     job_pth = get_best(pth, "best_mae")
     kwargs = {"index_col": "date", "parse_dates": ["date"]}
-    forecast = pandas.read_csv(
-        os.path.join(job_pth, "final_model_validation.csv"), **kwargs
-    )
-    gt = load_ground_truth(os.path.join(pth, "data_cases.csv"))
-    forecast_date = forecast.index.min() - timedelta(days=1)
-    forecast.loc[forecast_date] = gt.loc[forecast_date]
-    deltas = forecast.sort_index().diff()
+
+    if os.path.exists(os.path.join(job_pth, "final_model_mean_closed_form.csv")):
+        deltas = pandas.read_csv(
+            os.path.join(job_pth, "final_model_mean_closed_form.csv"), **kwargs
+        )
+        forecast_date = deltas.index.min() - timedelta(days=1)
+    else:
+        forecast = pandas.read_csv(
+            os.path.join(job_pth, "final_model_validation.csv"), **kwargs
+        )
+        gt = load_ground_truth(os.path.join(pth, "data_cases.csv"))
+        forecast.loc[forecast_date] = gt.loc[forecast_date]
+        deltas = forecast.sort_index().diff()
     index = get_index()
 
     def format_df(df, type_, quantile):
@@ -310,23 +323,23 @@ def submit_reichlab(pth, no_push, team, nweeks):
     q50["type"] = "quantile"
 
     pred_intervals = [q50]
-    if os.path.exists(os.path.join(job_pth, "final_model_piv.csv")):
+    if os.path.exists(os.path.join(job_pth, pivfile or "final_model_piv.csv")):
         piv = pandas.read_csv(
-            os.path.join(job_pth, "final_model_piv.csv"), parse_dates=["date"]
+            os.path.join(job_pth, pivfile or "final_model_piv.csv"),
+            parse_dates=["date"],
         )
         for interval, group in piv.groupby("interval"):
             pivot = group.pivot(
                 index="date", columns="location", values="lower"
             ).sort_index()
-            quantile = round(1 - interval, len(str(interval).split(".")[1]))
+            quantile = round((1 - interval) / 2, 3)
             pred_intervals.append(format_df(pivot, type_="quantile", quantile=quantile))
             pivot = group.pivot(
                 index="date", columns="location", values="upper"
             ).sort_index()
-            pred_intervals.append(format_df(pivot, type_="quantile", quantile=interval))
-
+            quantile = round(1 - (1 - interval) / 2, 3)
+            pred_intervals.append(format_df(pivot, type_="quantile", quantile=quantile))
     merged = pandas.concat(pred_intervals + [point_estimates])
-
     data_pth = update_repo("git@github.com:lematt1991/covid19-forecast-hub.git")
     upstream_repo = "git@github.com:reichlab/covid19-forecast-hub.git"
     # This is bad, but not sure how to add a remote if it already exists
