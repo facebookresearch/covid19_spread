@@ -19,3 +19,4 @@ data/usa/fb/fb_mobility*
 *.egg-info
 build
 dist
+*.csv
