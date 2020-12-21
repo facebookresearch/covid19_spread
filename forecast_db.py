@@ -47,6 +47,7 @@ def update_repo(repo):
     data_pth = f"{cluster.FS}/{user}/covid19/data/{name}"
     if not os.path.exists(data_pth):
         check_call(["git", "clone", repo, data_pth])
+    check_call(["git", "checkout", "master"])
     check_call(["git", "pull"], cwd=data_pth)
     return data_pth
 
