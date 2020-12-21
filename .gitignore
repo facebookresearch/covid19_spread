@@ -15,3 +15,7 @@ data/new-jersey/nj-official-*.csv
 data/usa/**/*.pt
 data/usa/fb/**/README.txt
 data/usa/fb/fb_mobility*
+.cache
+*.egg-info
+build
+dist
