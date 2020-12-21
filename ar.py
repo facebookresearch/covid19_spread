@@ -12,6 +12,7 @@ import load
 import cv
 import decay
 from wavenet import Wavenet, CausalConv1d
+from bar import BARCV
 
 
 class BetaLatent(nn.Module):
@@ -265,11 +266,10 @@ def _get_arg(args, v, device):
         return None
 
 
-class ARCV(cv.CV):
+class ARCV(BARCV):
     def initialize(self, args):
         device = th.device("cuda" if th.cuda.is_available() else "cpu")
         cases, regions, basedate = load.load_confirmed_csv(args.fdat)
-
         # prepare population
         # populations = load.load_populations_by_region(args.fpop, regions=regions)
         # populations = th.from_numpy(populations["population"].values).to(device)
