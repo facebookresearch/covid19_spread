@@ -40,7 +40,7 @@ from metrics import _compute_metrics
 def load_backfill(
     job,
     basedir=f"/checkpoint/{os.environ['USER']}/covid19/forecasts",
-    model="ar",
+    model=None,
     indicator="model_selection.json",
     forecast="best_rmse",
 ):
@@ -57,7 +57,9 @@ def load_backfill(
         date = date[6:]
         forecasts[date] = os.path.join(job, f"../forecasts/forecast_{forecast}.csv")
         cfg = yaml.safe_load(open(os.path.join(job, "../cfg.yml")))
-        cfg = yaml.safe_load(open(os.path.join(job, f"{cfg['this_module']}.yml")))
+        cfg = yaml.safe_load(
+            open(os.path.join(job, f"{model or cfg['this_module']}.yml"))
+        )
         cfg = cfg["train"]
         cfg["date"] = date
         cfg["job"] = job
