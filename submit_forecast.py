@@ -32,6 +32,8 @@ from epiweeks import Week
 from forecast_db import update_repo
 from io import BytesIO
 from string import Template
+from importlib.machinery import SourceFileLoader
+from lib.context_managers import sys_path
 
 
 license_txt = (
@@ -342,6 +344,7 @@ def submit_reichlab(pth, no_push, team, nweeks, pivfile):
     merged = pandas.concat(pred_intervals + [point_estimates])
     data_pth = update_repo("git@github.com:lematt1991/covid19-forecast-hub.git")
     upstream_repo = "git@github.com:reichlab/covid19-forecast-hub.git"
+
     # This is bad, but not sure how to add a remote if it already exists
     try:
         check_call(["git", "remote", "add", "upstream", upstream_repo], cwd=data_pth)
@@ -356,6 +359,17 @@ def submit_reichlab(pth, no_push, team, nweeks, pivfile):
     filename = str(forecast_date.date()) + f"-{team}.csv"
     outpth = os.path.join(data_pth, "data-processed", team, filename)
     merged.to_csv(outpth, index=False)
+
+    with sys_path(os.path.join(data_pth, "code/validation")):
+        module = SourceFileLoader(
+            fullname=".",
+            path=os.path.join(data_pth, "code/validation/test_formatting.py"),
+        ).load_module()
+        failed, file_errors = module.validate_forecast_file(outpth)
+        if failed:
+            raise RuntimeError(file_errors)
+        print("Successfully validated file!")
+
     if not no_push:
         check_call(
             ["git", "checkout", "-b", f"forecast-{forecast_date.date()}"], cwd=data_pth
