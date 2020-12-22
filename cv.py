@@ -31,7 +31,12 @@ import common
 import metrics
 from lib import cluster
 from lib.click_lib import DefaultGroup, OptionNArgs
-from lib.slurm_pool_executor import SlurmPoolExecutor, JobStatus, get_db_client
+from lib.slurm_pool_executor import (
+    SlurmPoolExecutor,
+    JobStatus,
+    get_db_client,
+    TransactionManager,
+)
 from lib.mail import email_notebook
 import sqlite3
 from lib.context_managers import env_var
@@ -979,34 +984,55 @@ def add_workers(sweep_dir, workers):
 
 @cli.command()
 @click.argument("sweep_dir")
-@click.option("-workers", type=click.INT, default=10)
-def repair(sweep_dir, workers=None):
+@click.option("-workers", type=click.INT)
+@click.option("-reset-running", is_flag=True, default=False)
+def repair(sweep_dir, workers=None, reset_running=False):
     db_file = next(iglob(os.path.join(sweep_dir, "**/.job.db"), recursive=True))
-    conn = get_db_client()
-    with conn.cursor() as cur:
-        df = pd.read_sql(
-            f"SELECT * FROM jobs WHERE id='{os.path.realpath(db_file)}'", conn
+    txn_manager = TransactionManager(os.path.realpath(db_file))
+    cond = ""
+    if reset_running:
+        cond = f" OR status >= {len(JobStatus)}"
+    txn_manager.run(
+        lambda conn: conn.execute(
+            f"""
+    UPDATE jobs SET status={JobStatus.pending}
+    WHERE id='{os.path.realpath(db_file)}' AND (status={JobStatus.failure} {cond})
+    """
         )
-        df = df.drop_duplicates(["pickle"]).copy()
-        df.loc[
-            (df["status"] == JobStatus.failure),  # | (df["status"] >= len(JobStatus)),
-            "status",
-        ] = JobStatus.pending
-        cur.execute(f"DELETE FROM jobs WHERE id='{os.path.realpath(db_file)}'")
-        cols = df.columns
-        for _, row in df.iterrows():
-            vals = tuple(row[c] for c in cols)
-            cur.execute(
-                f"INSERT INTO jobs ({', '.join(cols)}) VALUES({','.join(['%s' for _ in cols])})",
-                vals,
-            )
-    conn.commit()
-    cfg = load_config(next(iglob(f"{sweep_dir}/**/cfg.yml", recursive=True)))
-    extra_params = cfg[cfg["this_module"]].get("resources", {})
-    executor = mk_executor(
-        "repair", sweep_dir, extra_params, db_pth=os.path.realpath(db_file)
     )
-    executor.launch(os.path.join(sweep_dir, "workers"), workers or -1)
+    if workers is not None:
+        cfg = load_config(next(iglob(f"{sweep_dir}/**/cfg.yml", recursive=True)))
+        extra_params = cfg[cfg["this_module"]].get("resources", {})
+        executor = mk_executor(
+            "repair", sweep_dir, extra_params, db_pth=os.path.realpath(db_file)
+        )
+        executor.launch(os.path.join(sweep_dir, "workers"), workers or -1)
+
+
+@cli.command()
+@click.argument("sweep_dir")
+@click.option(
+    "--type",
+    "-t",
+    type=click.Choice(["failure", "running", "pending", "success"]),
+    required=True,
+)
+def list_jobs(sweep_dir, type):
+    db_file = next(iglob(os.path.join(sweep_dir, "**/.job.db"), recursive=True))
+    db_file = os.path.realpath(db_file)
+    conn = get_db_client()
+    if type == "running":
+        cond = f"status >= {len(JobStatus)}"
+    else:
+        cond = f"status = {getattr(JobStatus, type)}"
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+        SELECT pickle, worker_id FROM jobs WHERE id='{db_file}' AND {cond}
+        """
+        )
+        for row in cur:
+            print(row)
 
 
 if __name__ == "__main__":
