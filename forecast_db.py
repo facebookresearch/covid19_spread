@@ -133,9 +133,6 @@ def sync_max_forecasts(conn):
 
 def sync_nyt(conn):
     # Sync the NYTimes ground truth data
-    conn.execute("DELETE FROM infections WHERE id='nyt_ground_truth'")
-    conn.execute("DELETE FROM deaths WHERE id='nyt_ground_truth'")
-
     def dump(df, metric):
         df = df.reset_index().melt(
             id_vars=["date"], value_name="counts", var_name="loc2"
@@ -415,11 +412,15 @@ def sync_columbia(conn):
     )
     fips["fips"] = fips["fips"].apply(lambda x: x.zfill(5))
     fips = fips.drop_duplicates(["fips"])
-    usa_facts = pandas.read_sql(
-        "SELECT * FROM infections WHERE id='usafacts_ground_truth'",
-        conn,
+    usa_facts = pandas.read_csv(
+        "/checkpoint/mattle/covid19/csvs/infections/usafacts_ground_truth/counts.csv",
         parse_dates=["date"],
     )
+    usa_facts = usa_facts.melt(
+        id_vars=["date"], value_name="counts", var_name="location"
+    )
+    usa_facts["loc2"] = usa_facts["location"].apply(lambda x: x.split(", ")[1])
+    usa_facts["loc3"] = usa_facts["location"].apply(lambda x: x.split(", ")[0])
     for file in glob(f"{data_dir}/Projection_*/Projection_*.csv"):
         print(file)
         df = pandas.read_csv(
@@ -449,13 +450,13 @@ def sync_columbia(conn):
 
         with_base = merged.merge(prev_day, on=["loc2", "loc3"], suffixes=("", "_y"))
         with_base["counts"] += with_base["counts_y"]
+        name = re.search("Projection_(.*).csv", os.path.basename(file)).group(1)
+        with_base["id"] = f"columbia_{name}"
         with_base = with_base[
             ["loc1", "loc2", "loc3", "date", "forecast_date", "id", "counts"]
         ]
         with_base = pandas.concat([with_base, prev_day])
         with_base["forecast_date"] = first_day
-        name = re.search("Projection_(.*).csv", os.path.basename(file)).group(1)
-        with_base["id"] = f"columbia_{name}"
         to_csv(with_base, "infections", f"columbia_{name}", first_day)
         conn.execute(
             f"INSERT INTO gt_mapping(id, gt) VALUES ('columbia_{name}','infections') ON CONFLICT DO NOTHING"
@@ -598,19 +599,19 @@ def sync_forecasts(distribute=False):
     if not os.path.exists(DB):
         mk_db()
     conn = sqlite3.connect(DB)
-    sync_county_level_reichlab_case_date(conn)
-    sync_google(conn)
+    # sync_county_level_reichlab_case_date(conn)
+    # sync_google(conn)
     sync_usa_facts(conn)
     sync_columbia(conn)
-    # sync_jhu(conn)
-    sync_austria_gt(conn)
-    sync_matts_forecasts(conn)
-    sync_max_forecasts(conn)
+    # # sync_jhu(conn)
+    # sync_austria_gt(conn)
+    # sync_matts_forecasts(conn)
+    # sync_max_forecasts(conn)
     sync_nyt(conn)
-    sync_ihme(conn)
-    sync_los_alamos(conn)
-    sync_mit(conn)
-    sync_yyg(conn)
+    # sync_ihme(conn)
+    # sync_los_alamos(conn)
+    # sync_mit(conn)
+    # sync_yyg(conn)
     if distribute:
         pass
 
