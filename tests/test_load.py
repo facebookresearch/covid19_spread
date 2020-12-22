@@ -4,7 +4,7 @@ import pytest
 
 
 DATA_PATH_US_CSV = "data/usa/data_cases.csv"
-DATA_PATH_NY_CSV = "data/nystate/data-new.csv"
+DATA_PATH_NY_CSV = "data/usa/data_cases_ny.csv"
 DATA_PATH_NY_H5 = "data/nystate/timeseries.h5"
 POP_PATH = "data/population-data/US-states/new-york-population.csv"
 
@@ -34,7 +34,7 @@ class TestLoad:
         """Verifies the regions in cases and population data match"""
         cases_df = load.load_confirmed_by_region(DATA_PATH_NY_CSV)
         populations_df = load.load_populations_by_region(POP_PATH)
-        case_regions = sorted(cases_df.columns)
+        case_regions = sorted([x.split(", ")[0] for x in cases_df.columns])
         population_regions = sorted(populations_df["region"].tolist())
         assert case_regions == population_regions
 

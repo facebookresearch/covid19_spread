@@ -10,29 +10,15 @@ import pytest
 
 import load
 import sir
+import yaml
+from argparse import Namespace
 
 
-basedir = os.getcwd()
-
-
-class TrainParamsNY:
-    fdat = "data/nystate/data-new.csv"
-    fpop = "data/population-data/US-states/new-york-population.csv"
-    window = 14
-    recovery_days = 14
-    distancing_reduction = 0.2
-    days = 7
-    keep = 7
-
-
-class TrainParamsUS:
-    fdat = "data/usa/data_cases.csv"
-    fpop = "data/usa/population_county.csv"
-    window = 30
-    recovery_days = 10
-    distancing_reduction = 0.8
-    days = 7
-    keep = 7
+script_dir = os.path.dirname(os.path.realpath(__file__))
+CONFIGS = {
+    "us": os.path.join(script_dir, "../cv/us.yml"),
+    "ny": os.path.join(script_dir, "../cv/ny.yml"),
+}
 
 
 class TestSIRCrossValidation:
@@ -46,9 +32,12 @@ class TestSIRCrossValidation:
         except OSError:
             pass
 
-    @pytest.mark.parametrize("train_params", [TrainParamsNY, TrainParamsUS])
-    def test_run_train(self, checkpoint_path, train_params):
+    @pytest.mark.parametrize("cfg_pth", [CONFIGS["us"], CONFIGS["ny"]])
+    def test_run_train(self, checkpoint_path, cfg_pth):
         """Verifies doubling times are > 0 and region lengths match"""
+        cfg = yaml.safe_load(open(cfg_pth))
+        train_params = Namespace(**cfg["sir"]["train"])
+        train_params.fdat = cfg["sir"]["data"]
         sir_cv = sir.SIRCV()
         model = sir_cv.run_train(train_params.fdat, train_params, checkpoint_path)
         assert isinstance(model, list)
@@ -58,9 +47,12 @@ class TestSIRCrossValidation:
         assert (doubling_times >= 0).all()
         assert doubling_times.shape == (len(regions),)
 
-    @pytest.mark.parametrize("train_params", [TrainParamsNY, TrainParamsUS])
-    def test_run_simulate(self, checkpoint_path, train_params):
+    @pytest.mark.parametrize("cfg_pth", [CONFIGS["us"], CONFIGS["ny"]])
+    def test_run_simulate(self, checkpoint_path, cfg_pth):
         """Verifies predictions match expected length"""
+        cfg = yaml.safe_load(open(cfg_pth))
+        train_params = Namespace(**cfg["sir"]["train"])
+        train_params.fdat = cfg["sir"]["data"]
         sir_cv = sir.SIRCV()
         model = sir_cv.run_train(train_params.fdat, train_params, checkpoint_path)
         # model is doubling_times

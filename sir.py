@@ -220,7 +220,7 @@ class SIRCV(cv.CV):
         return pd.concat([cases_df, df]).sort_index().diff().loc[df.index]
 
     def run_standard_deviation(
-        self, dset, args, nsamples, intervals, orig_cases, model=None, batch_size=1
+        self, dset, args, nsamples, intervals, orig_cases, *nargs, **kwargs
     ):
         raise NotImplementedError
 
