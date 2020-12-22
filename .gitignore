@@ -20,3 +20,9 @@ data/usa/fb/fb_mobility*
 build
 dist
 *.csv
+data/.sweep.db
+cb_2018_us_county_20m.zip
+us_counties
+us_counties_index.geojson
+gadm
+gadm36_USA_shp.zip
