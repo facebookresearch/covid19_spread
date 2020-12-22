@@ -81,8 +81,10 @@ def drop_all_zero_csv(df):
 
 def smooth_csv(indset: str, outdset: str, days: int):
     df = pd.read_csv(indset, index_col="region").transpose()
-    smooth = np.ceil(df.rolling(window=days, min_periods=1).mean())
-    smooth.transpose().to_csv(outdset)
+    incident_cases = df.diff()
+    smooth = np.round(incident_cases.rolling(window=days, min_periods=1).mean())
+    smooth.iloc[0] = df.iloc[0]
+    smooth.cumsum(0).transpose().to_csv(outdset)
 
 
 def smooth_h5(indset: str, outdset: str, smooth_days: int):
