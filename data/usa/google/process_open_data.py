@@ -99,8 +99,13 @@ weather.round(3).to_csv("weather_features_state.csv")
 # --- Epi features ---
 df = pandas.read_csv(
     "https://storage.googleapis.com/covid19-open-data/v2/epidemiology.csv",
-    parse_dates=["date"],
+    # parse_dates=["date"],
 )
+# TODO: remove the following 2 lines.  For some reason, Google is listing some dates as "2564-M-d"
+# This breaks pandas date parsing and causes downstream problems
+df = df[~df["date"].str.startswith("2564")].copy()
+df["date"] = pandas.to_datetime(df["date"])
+
 state_epi = process_df(
     df,
     columns=["new_confirmed"],
@@ -109,7 +114,6 @@ state_epi = process_df(
     func_normalize=lambda x: zero_one(x.clip(0, None)),
 )
 state_epi.round(3).to_csv("epi_features_state.csv")
-
 epi = process_df(
     df,
     columns=["new_confirmed"],
