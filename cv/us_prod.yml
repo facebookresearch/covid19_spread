@@ -23,6 +23,8 @@ bar:
     cpus: 1
     memgb: 15
     timeout: 3600
+  preprocess:
+    smooth: 7
   train:
     n_models: 5
     fpop: data/usa/population_county.csv
