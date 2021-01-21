@@ -591,27 +591,30 @@ def sync_county_level_reichlab_case_date(conn):
             )
 
 
+datasets = {
+    "usa_facts": sync_usa_facts,
+    "columbia": sync_columbia,
+    "nyt": sync_nyt,
+    "los_alamos": sync_los_alamos,
+}
+
+
 @click.command()
 @click.option(
     "--distribute", is_flag=True, help="Distribute across clusters (H1/H2)",
 )
-def sync_forecasts(distribute=False):
+@click.option("--dataset", default=None, type=click.Choice(datasets.keys()))
+def sync_forecasts(distribute=False, dataset=None):
     if not os.path.exists(DB):
         mk_db()
     conn = sqlite3.connect(DB)
-    # sync_county_level_reichlab_case_date(conn)
-    # sync_google(conn)
-    sync_usa_facts(conn)
-    sync_columbia(conn)
-    # # sync_jhu(conn)
-    # sync_austria_gt(conn)
-    # sync_matts_forecasts(conn)
-    # sync_max_forecasts(conn)
-    sync_nyt(conn)
-    # sync_ihme(conn)
-    # sync_los_alamos(conn)
-    # sync_mit(conn)
-    # sync_yyg(conn)
+
+    if dataset is not None:
+        datasets[dataset](conn)
+    else:
+        for f in datasets.values():
+            f(conn)
+
     if distribute:
         pass
 
