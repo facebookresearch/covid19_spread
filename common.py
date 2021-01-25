@@ -7,6 +7,22 @@ from numpy.linalg import norm
 import itertools
 from collections import defaultdict
 import datetime
+import os
+import re
+from lib import cluster
+from subprocess import check_call
+
+
+def update_repo(repo):
+    user = os.environ["USER"]
+    match = re.search(r"([^(\/|:)]+)/([^(\/|:)]+)\.git", repo)
+    name = f"{match.group(1)}_{match.group(2)}"
+    data_pth = f"{cluster.FS}/{user}/covid19/data/{name}"
+    if not os.path.exists(data_pth):
+        check_call(["git", "clone", repo, data_pth])
+    check_call(["git", "checkout", "master"], cwd=data_pth)
+    check_call(["git", "pull"], cwd=data_pth)
+    return data_pth
 
 
 def drop_k_days(dset, outfile, days):

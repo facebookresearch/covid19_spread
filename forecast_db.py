@@ -22,6 +22,7 @@ from data.recurring import DB as RECURRING_DB
 from sqlalchemy import create_engine
 import psycopg2
 from datetime import timedelta
+from common import update_repo
 
 
 DB = os.path.join(os.path.dirname(os.path.realpath(__file__)), "forecasts/forecast.db")
@@ -38,18 +39,6 @@ def mk_db():
     conn = sqlite3.connect(DB)
     conn.execute("CREATE TABLE gt_mapping (id text, gt text, UNIQUE(id, gt));")
     # conn_.commit()
-
-
-def update_repo(repo):
-    user = os.environ["USER"]
-    match = re.search(r"([^(\/|:)]+)/([^(\/|:)]+)\.git", repo)
-    name = f"{match.group(1)}_{match.group(2)}"
-    data_pth = f"{cluster.FS}/{user}/covid19/data/{name}"
-    if not os.path.exists(data_pth):
-        check_call(["git", "clone", repo, data_pth])
-    check_call(["git", "checkout", "master"], cwd=data_pth)
-    check_call(["git", "pull"], cwd=data_pth)
-    return data_pth
 
 
 @click.group()

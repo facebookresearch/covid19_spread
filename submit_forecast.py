@@ -29,7 +29,7 @@ import boto3
 import geopandas
 from metrics import load_ground_truth
 from epiweeks import Week
-from forecast_db import update_repo
+from common import update_repo
 from io import BytesIO
 from string import Template
 from importlib.machinery import SourceFileLoader

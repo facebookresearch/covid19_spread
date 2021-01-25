@@ -4,6 +4,8 @@ import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../.."))
+from common import update_repo
 from episode import mk_episode, to_h5
 from subprocess import check_call
 import os
@@ -39,10 +41,10 @@ def get_index():
 
 def get_nyt(metric="cases"):
     print("NYT")
-    CASES_URL = (
-        "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv"
+    data_repo = update_repo("https://github.com/nytimes/covid-19-data.git")
+    df = pandas.read_csv(
+        os.path.join(data_repo, "us-counties.csv"), dtype={"fips": str}
     )
-    df = pandas.read_csv(CASES_URL, dtype={"fips": str})
     index = get_index()
     df = df.merge(index[["fips", "subregion1_name", "name"]], on="fips")
     df["loc"] = df["subregion1_name"] + "_" + df["name"]
