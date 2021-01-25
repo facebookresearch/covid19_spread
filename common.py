@@ -14,7 +14,7 @@ from subprocess import check_call
 
 
 def update_repo(repo):
-    user = os.environ["USER"]
+    user = cluster.USER
     match = re.search(r"([^(\/|:)]+)/([^(\/|:)]+)\.git", repo)
     name = f"{match.group(1)}_{match.group(2)}"
     data_pth = f"{cluster.FS}/{user}/covid19/data/{name}"
