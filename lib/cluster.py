@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import os
+import getpass
 
-USER = os.environ["USER"]
+
+USER = getpass.getuser()
 if os.path.exists(f"/checkpoint"):
     FS = "/checkpoint"
     PARTITION = "learnfair"
