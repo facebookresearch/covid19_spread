@@ -6,10 +6,10 @@ In the following, we evaluate the forecast quality of our method compared to
 multiple state-of-the-art forecasts for confirmed cases on
 county-level. All comparison forecasts are collected from the COVID-19 Forecast
 Hub\footnote{\url{https://github.com/reichlab/covid19-forecast-hub}} as submitted by
-the respective teams. The COVID-19 Forecast Hub features county-level forecasts
-from July 5th onwards and we selected those models for which at least 10 forecasts
-where available since then. The full list of comparison forecasts is shown in
-\Cref{tab:forecasts}.
+the respective teams. The COVID-19 Forecast Hub features weekly county-level forecasts.  
+We've chosen the top performing models that have been submitted and chosen dates to 
+maximize overlap between models.  The full list of comparison forecasts is shown in \Cref{tab:forecasts}.
+\todo{Reconcile models between old evaluation and new evaluation tables}
 
 \begin{table*}[t]
 \small
@@ -39,11 +39,11 @@ Los Alamos National Labs & \it LANL-GrowthRate & \citep{forecasts/lanl} \\
 \end{table*}
 
 \paragraph{Forecast setup and model selection} To compute forecasts for the
-different dates in the test set, we use the following fully automated model
+different dates, we use the following fully automated model
 selection scheme: For each forecast date \(d\), we perform cross-validation by
-holding out additional 21 days of validation data and train the model on the
-remaining data. We then select the best hyperparameters as measured by RMSE on
-the validation set and retrain the whole model with those hyperparameters on the
+holding out 7 days of validation data and train the model on the
+remaining data. We then select the best hyperparameters as measured by MAE on
+the held out validation set and retrain the whole model with those hyperparameters on the
 combined training and validation set to compute the final forecast. When
 computing the forecasts, we hold all additional input data (e.g., symptom
 survey, mobility, weather, etc.) constant after the last observed day
@@ -59,7 +59,8 @@ autoregressive part. All other covariates enter the model only as input features
 for the time-varying \(\beta\)-part. For cases and weather data, we use the
 preprocessed data from the Google COVID-19 Open Data repository
 \citep{data/Wahltinez2020}. All datasets are publicly available, de-identified,
-and aggregated at county- or state-level.
+and aggregated at county- or state-level.  For data that only exists at the state-level,
+we pass the state-level value in for each county in the state.
 
 \begin{table*}[t]
 \small
@@ -105,15 +106,19 @@ Weather & NOAA GHCN \citep{data/menne2012overview} &  County \\
 \end{figure}
 
 
+\paragraph{Forecast evaluation} \Cref{tab:reichalb_eval_1} - \Cref{tab:reichalb_eval_4} show the forecast quality as measured by MAE for multiple forecast horizons.  
+The COVID-19 Forecast Hub requires submissions to be in weekly format, where each forecast predicts the number of new cases each week (see \citep{reichlab} for more details about submission format).  
+The proposed \bAR model shows consistently strong performance, especially for further out time horizons (2-4 weeks).  
 
-\paragraph{Forecast evaluation} \Cref{fig:mae-covidhub} shows the forecast
-quality as measured by MAE for multiple forecast horizons.\footnote{MAE numbers are computed in accordance with \url{https://github.com/youyanggu/covid19-forecast-hub-evaluation}} It can be seen that
-the proposed \bAR models shows a consistently strong performance and is for all
-forecasting dates and horizons either the best model or among the best.
-\Cref{fig:ranking-covidhub-mae}, which shows the ranking of all models by the
-average MAE for each forecast horizon, further illustrates this property. It can
-be seen that \bAR model is consistently ranked first over all horizons.
-Furthermore, other models show much larger variability in their performance.
+
+%\paragraph{Forecast evaluation} \Cref{fig:mae-covidhub} shows the forecast
+%quality as measured by MAE for multiple forecast horizons.\footnote{MAE numbers are computed in accordance with \url{https://github.com/youyanggu/covid19-forecast-hub-evaluation}} It can be seen that
+%the proposed \bAR models shows a consistently strong performance and is for all
+%forecasting dates and horizons either the best model or among the best.
+%\Cref{fig:ranking-covidhub-mae}, which shows the ranking of all models by the
+%average MAE for each forecast horizon, further illustrates this property. It can
+%be seen that \bAR model is consistently ranked first over all horizons.
+%Furthermore, other models show much larger variability in their performance.
 
 \begin{figure*}[t]
 \centering
