@@ -14,6 +14,7 @@ elif os.path.exists(f"/fsx"):
     PARTITION = "compute"
     MEM_GB = lambda x: 0
 else:
+    FS = os.getcwd()  # for CI
     print("WARNINING: cannot determine distributed file system")
 
 
