@@ -1,0 +1,272 @@
+\begin{thebibliography}{37}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Abbey(1952)]{abbey1952reedfrost}
+Abbey, H.
+\newblock An examination of the reed-frost theory of epidemics.
+\newblock \emph{Human biology}, 24 3:\penalty0 201--33, 1952.
+
+\bibitem[Arik et~al.(2020)Arik, Li, Yoon, Sinha, Epshteyn, Le, Menon, Singh,
+  Zhang, Yoder, Nikoltchev, Sonthalia, Nakhost, Kanal, and
+  Pfister]{arik2020interpretable}
+Arik, S.~O., Li, C.-L., Yoon, J., Sinha, R., Epshteyn, A., Le, L.~T., Menon,
+  V., Singh, S., Zhang, L., Yoder, N., Nikoltchev, M., Sonthalia, Y., Nakhost,
+  H., Kanal, E., and Pfister, T.
+\newblock Interpretable sequence learning for covid-19 forecasting, 2020.
+
+\bibitem[Atchison \& Shen(1980)Atchison and Shen]{atchison1980logistic}
+Atchison, J. and Shen, S.~M.
+\newblock Logistic-normal distributions: Some properties and uses.
+\newblock \emph{Biometrika}, 67\penalty0 (2):\penalty0 261--272, 1980.
+
+\bibitem[Baek et~al.(2020)Baek, Farias, Georgescu, Levi, Peng, Sinha, Wilde,
+  and Zheng]{baek2020limits}
+Baek, J., Farias, V.~F., Georgescu, A., Levi, R., Peng, T., Sinha, D., Wilde,
+  J., and Zheng, A.
+\newblock The limits to learning an sir process: Granular forecasting for
+  covid-19, 2020.
+
+\bibitem[Bauer \& Wakefield(2018)Bauer and Wakefield]{bauer2018stratified}
+Bauer, C. and Wakefield, J.
+\newblock Stratified space--time infectious disease modelling, with an
+  application to hand, foot and mouth disease in china.
+\newblock \emph{Journal of the Royal Statistical Society: Series C (Applied
+  Statistics)}, 67\penalty0 (5):\penalty0 1379--1398, 2018.
+
+\bibitem[Cho et~al.(2014)Cho, van Merrienboer, Bahdanau, and
+  Bengio]{cho2014properties}
+Cho, K., van Merrienboer, B., Bahdanau, D., and Bengio, Y.
+\newblock On the properties of neural machine translation: Encoder-decoder
+  approaches.
+\newblock In \emph{Eighth Workshop on Syntax, Semantics and Structure in
+  Statistical Translation (SSST-8), 2014}, 2014.
+
+\bibitem[Elman(1990)]{elman1990finding}
+Elman, J.~L.
+\newblock Finding structure in time.
+\newblock \emph{Cognitive science}, 14\penalty0 (2):\penalty0 179--211, 1990.
+
+\bibitem[{Facebook Data for Good}(2020{\natexlab{a}})]{data/fb_movement_range}
+{Facebook Data for Good}.
+\newblock Movement range maps, 2020{\natexlab{a}}.
+\newblock URL \url{https://dataforgood.fb.com/tools/movement-range-maps/}.
+
+\bibitem[{Facebook Data for Good}(2020{\natexlab{b}})]{data/fb_symptom_survey}
+{Facebook Data for Good}.
+\newblock Symptom survey, 2020{\natexlab{b}}.
+\newblock URL \url{https://dataforgood.fb.com/tools/symptommap/}.
+
+\bibitem[Farrow et~al.(2015)Farrow, Brooks, Rumack, Tibshirani, and
+  Rosenfeld]{data/covidcast}
+Farrow, D.~C., Brooks, L.~C., Rumack, A., Tibshirani, R.~J., and Rosenfeld, R.
+\newblock Delphi epidata api, 2015.
+\newblock URL \url{https://github.com/cmu-delphi/delphi-epidata}.
+
+\bibitem[Google(2020)]{data/google_mobility}
+Google.
+\newblock Community mobility reports, 2020.
+\newblock URL \url{https://www.google.com/covid19/mobility/}.
+
+\bibitem[Granger(1969)]{granger1969investigating}
+Granger, C.~W.
+\newblock Investigating causal relations by econometric models and
+  cross-spectral methods.
+\newblock \emph{Econometrica: journal of the Econometric Society}, pp.\
+  424--438, 1969.
+
+\bibitem[Haufe et~al.(2010)Haufe, M{\"u}ller, Nolte, and
+  Kr{\"a}mer]{haufe2010sparse}
+Haufe, S., M{\"u}ller, K.-R., Nolte, G., and Kr{\"a}mer, N.
+\newblock Sparse causal discovery in multivariate time series.
+\newblock In \emph{Causality: Objectives and Assessment}, pp.\  97--106, 2010.
+
+\bibitem[Held et~al.(2005)Held, H{\"o}hle, and Hofmann]{held2005statistical}
+Held, L., H{\"o}hle, M., and Hofmann, M.
+\newblock A statistical framework for the analysis of multivariate infectious
+  disease surveillance counts.
+\newblock \emph{Statistical modelling}, 5\penalty0 (3):\penalty0 187--199,
+  2005.
+
+\bibitem[Hochreiter \& Schmidhuber(1997)Hochreiter and
+  Schmidhuber]{hochreiter1997long}
+Hochreiter, S. and Schmidhuber, J.
+\newblock Long short-term memory.
+\newblock \emph{Neural computation}, 9\penalty0 (8):\penalty0 1735--1780, 1997.
+
+\bibitem[Klein et~al.(2020)Klein, Lin, and Yang]{cddep_seir_mcmc}
+Klein, E., Lin, G., and Yang, Y.
+\newblock {CDDEP SEIR Markov Chain Monte Carlo}, 2020.
+\newblock URL
+  \url{https://github.com/reichlab/covid19-forecast-hub/blob/master/data-processed/CDDEP-SEIR_MCMC}.
+
+\bibitem[Koyluoglu \& Milliken(2020)Koyluoglu and
+  Milliken]{forecasts/oliver_wyman}
+Koyluoglu, U. and Milliken, J.
+\newblock Oliver wyman pandemic navigator, 2020.
+\newblock URL
+  \url{https://github.com/reichlab/covid19-forecast-hub/blob/master/data-processed/OliverWyman-Navigator/}.
+
+\bibitem[Lemaitre et~al.(2020)Lemaitre, Grantz, Kaminsky, Meredith, Truelove,
+  Lauer, Keegan, Shah, Wills, Kaminsky, Perez-Saez, Lessler, and
+  Lee]{forecasts/jhu_idd_covidsp}
+Lemaitre, J.~C., Grantz, K.~H., Kaminsky, J., Meredith, H.~R., Truelove, S.~A.,
+  Lauer, S.~A., Keegan, L.~T., Shah, S., Wills, J., Kaminsky, K., Perez-Saez,
+  J., Lessler, J., and Lee, E.~C.
+\newblock A scenario modeling pipeline for covid-19 emergency planning.
+\newblock \emph{medRxiv}, 2020.
+\newblock \doi{10.1101/2020.06.11.20127894}.
+\newblock URL
+  \url{https://www.medrxiv.org/content/early/2020/06/12/2020.06.11.20127894}.
+
+\bibitem[Lloyd-Smith(2007)]{lloyd_smith2007negativebinomial}
+Lloyd-Smith, J.~O.
+\newblock Maximum likelihood estimation of the negative binomial dispersion
+  parameter for highly overdispersed data, with applications to infectious
+  diseases.
+\newblock \emph{PLOS ONE}, 2\penalty0 (2):\penalty0 1--8, 02 2007.
+\newblock \doi{10.1371/journal.pone.0000180}.
+\newblock URL \url{https://doi.org/10.1371/journal.pone.0000180}.
+
+\bibitem[Loshchilov \& Hutter(2018)Loshchilov and
+  Hutter]{loshchilov2018decoupled}
+Loshchilov, I. and Hutter, F.
+\newblock Decoupled weight decay regularization.
+\newblock In \emph{International Conference on Learning Representations}, 2018.
+
+\bibitem[Menne et~al.(2012)Menne, Durre, Vose, Gleason, and
+  Houston]{data/menne2012overview}
+Menne, M.~J., Durre, I., Vose, R.~S., Gleason, B.~E., and Houston, T.~G.
+\newblock An overview of the global historical climatology network-daily
+  database.
+\newblock \emph{Journal of Atmospheric and Oceanic Technology}, 29\penalty0
+  (7):\penalty0 897--910, 2012.
+
+\bibitem[Meyer \& Held(2014)Meyer and Held]{meyer2014powerlaw}
+Meyer, S. and Held, L.
+\newblock Power-law models for infectious disease spread.
+\newblock \emph{Ann. Appl. Stat.}, 8\penalty0 (3):\penalty0 1612--1639, 09
+  2014.
+\newblock \doi{10.1214/14-AOAS743}.
+\newblock URL \url{https://doi.org/10.1214/14-AOAS743}.
+
+\bibitem[Meyer \& Held(2016)Meyer and Held]{meyer2016socialcontact}
+Meyer, S. and Held, L.
+\newblock {Incorporating social contact data in spatio-temporal models for
+  infectious disease spread}.
+\newblock \emph{Biostatistics}, 18\penalty0 (2):\penalty0 338--351, 12 2016.
+\newblock ISSN 1465-4644.
+\newblock \doi{10.1093/biostatistics/kxw051}.
+\newblock URL \url{https://doi.org/10.1093/biostatistics/kxw051}.
+
+\bibitem[Paszke et~al.(2019)Paszke, Gross, Massa, Lerer, Bradbury, Chanan,
+  Killeen, Lin, Gimelshein, Antiga, et~al.]{paszke2019pytorch}
+Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., Chanan, G., Killeen,
+  T., Lin, Z., Gimelshein, N., Antiga, L., et~al.
+\newblock Pytorch: An imperative style, high-performance deep learning library.
+\newblock In \emph{Advances in neural information processing systems}, pp.\
+  8026--8037, 2019.
+
+\bibitem[Pei \& Shaman(2020)Pei and Shaman]{forecasts/columbia}
+Pei, S. and Shaman, J.
+\newblock Initial simulation of sars-cov2 spread and intervention effects in
+  the continental us.
+\newblock \emph{medRxiv}, 2020.
+\newblock \doi{10.1101/2020.03.21.20040303}.
+\newblock URL
+  \url{https://www.medrxiv.org/content/early/2020/03/27/2020.03.21.20040303}.
+
+\bibitem[Salmon et~al.(2016)Salmon, Schumacher, and
+  Höhle]{salmon2016surveillance}
+Salmon, M., Schumacher, D., and Höhle, M.
+\newblock Monitoring count time series in r: Aberration detection in public
+  health surveillance.
+\newblock \emph{Journal of Statistical Software, Articles}, 70\penalty0
+  (10):\penalty0 1--35, 2016.
+\newblock ISSN 1548-7660.
+\newblock \doi{10.18637/jss.v070.i10}.
+\newblock URL \url{https://www.jstatsoft.org/v070/i10}.
+
+\bibitem[Seth(2007)]{Seth2007granger}
+Seth, A.
+\newblock {G}ranger causality.
+\newblock \emph{Scholarpedia}, 2\penalty0 (7):\penalty0 1667, 2007.
+\newblock \doi{10.4249/scholarpedia.1667}.
+\newblock revision \#127333.
+
+\bibitem[Sheldon et~al.(2020)Sheldon, Gibson, and
+  Reich]{forecasts/umass_mechbayes}
+Sheldon, D., Gibson, G., and Reich, N.
+\newblock Umass mechbayes, 2020.
+\newblock URL
+  \url{https://github.com/reichlab/covid19-forecast-hub/blob/master/data-processed/UMass-MechBayes/}.
+
+\bibitem[Srivastava et~al.(2020)Srivastava, Xu, and
+  Prasanna]{srivastava2020fast}
+Srivastava, A., Xu, T., and Prasanna, V.~K.
+\newblock Fast and accurate forecasting of covid-19 deaths using the sikja
+  model, 2020.
+
+\bibitem[{The COVID Tracking Project}(2020)]{data/covidtracking}
+{The COVID Tracking Project}.
+\newblock State testing data (cc-by 4.0 license), 2020.
+\newblock URL \url{https://covidtracking.com/}.
+
+\bibitem[{The New York Times}(2020)]{data/nytimes_cases}
+{The New York Times}.
+\newblock {Coronavirus (Covid-19) Data in the United States}, 2020.
+\newblock URL \url{https://github.com/nytimes/covid-19-data}.
+
+\bibitem[Vald{\'e}s-Sosa et~al.(2005)Vald{\'e}s-Sosa, S{\'a}nchez-Bornot,
+  Lage-Castellanos, Vega-Hern{\'a}ndez, Bosch-Bayard, Melie-Garc{\'\i}a, and
+  Canales-Rodr{\'\i}guez]{valdes2005estimating}
+Vald{\'e}s-Sosa, P.~A., S{\'a}nchez-Bornot, J.~M., Lage-Castellanos, A.,
+  Vega-Hern{\'a}ndez, M., Bosch-Bayard, J., Melie-Garc{\'\i}a, L., and
+  Canales-Rodr{\'\i}guez, E.
+\newblock Estimating brain functional connectivity with sparse multivariate
+  autoregression.
+\newblock \emph{Philosophical Transactions of the Royal Society B: Biological
+  Sciences}, 360\penalty0 (1457):\penalty0 969--981, 2005.
+
+\bibitem[Wahltinez et~al.(2020)Wahltinez, Lee, Erlinger, Daswani, Yawalkar,
+  Murphy, and Brenner]{data/Wahltinez2020}
+Wahltinez, O., Lee, M., Erlinger, A., Daswani, M., Yawalkar, P., Murphy, K.,
+  and Brenner, M.
+\newblock Covid-19 open-data: curating a fine-grained, global-scale data
+  repository for sars-cov-2.
+\newblock 2020.
+\newblock URL \url{https://github.com/GoogleCloudPlatform/covid-19-open-data}.
+\newblock Work in progress.
+
+\bibitem[Wakefield et~al.(2019)Wakefield, Dong, and Minin]{wakefield2019spatio}
+Wakefield, J., Dong, T.~Q., and Minin, V.~N.
+\newblock Spatio-temporal analysis of surveillance data.
+\newblock \emph{Handbook of Infectious Disease Data Analysis}, pp.\  455--476,
+  2019.
+
+\bibitem[Wang et~al.(2020)Wang, Wang, Gao, Li, Yu, Kim, Wang, and
+  Gu]{wang2020spatiotemporal}
+Wang, L., Wang, G., Gao, L., Li, X., Yu, S., Kim, M., Wang, Y., and Gu, Z.
+\newblock Spatiotemporal dynamics, nowcasting and forecasting of covid-19 in
+  the united states, 2020.
+
+\bibitem[Wolfinger \& Lander(2020)Wolfinger and Lander]{forecasts/lnq_ens1}
+Wolfinger, R. and Lander, D.
+\newblock Lnq-ens1, 2020.
+\newblock URL
+  \url{https://github.com/reichlab/covid19-forecast-hub/blob/master/data-processed/LNQ-ens1/}.
+
+\bibitem[Zou et~al.(2020)Zou, Wang, Xu, Chen, Zhang, and
+  Gu]{forecasts/Zou2020.05.24.20111989}
+Zou, D., Wang, L., Xu, P., Chen, J., Zhang, W., and Gu, Q.
+\newblock Epidemic model guided machine learning for covid-19 forecasts in the
+  united states.
+\newblock \emph{medRxiv}, 2020.
+\newblock \doi{10.1101/2020.05.24.20111989}.
+\newblock URL
+  \url{https://www.medrxiv.org/content/early/2020/05/25/2020.05.24.20111989}.
+
+\end{thebibliography}

@@ -1,0 +1,101 @@
+%% Creator: Inkscape inkscape 0.92.3, www.inkscape.org
+%% PDF/EPS/PS + LaTeX output extension by Johan Engelen, 2010
+%% Accompanies image file 'us_rank_mae_svg-tex.pdf' (pdf, eps, ps)
+%%
+%% To include the image in your LaTeX document, write
+%%   \input{<filename>.pdf_tex}
+%%  instead of
+%%   \includegraphics{<filename>.pdf}
+%% To scale the image, write
+%%   \def\svgwidth{<desired width>}
+%%   \input{<filename>.pdf_tex}
+%%  instead of
+%%   \includegraphics[width=<desired width>]{<filename>.pdf}
+%%
+%% Images with a different path to the parent latex file can
+%% be accessed with the `import' package (which may need to be
+%% installed) using
+%%   \usepackage{import}
+%% in the preamble, and then including the image with
+%%   \import{<path to file>}{<filename>.pdf_tex}
+%% Alternatively, one can specify
+%%   \graphicspath{{<path to file>/}}
+%% 
+%% For more information, please see info/svg-inkscape on CTAN:
+%%   http://tug.ctan.org/tex-archive/info/svg-inkscape
+%%
+\begingroup%
+  \makeatletter%
+  \providecommand\color[2][]{%
+    \errmessage{(Inkscape) Color is used for the text in Inkscape, but the package 'color.sty' is not loaded}%
+    \renewcommand\color[2][]{}%
+  }%
+  \providecommand\transparent[1]{%
+    \errmessage{(Inkscape) Transparency is used (non-zero) for the text in Inkscape, but the package 'transparent.sty' is not loaded}%
+    \renewcommand\transparent[1]{}%
+  }%
+  \providecommand\rotatebox[2]{#2}%
+  \newcommand*\fsize{\dimexpr\f@size pt\relax}%
+  \newcommand*\lineheight[1]{\fontsize{\fsize}{#1\fsize}\selectfont}%
+  \ifx\svgwidth\undefined%
+    \setlength{\unitlength}{375bp}%
+    \ifx\svgscale\undefined%
+      \relax%
+    \else%
+      \setlength{\unitlength}{\unitlength * \real{\svgscale}}%
+    \fi%
+  \else%
+    \setlength{\unitlength}{\svgwidth}%
+  \fi%
+  \global\let\svgwidth\undefined%
+  \global\let\svgscale\undefined%
+  \makeatother%
+  \begin{picture}(1,0.7)%
+    \lineheight{1}%
+    \setlength\tabcolsep{0pt}%
+    \put(0,0){\includegraphics[width=\unitlength,page=1]{us_rank_mae_svg-tex.pdf}}%
+    \put(0.46,0.646){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}\textbf{Forecast Ranking - MAE}\end{tabular}}}}%
+    \put(0,0){\includegraphics[width=\unitlength,page=2]{us_rank_mae_svg-tex.pdf}}%
+    \put(0.492,0.076){\makebox(0,0)[t]{\lineheight{1.25}\smash{\begin{tabular}[t]{c}6\end{tabular}}}}%
+    \put(0.556,0.076){\makebox(0,0)[t]{\lineheight{1.25}\smash{\begin{tabular}[t]{c}13\end{tabular}}}}%
+    \put(0.62,0.076){\makebox(0,0)[t]{\lineheight{1.25}\smash{\begin{tabular}[t]{c}20\end{tabular}}}}%
+    \put(0.682,0.076){\makebox(0,0)[t]{\lineheight{1.25}\smash{\begin{tabular}[t]{c}27\end{tabular}}}}%
+    \put(0.746,0.076){\makebox(0,0)[t]{\lineheight{1.25}\smash{\begin{tabular}[t]{c}34\end{tabular}}}}%
+    \put(0.81,0.076){\makebox(0,0)[t]{\lineheight{1.25}\smash{\begin{tabular}[t]{c}41\end{tabular}}}}%
+    \put(0.652,0.036){\makebox(0,0)[t]{\lineheight{1.25}\smash{\begin{tabular}[t]{c}\textit{Forecasted days}\end{tabular}}}}%
+    \put(0,0){\includegraphics[width=\unitlength,page=3]{us_rank_mae_svg-tex.pdf}}%
+    \put(0.438,0.116){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}CDDEP-SEIR_MCMC (12.50)\end{tabular}}}}%
+    \put(0.438,0.152){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}UMass-MechBayes (14.67)\end{tabular}}}}%
+    \put(0.438,0.188){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}UCLA-SuEIR (12.33)\end{tabular}}}}%
+    \put(0.438,0.224){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}MITCovAlliance-SIR (7.83)\end{tabular}}}}%
+    \put(0.438,0.26){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}IowaStateLW-STEM (6.00)\end{tabular}}}}%
+    \put(0.438,0.296){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}JHU_IDD-CovidSP (5.67)\end{tabular}}}}%
+    \put(0.438,0.332){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}OliverWyman-Navigator (11.83)\end{tabular}}}}%
+    \put(0.438,0.366){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}CU-select (8.50)\end{tabular}}}}%
+    \put(0.438,0.402){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}CU-scenario_high (10.00)\end{tabular}}}}%
+    \put(0.438,0.438){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}CU-scenario_low (6.00)\end{tabular}}}}%
+    \put(0.438,0.474){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}CU-nochange (7.17)\end{tabular}}}}%
+    \put(0.438,0.51){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}CU-scenario_mid (7.67)\end{tabular}}}}%
+    \put(0.438,0.546){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}LNQ-ens1 (6.00)\end{tabular}}}}%
+    \put(0.438,0.582){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}USC-SI_kJalpha (2.83)\end{tabular}}}}%
+    \put(0.438,0.618){\makebox(0,0)[rt]{\lineheight{1.25}\smash{\begin{tabular}[t]{r}bAR (1.00)\end{tabular}}}}%
+    \put(0.036,0.366){\rotatebox{90}{\makebox(0,0)[t]{\lineheight{1.25}\smash{\begin{tabular}[t]{c}\textit{Model}\end{tabular}}}}}%
+    \put(0,0){\includegraphics[width=\unitlength,page=4]{us_rank_mae_svg-tex.pdf}}%
+    \put(0.864,0.116){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}15\end{tabular}}}}%
+    \put(0.864,0.152){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}14\end{tabular}}}}%
+    \put(0.864,0.188){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}13\end{tabular}}}}%
+    \put(0.864,0.224){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}12\end{tabular}}}}%
+    \put(0.864,0.26){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}11\end{tabular}}}}%
+    \put(0.864,0.296){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}10\end{tabular}}}}%
+    \put(0.864,0.332){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}9\end{tabular}}}}%
+    \put(0.864,0.366){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}8\end{tabular}}}}%
+    \put(0.864,0.402){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}7\end{tabular}}}}%
+    \put(0.864,0.438){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}6\end{tabular}}}}%
+    \put(0.864,0.474){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}5\end{tabular}}}}%
+    \put(0.864,0.51){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}4\end{tabular}}}}%
+    \put(0.864,0.546){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}3\end{tabular}}}}%
+    \put(0.864,0.582){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}2\end{tabular}}}}%
+    \put(0.864,0.618){\makebox(0,0)[lt]{\lineheight{1.25}\smash{\begin{tabular}[t]{l}1\end{tabular}}}}%
+    \put(0.904,0.366){\rotatebox{-90}{\makebox(0,0)[t]{\lineheight{1.25}\smash{\begin{tabular}[t]{c}\textit{Rank}\end{tabular}}}}}%
+  \end{picture}%
+\endgroup%

@@ -1,0 +1,68 @@
+This is BibTeX, Version 0.99d (TeX Live 2019)
+Capacity: max_strings=100000, hash_size=100000, hash_prime=85009
+The top-level auxiliary file: paper.aux
+The style file: icml2021.bst
+Database file #1: references.bib
+Warning--entry type for "cddep_seir_mcmc" isn't style-file defined
+--line 80 of file references.bib
+Warning--entry type for "data/covidcast" isn't style-file defined
+--line 110 of file references.bib
+Warning--entry type for "data/covidtracking" isn't style-file defined
+--line 119 of file references.bib
+Warning--entry type for "data/fb_movement_range" isn't style-file defined
+--line 127 of file references.bib
+Warning--entry type for "data/fb_symptom_survey" isn't style-file defined
+--line 135 of file references.bib
+Warning--entry type for "data/google_mobility" isn't style-file defined
+--line 143 of file references.bib
+Warning--entry type for "data/nytimes_cases" isn't style-file defined
+--line 163 of file references.bib
+Warning--entry type for "forecasts/lnq_ens1" isn't style-file defined
+--line 232 of file references.bib
+Warning--entry type for "forecasts/oliver_wyman" isn't style-file defined
+--line 241 of file references.bib
+Warning--entry type for "forecasts/umass_mechbayes" isn't style-file defined
+--line 250 of file references.bib
+Warning--empty journal in data/Wahltinez2020
+You've used 37 entries,
+            2773 wiz_defined-function locations,
+            813 strings with 12630 characters,
+and the built_in function-call counts, 18732 in all, are:
+= -- 1610
+> -- 1341
+< -- 23
++ -- 455
+- -- 417
+* -- 1575
+:= -- 2916
+add.period$ -- 127
+call.type$ -- 37
+change.case$ -- 249
+chr.to.int$ -- 36
+cite$ -- 75
+duplicate$ -- 732
+empty$ -- 1378
+format.name$ -- 472
+if$ -- 3882
+int.to.chr$ -- 2
+int.to.str$ -- 1
+missing$ -- 23
+newline$ -- 209
+num.names$ -- 148
+pop$ -- 515
+preamble$ -- 1
+purify$ -- 212
+quote$ -- 0
+skip$ -- 660
+stack$ -- 0
+substring$ -- 499
+swap$ -- 81
+text.length$ -- 4
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 407
+warning$ -- 1
+while$ -- 145
+width$ -- 0
+write$ -- 499
+(There were 11 warnings)
