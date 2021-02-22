@@ -178,6 +178,7 @@ class SIRCV(cv.CV):
         populations_df = (
             populations_df.set_index("region")
             .reindex(locs)
+            .rename_axis("region")
             .reset_index()
             .rename(columns={"index": "region"})
         )
