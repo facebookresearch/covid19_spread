@@ -495,7 +495,7 @@ def attach_notebook(config, mode, module, basedir):
         notebook_pth = config["notebooks"][mode]
         subject = f"[CV Notebook]: {config['region']}"
         with env_var({"CV_BASE_DIR": basedir, "CV_MODULE": module}):
-            user = os.environ["USER"]
+            user = cluster.USER
             email_notebook(notebook_pth, [f"{user}@fb.com"], subject)
 
 
@@ -719,7 +719,7 @@ def cv(
     # FIXME: This is a hack...
     in_backfill = executor is not None
     now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    user = os.environ["USER"]
+    user = cluster.USER
 
     cfg = load_config(config_pth)
     region = cfg["region"]
@@ -889,7 +889,7 @@ def backfill(
     # setup experiment environment
     now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     experiment_id = f'{config["region"]}/{now}'
-    basedir = f'{cluster.FS}/{os.environ["USER"]}/covid19/forecasts/{experiment_id}'
+    basedir = f"{cluster.FS}/{cluster.USER}/covid19/forecasts/{experiment_id}"
 
     # setup executor
     extra_params = config[module].get("resources", {})
@@ -950,23 +950,25 @@ def ensemble_jobs(paths):
 
 
 @cli.command()
-@click.argument("sweep_dir")
-def progress(sweep_dir):
-    sweep_dir = os.path.realpath(sweep_dir)
-    db_file = next(iglob(os.path.join(sweep_dir, "**/.job.db"), recursive=True))
-    db_file = os.path.realpath(db_file)
-    conn = get_db_client()
-    with conn.cursor() as cur:
-        df = pd.read_sql(
-            f"SELECT status, worker_id FROM jobs WHERE id='{db_file}'", conn
-        )
-    msg = {
-        "success": int((df["status"] == JobStatus.success.value).sum()),
-        "failed": int((df["status"] == JobStatus.failure.value).sum()),
-        "pending": int((df["status"] == JobStatus.pending.value).sum()),
-        "running": int((df["status"] > len(JobStatus)).sum()),
-    }
-    print(json.dumps(msg, indent=4))
+@click.argument("sweep_dirs", nargs=-1)
+def progress(sweep_dirs):
+    for sweep_dir in sweep_dirs:
+        sweep_dir = os.path.realpath(sweep_dir)
+        db_file = next(iglob(os.path.join(sweep_dir, "**/.job.db"), recursive=True))
+        db_file = os.path.realpath(db_file)
+        conn = get_db_client()
+        with conn.cursor() as cur:
+            df = pd.read_sql(
+                f"SELECT status, worker_id FROM jobs WHERE id='{db_file}'", conn
+            )
+        msg = {
+            "sweep_dir": sweep_dir,
+            "success": int((df["status"] == JobStatus.success.value).sum()),
+            "failed": int((df["status"] == JobStatus.failure.value).sum()),
+            "pending": int((df["status"] == JobStatus.pending.value).sum()),
+            "running": int((df["status"] > len(JobStatus)).sum()),
+        }
+        print(json.dumps(msg, indent=4))
 
 
 @cli.command()
