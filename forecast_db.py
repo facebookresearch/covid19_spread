@@ -471,7 +471,7 @@ def sync_usa_facts(conn):
         df = pandas.read_csv(url, dtype={"countyFIPS": str})
         df["countyFIPS"] = df["countyFIPS"].str.zfill(5)
         df = df.set_index("countyFIPS")
-        df = df[[c for c in df.columns if re.match(r"\d+\/\d+\/\d+", c)]].transpose()
+        df = df[[c for c in df.columns if re.match(r"\d+-\d+-\d+", c)]].transpose()
         df = (
             df.reset_index()
             .melt(id_vars=["index"])
