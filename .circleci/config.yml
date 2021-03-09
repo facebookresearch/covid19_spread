@@ -21,16 +21,6 @@ jobs:
                     conda env create -f environment_cpu.yml
 
             - run:
-                name: Build extensions
-                command: |
-                    conda init bash
-                    source ~/.bashrc
-                    conda activate covid19_spread
-                    git submodule sync
-                    git submodule update --init --recursive
-                    cd timelord && MAX_JOBS=1 python3 setup.py build -f develop
-
-            - run:
                 name: Check Formatting
                 command: |
                     conda init bash
