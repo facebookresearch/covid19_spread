@@ -38,13 +38,9 @@ from lib.slurm_pool_executor import (
     TransactionManager,
 )
 from lib.mail import email_notebook
-import sqlite3
 from lib.context_managers import env_var
 from lib.slack import get_client as get_slack_client
-
-
-# FIXME: move snapshot to lib
-from timelord import snapshot
+from submitit.helpers import RsyncSnapshot
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
 
@@ -799,9 +795,8 @@ def cv(
     with ExitStack() as stack:
         if not in_backfill:
             stack.enter_context(
-                snapshot.SnapshotManager(
+                RsyncSnapshot(
                     snapshot_dir=basedir + "/snapshot",
-                    with_submodules=True,
                     exclude=["notebooks/*", "tests/*"],
                 )
             )
@@ -902,10 +897,8 @@ def backfill(
     # Copy any asset files into `basedir/assets`
     os.makedirs(os.path.join(basedir, "assets"))
     config[module] = copy_assets(config[module], basedir)
-    with snapshot.SnapshotManager(
-        snapshot_dir=basedir + "/snapshot",
-        with_submodules=True,
-        exclude=["notebooks/*", "tests/*"],
+    with RsyncSnapshot(
+        snapshot_dir=basedir + "/snapshot", exclude=["notebooks/*", "tests/*"],
     ), tempfile.NamedTemporaryFile() as tfile:
         # Make sure that we use the CFG with absolute paths since we are now inside the snapshot directory
         with open(tfile.name, "w") as fout:

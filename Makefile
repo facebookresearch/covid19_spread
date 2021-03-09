@@ -4,143 +4,19 @@
 # @file
 # @version 0.1
 
-.PHONY: timelord env
+.PHONY: env
 
 params=-max-events 5000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 25
 DATE=$(shell date "+%Y%m%d")
 LAST=1
 SARGS=--sort-by RMSE_AVG
 
-define forecast-train
-	echo "\n--- DIM=$(1) $(if $5,NO-BASEINT)" >> $(flog)
-	OMP_NUM_THREADS=1 python3 rmse.py $(params) -dset data/$(2)/timeseries.h5 -checkpoint /tmp/timelord_model_$(2).bin -dim $(1) $(if $5,$5)| grep "^RMSE" >> $(flog)
-	OMP_NUM_THREADS=1 python3 train.py $(params) -dset data/$(2)/timeseries.h5 -checkpoint /tmp/timelord_model_$(2).bin -dim $(1) $(if $5,$5)
-	python3 forecast.py -dset data/$(2)/timeseries.h5 -checkpoint /tmp/timelord_model_$(2).bin -basedate $(DATE) -days $(3) -trials $(4) | grep "=\|ALL REGIONS\|county" >> $(flog)
-endef
-
-define _analyze_sweep
-	@echo "---- Naive forecast ---------"
-	python3 naive_old.py $(fdata).h5 $(DATE)
-	python3 naive_old.py $(fdata)_smooth.h5 $(DATE)
-
-	@echo "\n---- Summary ---------"
-	python3 analyze_sweep.py summary $(sweepdir) --sort-by="$(if $(SORT),$(SORT),RMSE_AVG)"
-	@echo "\n---- SIR Similarity ----------"
-	python3 analyze_sweep.py sir-similarity $(sweepdir)
-	@echo "\n---- Remaining Jobs ----------"
-	squeue -u $(USER) -n $(sweepname)
-endef
-
 env:
 	conda env create -f environment.yml
-
-timelord:
-	git submodule sync
-	git submodule update --init --recursive
-	cd timelord && CC="ccache gcc" python3 setup.py build -f develop
-	cd timelord && (rm tl_kernels.* || true)
-	cd timelord && make kernels
-
-example: data/new-jersey/timeseries.h5
-	OMP_NUM_THREADS=1 python3 train.py -max-events 5000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -dset data/new-jersey/timeseries.h5 -epochs 200 -maxcor 25 -dim 15
-	python3 forecast.py -dset data/new-jersey/timeseries.h5 -checkpoint /tmp/timelord_model.bin -basedate $(DATE)
-
-# --- New Jersey ---
-
-grid-nj: runlog = runs/new-jersey/$(DATE).log
-grid-nj:
-	touch $(runlog)
-	python3 sweep.py grids/new-jersey.yml -remote -ncpus 40 -timeout-min 30 -partition "learnfair,scavenge" -comment "COVID-19 NJ Forecast" | tail -1 >> $(runlog)
-	tail -1 $(runlog)
-
-forecast-nj: params = -max-events 500000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200 -maxcor 25
-forecast-nj: doubling-times = 14 15 16 17
-forecast-nj: dset-true = data/new-jersey/timeseries.h5
-forecast-nj: dset = data/new-jersey/timeseries_smooth.h5
-forecast-nj:
-	python3 sir.py -fdat data/new-jersey/timeseries.h5 -fpop data/population-data/US-states/new-jersey-population.csv -fsuffix nj-$(DATE) -dout forecasts/new-jersey -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
-	OMP_NUM_THREADS=1 python3 train.py $(params) -dset $(dset) -checkpoint /tmp/forecast_nj.bin  $(TARGS)
-	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -dset-true $(dset-true) -checkpoint /tmp/forecast_nj.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/new-jersey/forecast-nj-$(DATE)$(FSUFFIX).csv
-
-
-analyze-nj: sweepdir = $(shell tail -$(LAST) runs/new-jersey/$(DATE).log | head -n1)
-analyze-nj: sweepname = new-jersey_sweep
-analyze-nj: fdata = data/new-jersey/timeseries
-analyze-nj:
-	$(call _analyze_sweep)
-
-mae-nj:
-	@echo "--- MAE Slow ---"
-	python3 mae.py data/new-jersey/timeseries.h5 forecasts/new-jersey/forecast $(DATE) _slow
-	@echo "\n--- MAE Fast ---"
-	python3 mae.py data/new-jersey/timeseries.h5 forecasts/new-jersey/forecast $(DATE) _fast
 
 data-nj: #data/new-jersey/nj-official-$(shell date "+%m%d" -d $(DATE)).csv
 	# cd data/new-jersey && make data-$(DATE).csv && make timeseries.h5 && make timeseries.h5 SMOOTH=1
 	cd data/new-jersey && python3 scraper.py && make timeseries.h5 && make timeseries.h5 SMOOTH=1
-
-# --- NY State ---
-
-forecast-nys: params = -max-events 1000000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200
-forecast-nys: doubling-times = 19 20 21 22
-forecast-nys: dset-true = data/nystate/timeseries-nys.h5
-forecast-nys: dset = data/nystate/timeseries-nys_smooth.h5
-forecast-nys:
-	python3 sir.py -fdat data/nystate/timeseries.h5 -fpop data/population-data/US-states/new-york-population.csv -fsuffix ny-$(DATE) -dout forecasts/nys -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
-	OMP_NUM_THREADS=1 python3 train.py $(params) -dset $(dset) $(TARGS) -checkpoint /tmp/forecast_nystate.bin
-	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -dset-true $(dset-true) -checkpoint /tmp/forecast_nystate.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/nystate/forecast-ny-$(DATE)$(FSUFFIX).csv
-
-forecast-nyc: params = -max-events 1000000 -sparse -scale 1 -optim lbfgs -weight-decay 0 -timescale 1 -quiet -fresh -epochs 200
-forecast-nyc: doubling-times = 25 30 35 40
-forecast-nyc: dset-true = data/nystate/timeseries-nyc.h5
-forecast-nyc: dset = data/nystate/timeseries-nyc_smooth.h5
-forecast-nyc:
-	python3 sir.py -fdat data/nystate/timeseries.h5 -fpop data/population-data/US-states/new-york-population.csv -fsuffix ny-$(DATE) -dout forecasts/nys -days 60 -keep 7 -window 5 -doubling-times $(doubling-times)
-	OMP_NUM_THREADS=1 python3 train.py $(params) -dset $(dset) $(TARGS) -checkpoint /tmp/forecast_nyc.bin
-	OPENBLAS_MAIN_FREE=1 python3 forecast.py -dset $(dset) -dset-true $(dset-true) -checkpoint /tmp/forecast_nyc.bin -basedate $(DATE) -trials 50 -days 7 -fout forecasts/nyc/forecast-$(DATE)$(FSUFFIX).csv
-
-
-grid-nyc: runlog = runs/nyc/$(DATE).log
-grid-nyc:
-	touch $(runlog)
-	python3 sweep.py grids/nyc.yml -remote -ncpus 40 -timeout-min 15 -partition "learnfair,scavenge" -comment "COVID-19 NYC Forecast"| tail -1 >> $(runlog)
-	tail -1 $(runlog)
-
-
-grid-nys: runlog = runs/nys/$(DATE).log
-grid-nys:
-	touch $(runlog)
-	python3 sweep.py grids/nys.yml -remote -ncpus 40 -timeout-min 60 -partition "learnfair,scavenge" -comment "COVID-19 NY state Forecast" | tail -1 >> $(runlog)
-	tail -1 $(runlog)
-
-grid-at: runlog = runs/at/$(DATE).log
-grid-at:
-	# cd data/austria && python3 fetch_data.py
-	cd data/austria && make features
-	python3 cv.py cv cv/at.yml bar -remote | tail -1 >> $(runlog)
-	python3 cv.py cv cv/at.yml ar -remote | tail -1 >> $(runlog)
-	# git checkout data/austria
-
-
-analyze-nyc: sweepdir = $(shell tail -$(LAST) runs/nyc/$(DATE).log | head -n1)
-analyze-nyc: fdata = data/nystate/timeseries-nyc
-analyze-nyc: sweepname = nyc_sweep
-analyze-nyc:
-	$(call _analyze_sweep)
-
-
-analyze-nys: sweepdir = $(shell tail -$(LAST) runs/nys/$(DATE).log | head -n1)
-analyze-nys: sweepname = nys_sweep
-analyze-nys: fdata = data/nystate/timeseries-nys
-analyze-nys: doubling-times = 10 11 12 13
-analyze-nys:
-	$(call _analyze_sweep)
-
-mae-ny:
-	@echo "--- MAE Slow ---"
-	python3 mae.py data/nystate/timeseries.h5 forecasts/nystate/forecast $(DATE) _slow
-	@echo "\n--- MAE Fast ---"
-	python3 mae.py data/nystate/timeseries.h5 forecasts/nystate/forecast $(DATE) _fast
 
 data-ny:
 	cd data/nystate && make raw.csv && make timeseries.h5 timeseries-nyc.h5 timeseries-nys.h5 && make timeseries.h5 timeseries-nyc.h5 timeseries-nys.h5 SMOOTH=1 && make data-new.csv
@@ -148,32 +24,6 @@ data-ny:
 # -- United States --
 data-usa:
 	cd data/usa && make data_cases.csv data_states_deaths.csv
-
-select: fout = forecasts/$(REGION)/forecast-$(DATE)$(SUFFIX).csv
-select: fout_sir = forecasts/$(REGION)/SIR-forecast-$(DATE).csv
-select: license = "\n\"This work is based on publicly available third party data sources which may not necessarily agree. Facebook makes no guarantees about the reliability, accuracy, or completeness of the data. It is not intended to be a substitute for either public health guidance or professional medical advice, diagnosis, or treatment.\"\n\"This work is licensed under the Creative Commons Attribution-Noncommercial 4.0 International Public License (CC BY-NC 4.0). To view a copy of this license go to https://creativecommons.org/licenses/by-nc/4.0/. Retention of the foregoing language is sufficient for attribution.\""
-select:
-	cat $(JOB)/forecasts.csv | grep -v "^KS," | grep -v "^pval," > $(fout)
-	echo $(license) >> $(fout)
-	cp $(JOB)/../sir/SIR-forecast-$(REGION).csv $(fout_sir)
-	echo $(license) >> $(fout_sir)
-
-cv-show: file=metrics.csv
-cv-show:
-	find $(sweep) -name "*_forecast.csv" -exec sh -c 'cat $$(dirname {})/$(file)' \;
-
-log: file=metrics.csv
-log: metric=MAE
-log: days=22
-log:
-	find /checkpoint/$(USER)/covid19/forecasts/$(job) -name "$(file)" -exec grep -H "^$(metric)," {} \; | cut -d, -f1,$(days) | sort -k2,2 -t, -n -r | sed 's|^.*forecasts/||'
-	python3 cv.py progress /checkpoint/$(USER)/covid19/forecasts/$(job)
-
-notebook:
-	cd notebooks && jupyter notebook --no-browser --port 8899 --log-level 0 &
-
-collect:
-	find $(sweepdir) -name "forecast_best_$(metric).csv" -exec sh -c 'x="{}"; cp -v "$$x" "/tmp/forecast_$$(echo \"$$x\" | cut -d/ -f8 | cut -d_ -f2).csv"' \;
 
 aws: latest=$(shell aws s3 ls s3://fairusersglobal/users/mattle/h2/covid19_forecasts/ | tail -1 | cut -d' ' -f 6)
 aws:
