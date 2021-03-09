@@ -18,9 +18,6 @@ make env
 conda activate covid19_spread
 ```
 
-Predictions rely on another library (in a submodule) that also needs to be installed. Run:
-`make timelord`
-
 ## Get Data
 
 ```
