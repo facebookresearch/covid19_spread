@@ -10,13 +10,10 @@ import pandas as pd
 import os
 import random
 import shutil
-import sys
 import submitit
 import tempfile
 import torch as th
 from tqdm import tqdm
-import torch.nn.functional as F
-import traceback
 import re
 import yaml
 from argparse import Namespace
@@ -30,15 +27,13 @@ from contextlib import nullcontext, ExitStack
 import common
 import metrics
 from lib import cluster
-from lib.click_lib import DefaultGroup, OptionNArgs
+from lib.click_lib import DefaultGroup
 from lib.slurm_pool_executor import (
     SlurmPoolExecutor,
     JobStatus,
     get_db_client,
     TransactionManager,
 )
-from lib.mail import email_notebook
-from lib.context_managers import env_var
 from lib.slack import get_client as get_slack_client
 from submitit.helpers import RsyncSnapshot
 
@@ -485,16 +480,6 @@ def log_configs(cfg: Dict[str, Any], module: str, path: str):
         yaml.dump(cfg[module], f)
 
 
-def attach_notebook(config, mode, module, basedir):
-    """Run notebook for execution mode"""
-    if "notebooks" in config and mode in config["notebooks"]:
-        notebook_pth = config["notebooks"][mode]
-        subject = f"[CV Notebook]: {config['region']}"
-        with env_var({"CV_BASE_DIR": basedir, "CV_MODULE": module}):
-            user = cluster.USER
-            email_notebook(notebook_pth, [f"{user}@fb.com"], subject)
-
-
 def rebase_forecast_deltas(val_in, df_forecast_deltas):
     gt = metrics.load_ground_truth(val_in)
     # Ground truth for the day before our first forecast
@@ -563,7 +548,7 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
             raise e
 
     for pth, tags in best_runs_df.groupby("pth")["name"].agg(list).items():
-        os.makedirs(os.path.join(os.path.dirname(pth), f"forecasts"), exist_ok=True)
+        os.makedirs(os.path.join(os.path.dirname(pth), "forecasts"), exist_ok=True)
         name = ",".join(tags)
         print(f"Starting {name}: {pth}")
         job_config = load_config(os.path.join(pth, module + ".yml"))
@@ -655,15 +640,6 @@ def prediction_interval(chkpnts, remote, nsamples, batchsize, closed_form):
         print(folder)
     else:
         list(map(f, chkpnts))
-
-
-@cli.command()
-@click.argument("config_pth")
-@click.argument("sweep_dir")
-@click.argument("module")
-def notebook(config_pth, sweep_dir, module):
-    config = load_config(config_pth)
-    attach_notebook(config, "cv", module, sweep_dir)
 
 
 @cli.command()
@@ -825,8 +801,6 @@ def cv(
             jobs.append(job)
 
         if remote:
-            # if not executor.nested:
-            #     executor.submit_final_job(attach_notebook, cfg, "cv", module, basedir)
             executor.launch(basedir + "/workers", array_parallelism)
 
     print(basedir)
@@ -922,9 +896,6 @@ def backfill(
                 )
 
         if remote:
-            # executor.submit_final_job(
-            #     attach_notebook, config, "backfill", module, basedir
-            # )
             executor.launch(basedir + "/workers", array_parallelism)
 
 
@@ -950,10 +921,9 @@ def progress(sweep_dirs):
         db_file = next(iglob(os.path.join(sweep_dir, "**/.job.db"), recursive=True))
         db_file = os.path.realpath(db_file)
         conn = get_db_client()
-        with conn.cursor() as cur:
-            df = pd.read_sql(
-                f"SELECT status, worker_id FROM jobs WHERE id='{db_file}'", conn
-            )
+        df = pd.read_sql(
+            f"SELECT status, worker_id FROM jobs WHERE id='{db_file}'", conn
+        )
         msg = {
             "sweep_dir": sweep_dir,
             "success": int((df["status"] == JobStatus.success.value).sum()),
