@@ -11,8 +11,6 @@ from os.path import isfile, join
 from process_cases import SOURCES
 import warnings
 
-# from process_cases import get_nyt
-
 sys.path.append("../../")
 from common import standardize_county_name
 
@@ -123,8 +121,6 @@ if __name__ == "__main__":
     df = SOURCES[opt.source](opt.metric)
     df.index = pd.to_datetime(df.index)
 
-    # state_policies = pd.read_csv("policy_features.csv")
-
     # HACK: for deaths we do not have borough-level information
     if opt.metric == "deaths":
         population["New York City, New York"] = sum(
@@ -133,7 +129,6 @@ if __name__ == "__main__":
 
     dates = df.index
     df.columns = [c.split("_")[1] + ", " + c.split("_")[0] for c in df.columns]
-    # df = df[[c for c in df.columns if c in population]]
 
     # drop all zero columns
     df = df[df.columns[(df.sum(axis=0) != 0).values]]
@@ -223,16 +218,6 @@ if __name__ == "__main__":
         )
         process_time_features(df, f"google/weather_features_{res}.csv", 5, merge_nyc)
         process_time_features(df, f"google/epi_features_{res}.csv", 7, merge_nyc)
-        # process_time_features(df, f"shifted_features_{res}.csv", 0, merge_nyc)
         if res == "state":
             process_time_features(df, f"google/hosp_features_{res}.csv", 0, merge_nyc)
             process_time_features(df, f"shifted_features_{res}.csv", 0, merge_nyc)
-
-# n_policies = len(np.unique(state_policies["policy"]))
-# state_policies = {s: v for (s, v) in state_policies.groupby("state")}
-# pols = th.zeros(df.shape[0], df.shape[1], n_policies)
-# for i, region in enumerate(df.index):
-#     state = region.split(", ")[1]
-#     _p = state_policies[state].iloc[:, 2:].transpose()
-#     pols[i] = th.from_numpy(_p.values)
-# th.save(pols, "policy_features.pt")
