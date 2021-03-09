@@ -8,8 +8,6 @@ script_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(script_dir, "../.."))
 sys.path.insert(0, os.path.join(script_dir, ".."))
 import recurring
-import cv
-import sweep
 import argparse
 from subprocess import check_call, check_output
 import pandas
