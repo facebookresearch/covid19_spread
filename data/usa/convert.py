@@ -100,7 +100,7 @@ def process_time_features(df, pth, shift=0, merge_nyc=False, input_resolution="c
             skipped += 1
             continue
         _m = th.zeros(df.shape[1], n_mobility_types)
-        _v = mobility_types[query].iloc[:, 2:].transpose()
+        _v = mobility_types[query].sort_values(by="type").iloc[:, 2:].transpose()
         _v = _v[: end_ix - start_ix]
         try:
             _m[start_ix:end_ix] = th.from_numpy(_v.values)
