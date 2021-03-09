@@ -19,22 +19,7 @@ backfill:
   - 2020-05-01
   - 2020-05-03
   - 2020-05-04
-  - 2020-05-06
-metasir:
-  output: metasir_model.bin
-  data: data/new-jersey/timeseries.h5
-  train:
-    fpop: *fpop
-    decay: latent
-    lr: 0.005
-    weight_decay: 0
-    niters: 10000
-    method: euler
-    loss: lsq
-    t0: 10
-    fit_on: -10
-    test_on: *vdays
-    adjoint: false    
+  - 2020-05-06   
 ar:
   data: data/new-jersey/data_cases.csv
   output: ar_model.bin
@@ -68,29 +53,3 @@ sir:
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
-mhp:
-  preprocess:
-    smooth: 7
-  data: data/new-jersey/timeseries.h5
-  output: mhp_model.bin
-  resources:
-    gpus: 1
-  simulate:
-    trials: 100
-    max_events: 2000000
-    days: *vdays
-  train:
-    dim: [10, 15, 20]
-    base_intensity: [True, False]
-    alpha_scale:  [-10, -15]
-    const_beta: [-1, 10, 15]
-    weight_decay: [0]
-    max_events: [1000000]
-    maxcor: [100]
-    optim: lbfgs
-    max_events: 500000
-    epochs: 200
-    seed: 42
-    sparse_grads: False
-    sparse: True
-    quiet: True

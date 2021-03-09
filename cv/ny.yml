@@ -79,27 +79,6 @@ sir:
     days: *fdays
     # number of days to keep for forecast
     keep: *fdays
-mhp:
-  data: data/nystate/timeseries.h5
-  output: mhp_model.bin
-  resources:
-    gpus: 1
-  simulate:
-    trials: 10
-    max_events: 2000000
-    days: *fdays
-  train:
-    dim: [10, 15, 20]
-    base_intensity: [True, False]
-    alpha_scale: [-10, -15]
-    const_beta: [8, 10, 15]
-    weight_decay: [0]
-    max_events: [1000000]
-    maxcor: [100]
-    optim: lbfgs
-    max_events: 500000
-    epochs: 200
-    sparse_grads: False
 bar:
   output: bar_model.bin
   data: data/usa/data_cases_ny.csv
@@ -143,65 +122,3 @@ bar:
     n_models: 5
     test_on: *fdays
     n_models: 5
-metasir:
-  output: msir_model.bin
-  data: data/usa/data_cases_ny.csv
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 15
-    timeout: 3600
-  #preprocess:
-  #  smooth: 7
-  train:
-    fpop: data/usa/population.csv
-    time_features:
-       -
-         #- data/usa/testing/features.pt
-         - data/usa/fb/mobility_features.pt
-         - data/usa/symptom-survey/features.pt
-         - data/usa/google/mobility_features.pt
-    decay: [latent32_1]
-    niters: [20000]
-    dropout: 0
-    weight_decay: 0
-    lr: [0.001]
-    momentum: 0.9
-    loss: nb
-    min_count: 1
-    t0: 0
-    test_on: *fdays
-codec:
-  output: codec_model.bin
-  data: data/usa/data_cases_ny.csv
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 15
-    timeout: 3600
-  #preprocess:
-  #  smooth: 7
-  train:
-    time_features:
-    #  -
-    #    - data/usa/testing/features.pt
-    #    - data/usa/fb/mobility_features.pt
-       -
-         - data/usa/testing/features.pt
-         - data/usa/fb/mobility_features.pt
-         - data/usa/symptom-survey/features_state.pt
-         - data/usa/symptom-survey/features_county.pt
-         - data/usa/google/mobility_features.pt
-         - data/usa/google/weather_features.pt
-    adjoint: False
-    dim: [2, 4]
-    layers: [2, 4, 6]
-    method: euler
-    niters: [30000]
-    lr: [0.001]
-    momentum: 0.9
-    weight_decay: [0.4, 0.6, 0.8]
-    kinetic: [0]
-    loss: nb
-    t0: 0
-    test_on: *fdays

@@ -82,21 +82,6 @@ backfill:
   #- 2020-04-27
   #- 2020-04-30
   #- 2020-05-04
-metasir:
-  data: data/usa/data_cases.csv
-  output: metasir_model.bin
-  train:
-    fpop: *fpop
-    decay: exp
-    lr: 0.005
-    weight_decay: 0
-    niters: 10000
-    method: euler
-    loss: nb
-    t0: 10
-    fit_on: -10
-    test_on: *vdays
-    adjoint: false
 ar:
   output: ar_model.bin
   data: data/usa/data_deaths.csv
@@ -170,29 +155,6 @@ sir_adaptive_beta:
     days: *vdays
     # number of days to keep for forecast
     keep: *vdays
-matrix:
-  output: mc_model.bin
-  fpop: *fpop
-  data: data/usa/data.csv
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 15
-    timeout: 30
-  train:
-    decay: exp
-    epochs: 40000
-    bs: 100000 # 10000
-    eps: [0.00001]
-    lr: [0.0005]
-    momentum: [0.99]
-    weight_decay: [0.95]
-    fit_on: [14]
-    k_avg: [10]
-    n_embedding: [250]
-    seed: [1]
-    t0: [0] #, 10] ######
-    test_on: *vdays
 bar:
   output: bar_model.bin
   data: data/usa/data_cases.csv
@@ -304,51 +266,3 @@ bar_lstm:
     loss: nb
     t0: 0
     test_on: *vdays
-bar_time_features:
-  output: bar_model.bin
-  data: data/usa/data_deaths.csv
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 15
-    timeout: 3600
-  preprocess:
-    smooth: 7
-  train:
-    n_models: 1
-    fpop: *fpop
-    self_correlation: True
-    cross_correlation: True
-    time_features:
-      -
-        - data/usa/testing/ratio_features_state.pt
-        - data/usa/testing/total_features_state.pt
-        - data/usa/fb/mobility_features_state_fb.pt
-        - data/usa/google/mobility_features_state_google.pt
-        - data/usa/google/weather_features_state.pt
-        - data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-state.pt
-        - data/usa/symptom-survey/fb-survey_smoothed_wcli-state.pt
-        - data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-state.pt
-        - data/usa/google/epi_features_state.pt
-        - data/usa/google/hosp_features_state.pt
-    ar_features:
-      -
-        - data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-state.pt
-        - data/usa/symptom-survey/fb-survey_smoothed_wcli-state.pt
-        - data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-state.pt
-        - data/usa/google/epi_features_state.pt
-        - data/usa/google/hosp_features_state.pt
-    activation: sigmoid
-    decay: [lstm2_2]
-    window: [14, 21, 28]
-    lr: [0.001]
-    momentum: [0.9]
-    weight_decay: [0.1, 0.2]
-    niters: [30000]
-    granger: [0.5]
-    temporal: [100]
-    dropout: [0.2, 0.3]
-    eta: [0.002, 0.02, 0.2]
-    loss: nb
-    t0: 0
-    test_on: 60
