@@ -8,11 +8,12 @@ import torch as th
 from datetime import timedelta
 from os import listdir
 from os.path import isfile, join
-from process_cases import SOURCES
+from .process_cases import SOURCES
 import warnings
+from ...common import standardize_county_name
+import os
 
-sys.path.append("../../")
-from common import standardize_county_name
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 nyc_boroughs = [
     "Bronx, New York",
@@ -45,7 +46,7 @@ def merge_nyc_boroughs(df, ntypes):
 
 
 def read_population():
-    poppath = "../population-data/US-states"
+    poppath = f"{SCRIPT_DIR}/../population-data/US-states"
     fpops = [f for f in listdir(poppath) if isfile(join(poppath, f))]
 
     population = {}
@@ -110,19 +111,25 @@ def process_time_features(df, pth, shift=0, merge_nyc=False, input_resolution="c
     return feature_tensors
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser("US data")
-    parser.add_argument("-metric", default="cases", choices=["cases", "deaths"])
-    parser.add_argument("-with-features", default=False, action="store_true")
-    parser.add_argument("-source", choices=SOURCES.keys(), default="nyt")
-    parser.add_argument("-resolution", choices=["county", "state"], default="county")
-    opt = parser.parse_args()
+def create_time_features(resolution):
+    from .symptom_survey import prepare as ss_prepare
+    from .fb import prepare as fb_prepare
+    from .google import prepare as google_prepare
+    from .testing import prepare as testing_prepare
+
+    ss_prepare(resolution)
+    fb_prepare(resolution)
+    google_prepare(resolution)
+    testing_prepare(resolution)
+
+
+def main(metric, with_features, source, resolution):
     population = read_population()
-    df = SOURCES[opt.source](opt.metric)
+    df = SOURCES[source](metric)
     df.index = pd.to_datetime(df.index)
 
     # HACK: for deaths we do not have borough-level information
-    if opt.metric == "deaths":
+    if metric == "deaths":
         population["New York City, New York"] = sum(
             [population[b] for b in nyc_boroughs]
         )
@@ -157,7 +164,7 @@ if __name__ == "__main__":
     counts = df.sum(axis=0)
     df = df.iloc[:, np.where(counts > 0)[0]]
 
-    if opt.resolution == "state":
+    if resolution == "state":
         df = df.groupby(lambda x: x.split(", ")[-1]).sum()
         df = df.drop(
             index=["Virgin Islands", "Northern Mariana Islands", "Puerto Rico", "Guam"],
@@ -173,12 +180,12 @@ if __name__ == "__main__":
     df_pop = df_pop.loc[df.index]
 
     df_pop.to_csv(
-        f"population_{opt.resolution}.csv", index_label="county", header=False
+        f"{SCRIPT_DIR}/population_{resolution}.csv", index_label="county", header=False
     )
 
-    df.to_csv(f"data_{opt.metric}.csv", index_label="region")
+    df.to_csv(f"{SCRIPT_DIR}/data_{metric}.csv", index_label="region")
 
-    if opt.resolution == "county":
+    if resolution == "county":
         # Build state graph...
         adj = np.zeros((len(df), len(df)))
         for _, g in df.groupby(lambda x: x.split(", ")[-1]):
@@ -186,20 +193,31 @@ if __name__ == "__main__":
             adj[np.ix_(idxs, idxs)] = 1
 
         print(adj)
-        th.save(th.from_numpy(adj), "state_graph.pt")
+        th.save(th.from_numpy(adj), f"{SCRIPT_DIR}/state_graph.pt")
 
-    if opt.with_features:
-        res = opt.resolution
-        merge_nyc = opt.metric == "deaths" and res == "county"
-        process_time_features(df, f"testing/ratio_features_{res}.csv", 0, merge_nyc)
-        process_time_features(df, f"testing/total_features_{res}.csv", 0, merge_nyc)
+    if with_features:
+        create_time_features()
+        res = resolution
+        merge_nyc = metric == "deaths" and res == "county"
+        process_time_features(
+            df, f"{SCRIPT_DIR}/testing/ratio_features_{res}.csv", 0, merge_nyc
+        )
+        process_time_features(
+            df, f"{SCRIPT_DIR}/testing/total_features_{res}.csv", 0, merge_nyc
+        )
         for signal, lag in [
-            ("symptom-survey/doctor-visits_smoothed_adj_cli-{}.csv", 2),
-            ("symptom-survey/fb-survey_smoothed_wcli-{}.csv", 0),
-            ("symptom-survey/fb-survey_smoothed_hh_cmnty_cli-{}.csv", 0),
-            ("symptom-survey/fb-survey_smoothed_wearing_mask-{}.csv", 5),
-            ("fb/mobility_features_{}_fb.csv", 5),
-            ("google/mobility_features_{}_google.csv", 5),
+            (f"{SCRIPT_DIR}/symptom-survey/doctor-visits_smoothed_adj_cli-{{}}.csv", 2),
+            (f"{SCRIPT_DIR}/symptom-survey/fb-survey_smoothed_wcli-{{}}.csv", 0),
+            (
+                f"{SCRIPT_DIR}/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-{{}}.csv",
+                0,
+            ),
+            (
+                f"{SCRIPT_DIR}/symptom-survey/fb-survey_smoothed_wearing_mask-{{}}.csv",
+                5,
+            ),
+            (f"{SCRIPT_DIR}/fb/mobility_features_{{}}_fb.csv", 5),
+            (f"{SCRIPT_DIR}/google/mobility_features_{{}}_google.csv", 5),
         ]:
             if res == "county":
                 process_time_features(
@@ -212,12 +230,32 @@ if __name__ == "__main__":
                 process_time_features(
                     df, signal.format("state"), lag, merge_nyc, "state",
                 )
-        process_time_features(df, f"fb/mobility_features_{res}_fb.csv", 5, merge_nyc)
         process_time_features(
-            df, f"google/mobility_features_{res}_google.csv", 5, merge_nyc
+            df, f"{SCRIPT_DIR}/fb/mobility_features_{res}_fb.csv", 5, merge_nyc
         )
-        process_time_features(df, f"google/weather_features_{res}.csv", 5, merge_nyc)
-        process_time_features(df, f"google/epi_features_{res}.csv", 7, merge_nyc)
+        process_time_features(
+            df, f"{SCRIPT_DIR}/google/mobility_features_{res}_google.csv", 5, merge_nyc
+        )
+        process_time_features(
+            df, f"{SCRIPT_DIR}/google/weather_features_{res}.csv", 5, merge_nyc
+        )
+        process_time_features(
+            df, f"{SCRIPT_DIR}/google/epi_features_{res}.csv", 7, merge_nyc
+        )
         if res == "state":
-            process_time_features(df, f"google/hosp_features_{res}.csv", 0, merge_nyc)
-            process_time_features(df, f"shifted_features_{res}.csv", 0, merge_nyc)
+            process_time_features(
+                df, f"{SCRIPT_DIR}/google/hosp_features_{res}.csv", 0, merge_nyc
+            )
+            process_time_features(
+                df, f"{SCRIPT_DIR}/shifted_features_{res}.csv", 0, merge_nyc
+            )
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser("US data")
+    parser.add_argument("-metric", default="cases", choices=["cases", "deaths"])
+    parser.add_argument("-with-features", default=False, action="store_true")
+    parser.add_argument("-source", choices=SOURCES.keys(), default="nyt")
+    parser.add_argument("-resolution", choices=["county", "state"], default="county")
+    opt = parser.parse_args()
+    main(opt.metric, opt.with_features, opt.source, opt.resolution)
