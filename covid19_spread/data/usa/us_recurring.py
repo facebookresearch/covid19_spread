@@ -3,27 +3,18 @@
 
 import sys
 import os
-
-script_dir = os.path.dirname(os.path.realpath(__file__))
-sys.path.insert(0, os.path.join(script_dir, "../.."))
-sys.path.insert(0, os.path.join(script_dir, ".."))
-import recurring
+from .. import recurring
 import argparse
 from subprocess import check_call, check_output
 import pandas
-from lib.slack import get_client as get_slack_client
+from ...lib.slack import get_client as get_slack_client
 from datetime import date, datetime, timedelta
 
-
-MAIL_TO = ["mattle@fb.com"]
-if os.environ.get("__PROD__") == "1":
-    MAIL_TO.append("maxn@fb.com")
-
-print(f"MAIL_TO == {MAIL_TO}")
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
 class USARRecurring(recurring.Recurring):
-    script_dir = script_dir
+    script_dir = SCRIPT_DIR
 
     def get_id(self):
         return "us-bar"
@@ -52,34 +43,12 @@ class USARRecurring(recurring.Recurring):
 
     def launch_job(self, **kwargs):
         # Make clean with features
-        check_call(["make", "clean"], cwd=script_dir)
-        check_call(["python", "convert.py", "-source", "nyt"], cwd=script_dir)
-        check_call(["make", "data_cases.csv", "-j", "5"], cwd=script_dir)
+        check_call(["make", "clean"], cwd=SCRIPT_DIR)
+        check_call(["python", "convert.py", "-source", "nyt"], cwd=SCRIPT_DIR)
+        check_call(["make", "data_cases.csv", "-j", "5"], cwd=SCRIPT_DIR)
         client = get_slack_client()
         msg = f"*New Data Available for US: {self.latest_date()}*"
         client.chat_postMessage(channel="#new-data", text=msg)
         return super().launch_job(
             module="bar", cv_config="us_prod", array_parallelism=90, **kwargs
         )
-
-
-def main(args):
-    kinds = {
-        "ar": USARRecurring,
-    }
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--install", action="store_true")
-    parser.add_argument("--kind", choices=list(kinds.keys()), default="ar")
-    opt = parser.parse_args()
-
-    job = kinds[opt.kind]()
-
-    if opt.install:
-        job.install()  # install cron job
-    else:
-        job.refresh()  # run sweep if new data is available
-
-
-if __name__ == "__main__":
-    main(sys.argv[1:])
