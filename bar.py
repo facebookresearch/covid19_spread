@@ -1,5 +1,4 @@
 import argparse
-import copy
 import numpy as np
 import pandas as pd
 import warnings
@@ -10,8 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import NegativeBinomial, Normal, Poisson
-from torchcontrib.optim import SWA
-
+import decay
 import load
 import cv
 from cv import rebase_forecast_deltas
@@ -375,7 +373,6 @@ class BAR(nn.Module):
             nn.init.xavier_normal_(self.w_feat.weight)
 
     def dist(self, scores):
-        nu = th.zeros_like(scores)
         if self._dist == "poisson":
             return Poisson(scores)
         elif self._dist == "nb":
@@ -383,7 +380,7 @@ class BAR(nn.Module):
         elif self._dist == "normal":
             return Normal(scores, th.exp(self.nu))
         else:
-            raise RuntimeError(f"Unknown loss")
+            raise RuntimeError("Unknown loss")
 
     def alphas(self):
         alphas = self._alphas
@@ -535,12 +532,6 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                 z = model.z
                 nu = th.sigmoid(model.nu)
                 means = model.dist(scores).mean
-                # For some reason, the following `np.histogram` can be non-determinstically very slow.
-                # No idea why...
-                # hist = np.histogram(
-                #     W.cpu().contiguous().numpy().flatten(), bins=np.arange(0, 1.1, 0.1), density=True
-                # )
-                # print("W hist =", hist[0])
                 print(
                     f"[{itr:04d}] Loss {loss.item():.2f} | "
                     f"Temporal {reg.item():.5f} | "
@@ -593,22 +584,6 @@ def _get_dict(args, v, device, regions):
         return None
 
 
-def to_one_hot(feats, nbins):
-    disc = KBinsDiscretizer(nbins, encode="onehot", strategy="uniform")
-    out = th.zeros(feats.size(0), feats.size(1), feats.size(2))
-    feats = feats.permute(2, 0, 1)
-    for i in range(1, feats.size(0)):
-        _f = feats[i].cpu().numpy().flatten().reshape(-1, 1)
-        print(_f.min(), _f.max(), _f.mean())
-        if _f.min() == _f.max():
-            continue
-        est = disc.fit(_f)
-        _f = disc.transform(_f).nonzero()[1]
-        _f = _f.reshape(feats.size(1), feats.size(2))
-        out[:, :, i] = th.from_numpy(_f)
-    return out.to(feats.device).long()
-
-
 class BARCV(cv.CV):
     def initialize(self, args):
         device = th.device("cuda" if th.cuda.is_available() else "cpu")
@@ -648,7 +623,6 @@ class BARCV(cv.CV):
         time_features = _get_dict(args, "time_features", device, regions)
         if time_features is not None:
             time_features = time_features.transpose(0, 1)
-            # TODO/FIXME: uncomment for rigorous test setting
             time_features = time_features.narrow(0, args.t0, new_cases.size(1))
             print("Feature size = {} x {} x {}".format(*time_features.size()))
             print(time_features.min(), time_features.max())
