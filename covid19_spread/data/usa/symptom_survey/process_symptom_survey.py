@@ -7,12 +7,17 @@ import numpy as np
 from datetime import datetime
 
 
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+
+
 def get_df(source, signal, resolution):
-    df = pd.read_csv(f"{resolution}/{source}/{signal}.csv", parse_dates=["date"])
+    df = pd.read_csv(
+        f"{SCRIPT_DIR}/{resolution}/{source}/{signal}.csv", parse_dates=["date"]
+    )
     df.dropna(axis=0, subset=["date"], inplace=True)
 
     fips = pd.read_csv(
-        "../county_fips_master.csv", encoding="latin1", dtype={"fips": str}
+        "{SCRIPT_DIR}/../county_fips_master.csv", encoding="latin1", dtype={"fips": str}
     )
     fips = fips.drop_duplicates("fips")
 
@@ -48,7 +53,9 @@ def main(signal, resolution):
     df = get_df(source, signal, resolution)
 
     if resolution == "county":
-        cases = pd.read_csv("../data_cases.csv", index_col="region").index.to_frame()
+        cases = pd.read_csv(
+            "{SCRIPT_DIR}/../data_cases.csv", index_col="region"
+        ).index.to_frame()
         cases["state"] = [x.split(", ")[-1] for x in cases.index]
         cases = cases.drop(columns="region")
         df2 = get_df(source, signal, "state")
@@ -60,7 +67,9 @@ def main(signal, resolution):
     df = df[["type"] + [c for c in df.columns if isinstance(c, datetime)]]
     df.columns = [str(x.date()) if isinstance(x, datetime) else x for x in df.columns]
 
-    df.round(3).to_csv(f"{source}_{signal}-{resolution}.csv", index_label="region")
+    df.round(3).to_csv(
+        f"{SCRIPT_DIR}/{source}_{signal}-{resolution}.csv", index_label="region"
+    )
 
 
 if __name__ == "__main__":

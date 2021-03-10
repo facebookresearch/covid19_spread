@@ -9,6 +9,8 @@ import covidcast
 
 # Fetch data
 
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+
 
 def main(geo_value, source, signal):
     # grab start and end date from metadata
@@ -26,7 +28,7 @@ def main(geo_value, source, signal):
     while current_date < end_date:
         current_date = current_date + timedelta(1)
         date_str = current_date.strftime("%Y%m%d")
-        fout = f"{geo_value}/{source}/{signal}-{date_str}.csv"
+        fout = f"{SCRIPT_DIR}/{geo_value}/{source}/{signal}-{date_str}.csv"
 
         # d/l only if we don't have the file already
         if os.path.exists(fout):
