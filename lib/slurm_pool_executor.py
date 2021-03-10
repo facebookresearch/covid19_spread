@@ -10,7 +10,6 @@ import time
 import sys
 import os
 import sqlite3
-from functools import partial
 import enum
 import random
 import re
@@ -21,7 +20,6 @@ from contextlib import (
     AbstractContextManager,
 )
 import traceback
-import pandas
 import itertools
 import timeit
 import psycopg2
@@ -40,7 +38,6 @@ def env_var(key_vals: tp.Dict[str, tp.Union[str, None]]):
     Params:
         key_vals - mapping of environment variables to their values.  Of a value is 
         `None`, then it is deleted from the environment.  
-    
     """
     old_dict = {k: os.environ.get(k, None) for k in key_vals.keys()}
     for k, v in key_vals.items():
@@ -406,14 +403,12 @@ class SlurmPoolExecutor(SlurmExecutor):
                 vals = (self.db_pth,)
                 conn.execute("SELECT COUNT(1) FROM jobs WHERE id=%s", vals)
                 (njobs,) = conn.fetchone()
-            # workers = min(workers, njobs)
             workers = njobs if workers == -1 else workers
             ex = SlurmExecutor(folder or self.folder)
             ex.update_parameters(**self.parameters)
             ex.map_array(
                 lambda x: x.run(), [Worker(self.db_pth, i) for i in range(workers)]
             )
-            # ex.map_array(partial(worker, self.db_pth), list(range(workers)))
 
     def extend_dependencies(self, jobs: tp.List[core.Job]):
         def txn(conn):
