@@ -5,7 +5,6 @@ from glob import glob
 import pandas
 import os
 import re
-import sqlite3
 from subprocess import check_call
 import datetime
 import shutil
@@ -16,44 +15,9 @@ from datetime import timedelta
 from common import update_repo
 
 
-DB = os.path.join(os.path.dirname(os.path.realpath(__file__)), "forecasts/forecast.db")
-
-
-def mk_db():
-    os.makedirs(os.path.dirname(DB), exist_ok=True)
-    conn = sqlite3.connect(DB)
-    conn.execute("CREATE TABLE gt_mapping (id text, gt text, UNIQUE(id, gt));")
-    # conn_.commit()
-
-
 @click.group()
 def cli():
     pass
-
-
-LOC_MAP = {"new-jersey": "New Jersey", "nystate": "New York"}
-
-
-def create_gt_mapping(conn):
-    df = pandas.DataFrame(
-        [
-            {"id": "yyg", "gt": "jhu_ground_truth"},
-            {"id": "mit-delphi", "gt": "jhu_ground_truth"},
-            {"id": "cv_ar", "gt": "nyt_ground_truth"},
-            {"id": "cv_ar_daily", "gt": "nyt_ground_truth"},
-            {"id": "new-jersey_fast", "gt": "nyt_ground_truth"},
-            {"id": "new-jersey_slow", "gt": "nyt_ground_truth"},
-            {"id": "nystate_fast", "gt": "nyt_ground_truth"},
-            {"id": "nystate_slow", "gt": "nyt_ground_truth"},
-            {"id": "los_alamos", "gt": "jhu_ground_truth"},
-        ]
-    )
-    df.to_sql("temp___", conn, if_exists="replace", index=False)
-    cols = "id, gt"
-    conn.execute(
-        f"INSERT OR REPLACE INTO gt_mapping({cols}) SELECT {cols} FROM temp___"
-    )
-    conn.commit()
 
 
 def to_csv(df, metric, model, forecast_date, deltas=False):
@@ -86,7 +50,7 @@ def to_csv(df, metric, model, forecast_date, deltas=False):
     df.to_csv(outfile)
 
 
-def sync_nyt(conn):
+def sync_nyt():
     # Sync the NYTimes ground truth data
     def dump(df, metric):
         df = df.reset_index().melt(
@@ -125,7 +89,7 @@ def get_ihme_file(dir):
         raise ValueError(f"Ambiguous CSVs in IHME zip!  Found {len(csvs)} CSV files")
 
 
-def sync_ihme(conn):
+def sync_ihme():
     marker = None
     while True:
         url = "https://ihmecovid19storage.blob.core.windows.net/archive?comp=list"
@@ -200,7 +164,7 @@ def sync_ihme(conn):
             break
 
 
-def sync_reich_forecast(conn, name, mdl_id):
+def sync_reich_forecast(name, mdl_id):
     data_dir = update_repo("https://github.com/reichlab/covid19-forecast-hub.git")
     loc_codes = pandas.read_csv(f"{data_dir}/data-locations/locations.csv")
 
@@ -231,15 +195,15 @@ def sync_reich_forecast(conn, name, mdl_id):
         to_csv(value, "deaths", mdl_id, value["forecast_date"].iloc[0])
 
 
-def sync_mit(conn):
-    sync_reich_forecast(conn, "MIT_CovidAnalytics-DELPHI", "mit-delphi")
+def sync_mit():
+    sync_reich_forecast("MIT_CovidAnalytics-DELPHI", "mit-delphi")
 
 
-def sync_yyg(conn):
-    sync_reich_forecast(conn, "YYG-ParamSearch", "yyg")
+def sync_yyg():
+    sync_reich_forecast("YYG-ParamSearch", "yyg")
 
 
-def sync_los_alamos(conn):
+def sync_los_alamos():
     url = "https://covid-19.bsvgateway.org"
     req = requests.get(f"{url}/forecast/forecast_metadata.json").json()
 
@@ -273,7 +237,7 @@ def sync_los_alamos(conn):
         to_csv(cases, "infections", "los_alamos", cases["forecast_date"].iloc[0])
 
 
-def sync_jhu(conn):
+def sync_jhu():
     data_pth = update_repo("https://github.com/CSSEGISandData/COVID-19.git")
     col_map = {
         "Country/Region": "loc1",
@@ -308,7 +272,7 @@ def sync_jhu(conn):
         )
 
 
-def sync_columbia(conn):
+def sync_columbia():
     data_dir = update_repo("git@github.com:shaman-lab/COVID-19Projection.git")
     fips_dir = update_repo("git@github.com:kjhealy/fips-codes.git")
     fips = pandas.read_csv(
@@ -362,12 +326,9 @@ def sync_columbia(conn):
         with_base = pandas.concat([with_base, prev_day])
         with_base["forecast_date"] = first_day
         to_csv(with_base, "infections", f"columbia_{name}", first_day)
-        conn.execute(
-            f"INSERT INTO gt_mapping(id, gt) VALUES ('columbia_{name}','infections') ON CONFLICT DO NOTHING"
-        )
 
 
-def sync_usa_facts(conn):
+def sync_usa_facts():
     fips_dir = update_repo("git@github.com:kjhealy/fips-codes.git")
     fips = pandas.read_csv(
         f"{fips_dir}/county_fips_master.csv", encoding="latin1", dtype={"fips": str}
@@ -403,7 +364,7 @@ def sync_usa_facts(conn):
         to_csv(df, table, "usafacts_ground_truth", "")
 
 
-def sync_google(conn):
+def sync_google():
     for metric in ["cases", "deaths"]:
         df = get_google(metric=metric)
         df = df.reset_index().melt(
@@ -417,14 +378,6 @@ def sync_google(conn):
         to_csv(df, table, "google_ground_truth", "")
 
 
-def add_loc(df, fips):
-    merged = df.merge(
-        fips[["fips", "county_name", "state_name"]], left_on="location", right_on="fips"
-    )
-    merged["loc"] = merged["county_name"] + ", " + merged["state_name"]
-    return merged
-
-
 datasets = {
     "usa_facts": sync_usa_facts,
     "columbia": sync_columbia,
@@ -434,23 +387,13 @@ datasets = {
 
 
 @click.command()
-@click.option(
-    "--distribute", is_flag=True, help="Distribute across clusters (H1/H2)",
-)
 @click.option("--dataset", default=None, type=click.Choice(datasets.keys()))
-def sync_forecasts(distribute=False, dataset=None):
-    if not os.path.exists(DB):
-        mk_db()
-    conn = sqlite3.connect(DB)
-
+def sync_forecasts(dataset=None):
     if dataset is not None:
-        datasets[dataset](conn)
+        datasets[dataset]()
     else:
         for f in datasets.values():
-            f(conn)
-
-    if distribute:
-        pass
+            f()
 
 
 if __name__ == "__main__":
