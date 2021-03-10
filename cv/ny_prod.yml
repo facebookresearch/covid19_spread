@@ -6,50 +6,6 @@ validation:
 forecast:
   output: forecast.csv
   days: &fdays 21
-backfill:
-  # LANL
-  #- 2020-04-05
-  #- 2020-04-08
-  #- 2020-04-12
-  # - 2020-04-15
-  - 2020-04-19
-  # - 2020-04-22
-  - 2020-04-26
-  # - 2020-04-29
-  - 2020-05-03
-  # - 2020-05-06
-  - 2020-05-10
-  - 2020-05-17
-  - 2020-05-24
-  - 2020-05-31
-  - 2020-06-07
-  - 2020-06-13
-  - 2020-06-21
-  - 2020-06-28
-ar:
-  data: data/nystate/data_cases.csv
-  output: ar_model.bin
-  preprocess: 
-    smooth: [1, 3, 5]
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 10
-    timeout: 300
-  train:
-    fpop: *fpop
-    activation: sigmoid
-    no_cross_correlation: false
-    decay: [latent2_1]
-    window: [10, 15, 20, 25]
-    lr: [0.001, 0.005]
-    momentum: [0.9]
-    weight_decay: [0.1, 0.2]
-    niters: [20000]
-    temp_smoothing: 0
-    loss: nb
-    t0: 10
-    test_on: *fdays
 sir:
   module: sir
   output: sir_model.npy

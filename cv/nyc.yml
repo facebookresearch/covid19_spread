@@ -5,26 +5,6 @@ validation:
   output: validation-nyc.csv
 forecast:
   output: forecast-nyc.csv
-ar:
-  data: data/nystate/data-nyc.csv
-  module: ar
-  output: ar_model.bin
-  resources:
-    gpus: 1
-    cpus: 1
-    memgb: 10
-    timeout: 15
-  train:
-    fpop: *fpop
-    decay: [latent2_1, latent4_1, latent8_1, latent16_1]
-    window: [10, 15, 20, 25]
-    lr: [0.001, 0.005, 0.01]
-    momentum: [0.9, 0.99]
-    weight_decay: 0
-    niters: 100
-    loss: nb
-    t0: 10
-    test_on: *vdays
 sir:
   module: sir
   output: sir_model.npy
