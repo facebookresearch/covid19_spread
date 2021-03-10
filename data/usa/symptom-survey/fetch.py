@@ -36,9 +36,14 @@ while current_date < end_date:
     if os.path.exists(fout):
         continue
 
-    res = Epidata.covidcast(source, signal, "day", geo_value, [date_str], "*")
-    print(date_str, res["result"], res["message"])
+    for _ in range(3):
+        res = Epidata.covidcast(source, signal, "day", geo_value, [date_str], "*")
+        print(date_str, res["result"], res["message"])
+        if res["result"] == 1:
+            break
+
     assert res["result"] == 1, ("CLI", res["message"], res)
+
     df = pd.DataFrame(res["epidata"])
     df.rename(
         columns={
