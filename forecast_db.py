@@ -2,36 +2,21 @@
 
 import click
 from glob import glob
-import numpy as np
 import pandas
 import os
 import re
-import json
 import sqlite3
 from subprocess import check_call
 import datetime
-import itertools
-import tempfile
 import shutil
 from data.usa.process_cases import get_nyt, get_google
 import requests
 from xml.etree import ElementTree
-import yaml
-from lib import cluster
-from data.recurring import DB as RECURRING_DB
-from sqlalchemy import create_engine
-import psycopg2
 from datetime import timedelta
 from common import update_repo
 
 
 DB = os.path.join(os.path.dirname(os.path.realpath(__file__)), "forecasts/forecast.db")
-
-
-CLUSTERS = {
-    "H1": "devfairh2",
-    "H2": "devfairh1",
-}
 
 
 def mk_db():
@@ -99,25 +84,6 @@ def to_csv(df, metric, model, forecast_date, deltas=False):
     outfile = os.path.join(basedir, metric, model, f"counts{forecast_date}.csv")
     os.makedirs(os.path.dirname(outfile), exist_ok=True)
     df.to_csv(outfile)
-
-
-def sync_max_forecasts(conn):
-    base = "/checkpoint/mattle/covid19/final_forecasts"
-    for state, ty in itertools.product(["new-jersey", "nystate"], ["slow", "fast"]):
-        files = glob(f"{base}/{state}/maxn/forecast-*_{ty}.csv")
-        for f in files:
-            df = pandas.read_csv(f)
-            df = df[df["date"].str.match(r"\d{2}/\d{2}")]
-            df["date"] = pandas.to_datetime(df["date"] + "/2020")
-            forecast_date = df["date"].min().date()
-            df = df.melt(id_vars=["date"], value_name="counts", var_name="location")
-            df = df.rename(columns={"location": "loc3"})
-            df["forecast_date"] = forecast_date
-            df["id"] = f"{state}_{ty}"
-            df["loc2"] = LOC_MAP[state]
-            df["loc1"] = "United States"
-            df = df[df["loc3"] != "ALL REGIONS"]
-            to_csv(df, "infections", f"{state}_{ty}", forecast_date)
 
 
 def sync_nyt(conn):
@@ -242,11 +208,11 @@ def sync_reich_forecast(conn, name, mdl_id):
         value = pandas.read_csv(pth, dtype={"location": str})
         value = value[
             (value["type"] == "point")
-            & (value["target"].str.match("\d wk ahead cum death"))
-            & (value["location"].str.match("\d\d"))
+            & (value["target"].str.match(r"\d wk ahead cum death"))
+            & (value["location"].str.match(r"\d\d"))
         ].copy()
         value = value.merge(loc_codes, on="location")
-        value["days"] = value["target"].str.extract("(\d+) wk")
+        value["days"] = value["target"].str.extract(r"(\d+) wk")
         value = value[value["days"] == value["days"].max()]
 
         value = value.rename(
@@ -305,57 +271,6 @@ def sync_los_alamos(conn):
         )
         to_csv(deaths, "deaths", "los_alamos", deaths["forecast_date"].iloc[0])
         to_csv(cases, "infections", "los_alamos", cases["forecast_date"].iloc[0])
-
-
-def sync_matts_forecasts(conn):
-    if not os.path.exists(RECURRING_DB):
-        return
-    loc_map = {
-        "new-jersey": {"loc1": "United States", "loc2": "New Jersey"},
-        "nystate": {"loc1": "United States", "loc2": "New York"},
-        "at": {"loc1": "Austria"},
-    }
-    module_map = {"ar": "ar", "ar_daily": "ar"}
-    _conn = sqlite3.connect(RECURRING_DB)
-    q = """
-    SELECT path, basedate, module
-    FROM sweeps
-    WHERE module IN ('ar', 'ar_daily')
-    """
-    for sweep_pth, basedate, module in _conn.execute(q):
-        if not os.path.exists(
-            os.path.join(sweep_pth, "forecasts/forecast_best_mae.csv")
-        ):
-            continue
-        cfg = yaml.safe_load(open(os.path.join(sweep_pth, "cfg.yml")))
-        print(f"{basedate}, {module}")
-        df = pandas.read_csv(
-            os.path.join(sweep_pth, "forecasts/forecast_best_mae.csv"),
-            parse_dates=["date"],
-        )
-        df = df.melt(id_vars=["date"], value_name="counts", var_name="location")
-        loc = loc_map[cfg["region"]]
-        for k, v in loc.items():
-            df[k] = v
-        df = df.rename(columns={"location": f"loc{len(loc) + 1}"})
-        df["id"] = f"cv_{module_map[module]}"
-        df["forecast_date"] = pandas.to_datetime(basedate)
-        to_csv(df, "infections", f"cv_{module_map[module]}", basedate)
-
-
-def sync_austria_gt(conn):
-    data_dir = update_repo("git@github.com:fairinternal/covid19_spread.git")
-    df = pandas.read_csv(
-        f"{data_dir}/data/austria/data.csv", index_col="region"
-    ).transpose()
-    df.index = pandas.to_datetime(df.index)
-    df.index.name = "date"
-    df = df.reset_index()
-    df = df.melt(id_vars=["date"], value_name="counts", var_name="loc2")
-    df["loc1"] = "Austria"
-    df["loc3"] = None
-    df["id"] = "austria_ground_truth"
-    to_csv(df, "infections", "austria_ground_truth", "")
 
 
 def sync_jhu(conn):
@@ -508,76 +423,6 @@ def add_loc(df, fips):
     )
     merged["loc"] = merged["county_name"] + ", " + merged["state_name"]
     return merged
-
-
-def sync_county_level_reichlab_case_date(conn):
-    data_dir = update_repo("https://github.com/reichlab/covid19-forecast-hub.git")
-    fips = pandas.read_csv(
-        "data/usa/county_fips_master.csv", encoding="latin1", dtype={"fips": str}
-    )
-    fips["fips"] = fips["fips"].str.zfill(5)
-    fips = fips.drop_duplicates("fips")
-    cumulative_truth = pandas.read_csv(
-        f"{data_dir}/data-truth/truth-Cumulative Cases.csv",
-        parse_dates=["date"],
-        dtype={"location": str},
-    )
-    dc = cumulative_truth[cumulative_truth["location"] == "11"].copy()
-    dc["location"] = "11001"
-    cumulative_truth = pandas.concat([cumulative_truth, dc])
-    cumulative_truth = add_loc(cumulative_truth, fips)
-    cumulative_truth = cumulative_truth.pivot(
-        index="date", columns="loc", values="value"
-    )
-
-    incident_truth = pandas.read_csv(
-        f"{data_dir}/data-truth/truth-Incident Cases.csv",
-        parse_dates=["date"],
-        dtype={"location": str},
-    )
-    dc = incident_truth[incident_truth["location"] == "11"].copy()
-    dc["location"] = "11001"
-    incident_truth = pandas.concat([incident_truth, dc])
-    incident_truth = add_loc(incident_truth, fips)
-    incident_truth = incident_truth.pivot(index="date", columns="loc", values="value")
-
-    for f in glob(f"{data_dir}/data-processed/**/*.csv"):
-        df = pandas.read_csv(
-            f, dtype={"location": str}, parse_dates=["target_end_date", "forecast_date"]
-        )
-        mask = (df["target"].str.contains("case")) & (
-            df["location"].str.match("\d{4,5}")
-        )
-        if mask.any():
-            # incident
-            df = df[
-                mask & (df["type"] == "point") & (df["target"].str.contains("inc case"))
-            ]
-            merged = add_loc(df, fips)
-            piv = merged.pivot(index="target_end_date", columns="loc", values="value")
-            basedate = df["forecast_date"].max()
-            if cumulative_truth.index.max() < df["forecast_date"].iloc[0]:
-                continue
-            forecast = (
-                piv.cumsum()
-                + cumulative_truth.loc[df["forecast_date"].max()].loc[piv.columns]
-            )
-            forecast = forecast.reset_index().melt(id_vars="target_end_date")
-            forecast["loc1"] = "United States"
-            forecast["loc2"] = forecast["loc"].apply(lambda x: x.split(", ")[1])
-            forecast["loc3"] = forecast["loc"].apply(lambda x: x.split(", ")[0])
-            forecast = forecast.rename(
-                columns={"target_end_date": "date", "value": "counts"}
-            )
-            forecast["id"] = f.split("/")[-2]
-            forecast["forecast_date"] = df["forecast_date"].max()
-            to_csv(
-                forecast,
-                "infections",
-                f.split("/")[-2],
-                df["forecast_date"].max(),
-                deltas=False,
-            )
 
 
 datasets = {
