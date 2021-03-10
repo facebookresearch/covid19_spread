@@ -41,6 +41,7 @@ jobs:
 
             - run:
                 name: Run Tests
+                no_output_timeout: 30m
                 command: |
                     conda init bash
                     source ~/.bashrc
