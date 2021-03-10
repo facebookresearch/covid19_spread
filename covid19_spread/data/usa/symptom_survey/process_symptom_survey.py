@@ -5,7 +5,7 @@ import pandas as pd
 import argparse
 import numpy as np
 from datetime import datetime
-
+import os
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -17,7 +17,9 @@ def get_df(source, signal, resolution):
     df.dropna(axis=0, subset=["date"], inplace=True)
 
     fips = pd.read_csv(
-        "{SCRIPT_DIR}/../county_fips_master.csv", encoding="latin1", dtype={"fips": str}
+        f"{SCRIPT_DIR}/../county_fips_master.csv",
+        encoding="latin1",
+        dtype={"fips": str},
     )
     fips = fips.drop_duplicates("fips")
 
@@ -54,7 +56,7 @@ def main(signal, resolution):
 
     if resolution == "county":
         cases = pd.read_csv(
-            "{SCRIPT_DIR}/../data_cases.csv", index_col="region"
+            f"{SCRIPT_DIR}/../data_cases.csv", index_col="region"
         ).index.to_frame()
         cases["state"] = [x.split(", ")[-1] for x in cases.index]
         cases = cases.drop(columns="region")
