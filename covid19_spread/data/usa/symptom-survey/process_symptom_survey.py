@@ -6,11 +6,6 @@ import argparse
 import numpy as np
 from datetime import datetime
 
-parser = argparse.ArgumentParser()
-parser.add_argument("-signal", default="smoothed_hh_cmnty_cli")
-parser.add_argument("-resolution", choices=["state", "county"], default="county")
-opt = parser.parse_args()
-
 
 def get_df(source, signal, resolution):
     df = pd.read_csv(f"{resolution}/{source}/{signal}.csv", parse_dates=["date"])
@@ -40,7 +35,6 @@ def get_df(source, signal, resolution):
 
     # Fill in NaNs
     df.iloc[0] = 0
-    # df = df.fillna(method="ffill")
     df = df.fillna(0)
     # Normalize
     df = df.transpose() / 100
@@ -49,19 +43,29 @@ def get_df(source, signal, resolution):
     return df
 
 
-source, signal = opt.signal.split("/")
-df = get_df(source, signal, opt.resolution)
+def main(signal, resolution):
+    source, signal = signal.split("/")
+    df = get_df(source, signal, resolution)
 
-if opt.resolution == "county":
-    cases = pd.read_csv("../data_cases.csv", index_col="region").index.to_frame()
-    cases["state"] = [x.split(", ")[-1] for x in cases.index]
-    cases = cases.drop(columns="region")
-    print(df)
-    df2 = get_df(source, signal, "state")
-    df2 = df2.merge(cases[["state"]], left_index=True, right_on="state")[df2.columns]
-    df = pd.concat([df, df2])
+    if resolution == "county":
+        cases = pd.read_csv("../data_cases.csv", index_col="region").index.to_frame()
+        cases["state"] = [x.split(", ")[-1] for x in cases.index]
+        cases = cases.drop(columns="region")
+        df2 = get_df(source, signal, "state")
+        df2 = df2.merge(cases[["state"]], left_index=True, right_on="state")[
+            df2.columns
+        ]
+        df = pd.concat([df, df2])
 
-df = df[["type"] + [c for c in df.columns if isinstance(c, datetime)]]
-df.columns = [str(x.date()) if isinstance(x, datetime) else x for x in df.columns]
+    df = df[["type"] + [c for c in df.columns if isinstance(c, datetime)]]
+    df.columns = [str(x.date()) if isinstance(x, datetime) else x for x in df.columns]
 
-df.round(3).to_csv(f"{source}_{signal}-{opt.resolution}.csv", index_label="region")
+    df.round(3).to_csv(f"{source}_{signal}-{resolution}.csv", index_label="region")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-signal", default="smoothed_hh_cmnty_cli")
+    parser.add_argument("-resolution", choices=["state", "county"], default="county")
+    opt = parser.parse_args()
+    main(opt.signal, opt.resolution)
