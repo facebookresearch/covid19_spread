@@ -183,12 +183,12 @@ class Recurring:
     def launch_job(self, **kwargs):
         """Launch the sweep job"""
         # Launch the sweep
-        config = os.path.join(script_dir, f"../cv/{kwargs.get('cv_config')}.yml")
+        config = os.path.join(script_dir, f"../../cv/{kwargs.get('cv_config')}.yml")
         with chdir(f"{script_dir}/../"):
             sweep_path, jobs = click.Context(cv.cv).invoke(
                 cv.cv,
                 config_pth=config,
-                module=kwargs.get("module", "mhp"),
+                module=kwargs.get("module", "bar"),
                 remote=True,
                 array_parallelism=kwargs.get("array_parallelism", 20),
             )
