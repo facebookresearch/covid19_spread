@@ -151,12 +151,6 @@ def pivot_forecast(forecast, limit=True):
         # limit forecasts to 41 days
         merged = merged[(merged["date"] - merged["date"].min()).dt.days < 41]
 
-    # std = pandas.read_csv(
-    #     os.path.join(job, "final_model_piv.csv"), parse_dates=["date"]
-    # )
-    # std = format_df(std, "std_dev")
-    # merged = merged.merge(std, on=["date", "loc1", "loc2", "loc3"], how="left")
-    # merged["std_dev"] = merged["std_dev"].fillna(0)
     merged["std_dev"] = 0
     merged = merged[
         [
