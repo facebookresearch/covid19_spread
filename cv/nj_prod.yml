@@ -1,12 +1,12 @@
 region: new-jersey
-population: &fpop data/population-data/US-states/new-jersey-population.csv
+population: &fpop covid19_spread/data/population-data/US-states/new-jersey-population.csv
 validation:
   days: &vdays 7
   output: validation-nj.csv
 forecast:
   output: forecast-nj.csv 
 sir:
-  data: data/new-jersey/timeseries.h5
+  data: covid19_spread/data/new-jersey/timeseries.h5
   output: sir_model.npy
   train:
     fpop: *fpop

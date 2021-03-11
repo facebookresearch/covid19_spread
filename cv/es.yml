@@ -1,6 +1,6 @@
 region: es
-population: &fpop data/population-data/spain-region-population.csv
-basegraph: &fgraph data/spain/state_graph.pt
+population: &fpop covid19_spread/data/population-data/spain-region-population.csv
+basegraph: &fgraph covid19_spread/data/spain/state_graph.pt
 validation:
   days: &vdays 21
   output: validation.csv
@@ -12,7 +12,7 @@ prediction_interval:
   output: piv.csv
 bar:
   output: bar_model.bin
-  data: data/spain/data_cases.csv
+  data: covid19_spread/data/spain/data_cases.csv
   resources:
     gpus: 1
     cpus: 1
@@ -23,19 +23,19 @@ bar:
   train:
     n_models: 1
     fpop: *fpop
-    # features: data/usa/county_features.pt
+    # features: covid19_spread/data/usa/county_features.pt
     time_features_:
       -
-        - data/spain/shifted_features_province.pt
+        - covid19_spread/data/spain/shifted_features_province.pt
     time_features:
       -
-        - data/spain/fb/mobility_features_fb.pt
-        - data/spain/google/mobility_features_google.pt
-        - data/spain/symptom-survey/smoothed_cli.pt
-        - data/spain/symptom-survey/smoothed_mc.pt
-        - data/spain/symptom-survey/smoothed_dc.pt
-        # - data/spain/testing/total_features.pt
-        - data/spain/weather/weather_features.pt
+        - covid19_spread/data/spain/fb/mobility_features_fb.pt
+        - covid19_spread/data/spain/google/mobility_features_google.pt
+        - covid19_spread/data/spain/symptom-survey/smoothed_cli.pt
+        - covid19_spread/data/spain/symptom-survey/smoothed_mc.pt
+        - covid19_spread/data/spain/symptom-survey/smoothed_dc.pt
+        # - covid19_spread/data/spain/testing/total_features.pt
+        - covid19_spread/data/spain/weather/weather_features.pt
     # graph: *fgraph
     no_cross_correlation: False
     activation: sigmoid

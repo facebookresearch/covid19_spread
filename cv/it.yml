@@ -1,5 +1,5 @@
 region: it
-population: &fpop data/italy/population.csv
+population: &fpop covid19_spread/data/italy/population.csv
 validation:
   days: 14
   output: validation.csv
@@ -12,7 +12,7 @@ prediction_interval:
   output: piv.csv
 bar:
   output: bar_model.bin
-  data: data/italy/data-upc.csv
+  data: covid19_spread/data/italy/data-upc.csv
   resources:
     gpus: 1
     cpus: 1

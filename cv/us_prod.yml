@@ -1,6 +1,6 @@
 region: us
-population: &fpop data/usa/population.csv
-basegraph: &fgraph data/usa/state_graph.pt
+population: &fpop covid19_spread/data/usa/population.csv
+basegraph: &fgraph covid19_spread/data/usa/state_graph.pt
 validation:
   days: &vdays 7
   output: validation.csv
@@ -17,7 +17,7 @@ prediction_interval:
   batch_size: 10
 bar:
   output: bar_model.bin
-  data: data/usa/data_cases.csv
+  data: covid19_spread/data/usa/data_cases.csv
   resources:
     gpus: 1
     cpus: 1
@@ -27,18 +27,18 @@ bar:
     smooth: 7
   train:
     n_models: 5
-    fpop: data/usa/population_county.csv
+    fpop: covid19_spread/data/usa/population_county.csv
     time_features:
       -
-        - data/usa/testing/total_features_county.pt
-        - data/usa/fb/mobility_features_county_fb.pt
-        - data/usa/fb/mobility_features_county_state_fb.pt
-        - data/usa/google/mobility_features_county_google.pt
-        - data/usa/google/mobility_features_county_state_google.pt
-        - data/usa/google/weather_features_county.pt
-        - data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-county_state.pt
-        - data/usa/symptom-survey/fb-survey_smoothed_wcli-county_state.pt
-        - data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-county.pt
+        - covid19_spread/data/usa/testing/total_features_county.pt
+        - covid19_spread/data/usa/fb/mobility_features_county_fb.pt
+        - covid19_spread/data/usa/fb/mobility_features_county_state_fb.pt
+        - covid19_spread/data/usa/google/mobility_features_county_google.pt
+        - covid19_spread/data/usa/google/mobility_features_county_state_google.pt
+        - covid19_spread/data/usa/google/weather_features_county.pt
+        - covid19_spread/data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-county_state.pt
+        - covid19_spread/data/usa/symptom-survey/fb-survey_smoothed_wcli-county_state.pt
+        - covid19_spread/data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-county.pt
     activation: sigmoid
     no_cross_correlation: false
     decay: [lstm2_2]
@@ -57,7 +57,7 @@ bar:
 naive:
   module: naive
   output: naive_model.npy
-  data: data/usa/data_cases.csv
+  data: covid19_spread/data/usa/data_cases.csv
   train:
     test_on: *tdays
   resources:

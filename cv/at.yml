@@ -27,12 +27,12 @@ bar:
   train:
     time_features:
       -
-        - data/austria/fb/mobility_features.pt
-        - data/austria/google/mobility_features_google.pt
-        - data/austria/symptom-survey/smoothed_cli.pt
-        - data/austria/symptom-survey/smoothed_mc.pt
-        - data/austria/symptom-survey/smoothed_dc.pt
-        - data/austria/weather/weather_features.pt
+        - covid19_spread/data/austria/fb/mobility_features.pt
+        - covid19_spread/data/austria/google/mobility_features_google.pt
+        - covid19_spread/data/austria/symptom-survey/smoothed_cli.pt
+        - covid19_spread/data/austria/symptom-survey/smoothed_mc.pt
+        - covid19_spread/data/austria/symptom-survey/smoothed_dc.pt
+        - covid19_spread/data/austria/weather/weather_features.pt
     fpop: *fpop
     activation: sigmoid
     no_cross_correlation: false
