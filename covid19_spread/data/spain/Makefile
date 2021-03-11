@@ -1,4 +1,4 @@
-.PHONY: all features clean symptom-survey
+.PHONY: all features clean symptom_survey
 
 all: features data_cases.csv data_deaths.csv
 
@@ -7,7 +7,7 @@ features: \
 	google/mobility_features_google.csv \
 	weather/weather_features.csv \
 	testing/total_features.csv \
-	symptom-survey
+	symptom_survey
 
 fb/mobility_features_fb.csv:
 	cd fb && python3 process_mobility.py
@@ -21,8 +21,8 @@ weather/weather_features.csv:
 testing/total_features.csv:
 	cd testing && python3 process_open_data.py
 
-symptom-survey:
-	cd symptom-survey && make all
+symptom_survey:
+	cd symptom_survey && make all
 
 data_cases.csv: 
 	python3 process_cases.py --metric cases
@@ -31,7 +31,7 @@ data_deaths.csv:
 	python3 process_cases.py --metric deaths
 
 clean:
-	cd symptom-survey && make clean
+	cd symptom_survey && make clean
 	rm -f fb/mobility_features_fb.csv
 	rm -f google/mobility_features_google.csv
 	rm -f weather/weather_features.csv

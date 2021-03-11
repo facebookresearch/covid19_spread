@@ -137,9 +137,9 @@ def main(args):
     process_time_features(df, f"fb/mobility_features_fb.csv", 7)
     process_time_features(df, f"google/mobility_features_google.csv", 7)
     process_time_features(df, f"weather/weather_features.csv", 7)
-    process_time_features(df, f"symptom-survey/smoothed_cli.csv", 7)
-    process_time_features(df, f"symptom-survey/smoothed_mc.csv", 7)
-    process_time_features(df, f"symptom-survey/smoothed_dc.csv", 7)
+    process_time_features(df, f"symptom_survey/smoothed_cli.csv", 7)
+    process_time_features(df, f"symptom_survey/smoothed_mc.csv", 7)
+    process_time_features(df, f"symptom_survey/smoothed_dc.csv", 7)
 
 
 if __name__ == "__main__":
