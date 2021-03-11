@@ -19,6 +19,7 @@ jobs:
                 command: |
                     cat environment.yml | grep -v cudatoolkit > environment_cpu.yml
                     conda env create -f environment_cpu.yml
+                    pip install .
 
             - run:
                 name: Check Formatting
@@ -36,8 +37,7 @@ jobs:
                     conda activate covid19_spread
                     apt install curl --assume-yes
                     cd data/usa && python convert.py -source google && cd ../../
-                    make data-usa
-                    make data-ny
+                    prepare-data us --with-features
 
             - run:
                 name: Run Tests
