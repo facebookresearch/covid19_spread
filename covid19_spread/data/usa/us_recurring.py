@@ -17,7 +17,7 @@ class USARRecurring(recurring.Recurring):
         return "us-bar"
 
     def command(self):
-        return f"python {os.path.realpath(__file__)} --kind ar"
+        return f"recurring run us"
 
     def module(self):
         return "bar_time_features"

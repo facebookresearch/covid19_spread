@@ -5,13 +5,12 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../"))
 import cv
-import argparse
-import contextlib
 import tempfile
 from subprocess import check_call, check_output
 import sqlite3
 import click
 import datetime
+from covid19_spread.lib.context_managers import chdir
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 DB = os.path.join(script_dir, ".sweep.db")
@@ -41,26 +40,6 @@ def mk_db():
         );
         """
         )
-
-
-@contextlib.contextmanager
-def env_var(key_vals):
-    old_dict = {k: os.environ.get(k, None) for k in key_vals.keys()}
-    os.environ.update(key_vals)
-    yield
-    for k, v in old_dict.items():
-        if v:
-            os.environ[k] = v
-        else:
-            del os.environ[k]
-
-
-@contextlib.contextmanager
-def chdir(d):
-    old_dir = os.getcwd()
-    os.chdir(d)
-    yield
-    os.chdir(old_dir)
 
 
 class Recurring:
@@ -127,7 +106,6 @@ class Recurring:
                     f"source {home}/.bash_profile",
                     f"source {home}/.bashrc",
                     conda_env,
-                    f"cd {self.script_dir}",
                     "slack-on-fail " + self.command(),
                 ]
                 cmd = [c for c in cmd if c is not None]
@@ -184,7 +162,7 @@ class Recurring:
         """Launch the sweep job"""
         # Launch the sweep
         config = os.path.join(script_dir, f"../../cv/{kwargs.get('cv_config')}.yml")
-        with chdir(f"{script_dir}/../"):
+        with chdir(f"{script_dir}/../../"):
             sweep_path, jobs = click.Context(cv.cv).invoke(
                 cv.cv,
                 config_pth=config,
