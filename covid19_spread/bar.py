@@ -17,7 +17,6 @@ import yaml
 from . import metrics
 import click
 import sys
-from .wavenet import Wavenet, CausalConv1d
 from functools import partial
 import math
 from scipy.stats import nbinom, norm
@@ -219,71 +218,6 @@ class BetaAttn(nn.Module):
 
     def __repr__(self):
         return "attn"
-
-
-class BetaWavenet(nn.Module):
-    def __init__(self, M, blocks, layers, channels, kernel, nfilters):
-        super(BetaWavenet, self).__init__()
-        self.embeddings = nn.Parameter(th.randn(M, channels * nfilters))
-        self.blocks = blocks
-        self.layers = layers
-        self.kernel = kernel
-        self.nlin = th.tanh
-        self.wv = Wavenet(
-            blocks,
-            layers,
-            channels,
-            kernel,
-            embeddings=self.embeddings,
-            groups=channels,
-            nlin=self.nlin,
-            nfilters=nfilters,
-        )
-        self.v = nn.Linear(channels, 1, bias=True)
-
-    def forward(self, x):
-        hs = self.wv(x.permute(0, 2, 1))
-        hs = hs.permute(0, 2, 1)
-        beta = self.v(hs)
-        beta = th.sigmoid(beta)
-        return beta
-
-    def __repr__(self):
-        return f"Wave ({self.blocks},{self.layers},{self.kernel})"
-
-
-class BetaConv(nn.Module):
-    def __init__(self, M, channels, kernel, nfilters=2):
-        super(BetaConv, self).__init__()
-        self.kernel = kernel
-        self.nfilters = nfilters
-        self.M = M
-        self.conv = CausalConv1d(
-            M * channels,
-            nfilters * M * channels,
-            kernel,
-            dilation=1,
-            groups=M * channels,
-            bias=True,
-        )
-        self.v = nn.Linear(nfilters * channels, 1, bias=True)
-        self.ones = th.ones(M, 1, 7).div_(7.0).cuda()
-        with th.no_grad():
-            self.conv.weight.fill_(-5)
-
-    def forward(self, x):
-        _x = x.view(x.size(0), -1, 1)
-        hs = self.conv(_x)
-        hs = hs.view(x.size(0), x.size(1), self.nfilters * x.size(2))
-        beta = self.v(hs)
-        beta = th.sigmoid(beta)
-        beta = F.pad(beta.permute(2, 1, 0), (6, 0))
-        beta = F.conv1d(beta, self.ones, groups=self.M)
-        beta = beta.permute(2, 1, 0)
-        return beta
-
-    def __repr__(self):
-        return f"Conv1d ({self.kernel}, {self.nfilters})"
 
 
 class BetaLatent(nn.Module):
@@ -651,13 +585,6 @@ class BARCV(CV):
                 int(dim),
                 input_dim,
                 dropout=getattr(args, "dropout", 0.0),
-            )
-            beta_net = BetaLatent(fbeta, regions, tmax, time_features)
-            self.weight_decay = args.weight_decay
-        elif args.decay.startswith("conv"):
-            kernel, nfilters = args.decay[4:].split("_")
-            fbeta = lambda M, input_dim: BetaConv(
-                M, input_dim, int(kernel), int(nfilters)
             )
             beta_net = BetaLatent(fbeta, regions, tmax, time_features)
             self.weight_decay = args.weight_decay
