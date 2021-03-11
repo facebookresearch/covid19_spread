@@ -4,12 +4,8 @@ $ python -m pytest tests/test_sir_cv.py
 """
 
 import os
-
-import numpy as np
 import pytest
-
-import load
-import sir
+from covid19_spread import sir
 import yaml
 from argparse import Namespace
 

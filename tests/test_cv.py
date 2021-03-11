@@ -20,7 +20,7 @@ class TestCV:
 
     def test_filter_validation_days(self, tmp_path):
         """Tests split of validation days using tmp_path fixtures"""
-        data_path = "data/usa/data_cases.csv"
+        data_path = "covid19_spread/data/usa/data_cases.csv"
         output_path = tmp_path / "val.csv"
         cv.filter_validation_days(data_path, output_path, 7)
 

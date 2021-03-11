@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 
-import cv
-import pytest
-from bar import BARCV
+from covid19_spread.bar import BARCV
 import yaml
 from argparse import Namespace
 import torch as th
