@@ -188,6 +188,12 @@ def main(metric, with_features, source, resolution):
     )
 
     df.to_csv(f"{SCRIPT_DIR}/data_{metric}.csv", index_label="region")
+    df[df.index.str.endswith("New York")].to_csv(
+        f"{SCRIPT_DIR}/data_{metric}_ny.csv", index_label="region"
+    )
+    df[df.index.str.endswith("Florida")].to_csv(
+        f"{SCRIPT_DIR}/data_{metric}_fl.csv", index_label="region"
+    )
 
     if resolution == "county":
         # Build state graph...
