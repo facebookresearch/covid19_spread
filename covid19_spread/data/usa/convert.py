@@ -117,9 +117,13 @@ def create_time_features(resolution):
     from .google import prepare as google_prepare
     from .testing import prepare as testing_prepare
 
+    print("Preparing symptom survey...")
     ss_prepare(resolution)
+    print("Preparing FB mobility...")
     fb_prepare(resolution)
+    print("Preparing Google features...")
     google_prepare(resolution)
+    print("Preparing testing features...")
     testing_prepare(resolution)
 
 
@@ -196,7 +200,7 @@ def main(metric, with_features, source, resolution):
         th.save(th.from_numpy(adj), f"{SCRIPT_DIR}/state_graph.pt")
 
     if with_features:
-        create_time_features()
+        create_time_features(resolution)
         res = resolution
         merge_nyc = metric == "deaths" and res == "county"
         process_time_features(
@@ -206,14 +210,14 @@ def main(metric, with_features, source, resolution):
             df, f"{SCRIPT_DIR}/testing/total_features_{res}.csv", 0, merge_nyc
         )
         for signal, lag in [
-            (f"{SCRIPT_DIR}/symptom-survey/doctor-visits_smoothed_adj_cli-{{}}.csv", 2),
-            (f"{SCRIPT_DIR}/symptom-survey/fb-survey_smoothed_wcli-{{}}.csv", 0),
+            (f"{SCRIPT_DIR}/symptom_survey/doctor-visits_smoothed_adj_cli-{{}}.csv", 2),
+            (f"{SCRIPT_DIR}/symptom_survey/fb-survey_smoothed_wcli-{{}}.csv", 0),
             (
-                f"{SCRIPT_DIR}/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-{{}}.csv",
+                f"{SCRIPT_DIR}/symptom_survey/fb-survey_smoothed_hh_cmnty_cli-{{}}.csv",
                 0,
             ),
             (
-                f"{SCRIPT_DIR}/symptom-survey/fb-survey_smoothed_wearing_mask-{{}}.csv",
+                f"{SCRIPT_DIR}/symptom_survey/fb-survey_smoothed_wearing_mask-{{}}.csv",
                 5,
             ),
             (f"{SCRIPT_DIR}/fb/mobility_features_{{}}_fb.csv", 5),
