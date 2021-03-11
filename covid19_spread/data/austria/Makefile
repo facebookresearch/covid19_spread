@@ -5,10 +5,10 @@
 # @version 0.1
 
 
-.PHONY: symptom-survery fb features data.csv google weather
+.PHONY: symptom_survery fb features data.csv google weather
 
-symptom-survey:
-	cd symptom-survey && make all
+symptom_survey:
+	cd symptom_survey && make all
 
 weather:
 	cd weather && python3 process_open_data.py
@@ -22,7 +22,7 @@ google:
 data.csv:
 	python3 fetch_data.py
 
-features: symptom-survey fb weather data.csv google
+features: symptom_survey fb weather data.csv google
 	python3 convert.py
 
 # end
