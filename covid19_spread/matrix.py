@@ -1,19 +1,14 @@
-import pdb
 import argparse
 import numpy as np
 import pandas as pd
-import load
+from . import load
 from datetime import timedelta
 
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import cv
-
-
-# from sklearn.experimental import enable_iterative_imputer
-# from sklearn.impute import IterativeImputer
+from .cross_val import CV
 
 
 class BetaExpDecay(nn.Module):
@@ -101,9 +96,6 @@ def prep_matrix(cases, eps, k=7):
 def train(model, cases, regions, optimizer, checkpoint, args):
     # since cv.py doesn't run this file add this seed here
     th.manual_seed(args.seed)
-
-    M = len(regions)
-    device = cases.device
 
     train_set, start_times, _ = prep_matrix(cases, args.eps, args.k_avg)
 
@@ -202,7 +194,6 @@ def simulate(model, cases, regions, args, dstart=None):
     tmax = len(
         test_preds[0]
     )  # after conv, after diff so original tmax_pre - k of the convolution
-    #     pdb.set_trace()
     for j, idx in enumerate(start_times):
 
         row = test_preds[j]
@@ -278,7 +269,7 @@ class MC(nn.Module):
         return _score
 
 
-class MatrixCCV(cv.CV):
+class MatrixCCV(CV):
     def run_train(self, dset, args, checkpoint):
         args.fdat = dset
         cases, regions, _, device = initialize(args)
@@ -347,11 +338,11 @@ if __name__ == "__main__":
     parser.add_argument("-seed", type=int, default=0)
     args = parser.parse_args()
 
-    cv = MatrixCCV()
+    mod = MatrixCCV()
 
     th.manual_seed(args.seed)
-    model = cv.run_train(args.fdat, args, args.checkpoint)
+    model = mod.run_train(args.fdat, args, args.checkpoint)
 
     with th.no_grad():
-        forecast = cv.run_simulate(args.fdat, args, model)
+        forecast = mod.run_simulate(args.fdat, args, model)
         print(forecast)

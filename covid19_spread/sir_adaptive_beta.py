@@ -9,11 +9,11 @@ import argparse
 import numpy as np
 import pandas as pd
 import sys
-import load
+from . import load
+from .cross_val import CV
 
 from typing import List
 from datetime import timedelta
-import cv
 
 
 def sir(s: float, i: float, r: float, beta: float, gamma: float, n: float):
@@ -170,7 +170,7 @@ def impute_max_or_cap(a, cap):
     return a
 
 
-class SIRCV(cv.CV):
+class SIRCV(CV):
     def run_train(self, dset, train_params, model_out):
         """Infers doubling time for sir model. 
         API match that of cv.py for cross validation

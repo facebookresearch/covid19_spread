@@ -6,7 +6,7 @@ import pandas as pd
 import sys
 
 from datetime import timedelta
-from load import load_data
+from .load import load_data
 
 
 verbose = True

@@ -4,8 +4,35 @@ import pandas as pd
 from numpy.linalg import norm
 import os
 import re
-from lib import cluster
+from covid19_spread.lib import cluster
 from subprocess import check_call
+from covid19_spread import metrics
+from datetime import timedelta
+
+
+def mk_absolute_paths(cfg):
+    if isinstance(cfg, dict):
+        return {k: mk_absolute_paths(v) for k, v in cfg.items()}
+    elif isinstance(cfg, list):
+        return list(map(mk_absolute_paths, cfg))
+    else:
+        return (
+            os.path.realpath(cfg)
+            if isinstance(cfg, str) and os.path.exists(cfg)
+            else cfg
+        )
+
+
+def rebase_forecast_deltas(val_in, df_forecast_deltas):
+    gt = metrics.load_ground_truth(val_in)
+    # Ground truth for the day before our first forecast
+    prev_day = gt.loc[[df_forecast_deltas.index.min() - timedelta(days=1)]]
+    # Stack the first day ground truth on top of the forecasts
+    common_cols = set(df_forecast_deltas.columns).intersection(set(gt.columns))
+    stacked = pd.concat([prev_day[common_cols], df_forecast_deltas[common_cols]])
+    # Cumulative sum to compute total cases for the forecasts
+    df_forecast = stacked.sort_index().cumsum().iloc[1:]
+    return df_forecast
 
 
 def update_repo(repo):

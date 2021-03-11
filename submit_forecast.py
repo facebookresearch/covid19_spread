@@ -7,20 +7,20 @@ import os
 import tempfile
 import json
 import click
-from data.recurring import DB
+from covid19_spread.data.recurring import DB
 import sqlite3
 import yaml
 import shutil
-from lib.slack import get_client as get_slack_client
+from covid19_spread.lib.slack import get_client as get_slack_client
 import boto3
 import geopandas
-from metrics import load_ground_truth
+from covid19_spread.metrics import load_ground_truth
 from epiweeks import Week
-from common import update_repo
+from covid19_spread.common import update_repo
 from io import BytesIO
 from string import Template
 from importlib.machinery import SourceFileLoader
-from lib.context_managers import sys_path
+from covid19_spread.lib.context_managers import sys_path
 
 
 license_txt = (

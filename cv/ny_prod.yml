@@ -9,7 +9,7 @@ forecast:
 sir:
   module: sir
   output: sir_model.npy
-  data: data/nystate/data-new.csv
+  data: data/usa/data_cases_ny.csv
   train:
     fpop: *fpop
     window: 1

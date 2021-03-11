@@ -22,22 +22,20 @@ from datetime import datetime, timedelta
 from functools import partial
 from glob import glob, iglob
 from typing import Dict, Any, List, Optional, Tuple
-from tensorboardX import SummaryWriter
 from contextlib import nullcontext, ExitStack
-import common
-import metrics
-from lib import cluster
-from lib.click_lib import DefaultGroup
-from lib.slurm_pool_executor import (
+from covid19_spread import common
+from covid19_spread import metrics
+from covid19_spread.lib import cluster
+from covid19_spread.lib.click_lib import DefaultGroup
+from covid19_spread.lib.slurm_pool_executor import (
     SlurmPoolExecutor,
     JobStatus,
     get_db_client,
     TransactionManager,
 )
-from lib.slack import get_client as get_slack_client
+from covid19_spread.lib.slack import get_client as get_slack_client
 from submitit.helpers import RsyncSnapshot
-
-BestRun = namedtuple("BestRun", ("pth", "name"))
+from covid19_spread.cross_val import CV, load_config, BestRun
 
 
 def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
@@ -68,172 +66,6 @@ def mk_executor(
         time=extra_params.get("timeout", 12 * 60),
     )
     return executor
-
-
-class CV:
-    def run_simulate(
-        self, dset: str, args: Dict[str, Any], model: Any, sim_params: Dict[str, Any]
-    ) -> pd.DataFrame:
-        """
-        Run a simulation given a trained model.  This should return a pandas DataFrame with each
-        column corresponding to a location and each row corresponding to a date.  The value
-        of each cell is the forecasted cases per day (*not* cumulative cases)
-        """
-        args.fdat = dset
-        if model is None:
-            raise NotImplementedError
-
-        cases, regions, basedate, device = self.initialize(args)
-        tmax = cases.size(1)
-
-        test_preds = model.simulate(tmax, cases, args.test_on, **sim_params)
-        test_preds = test_preds.cpu().numpy()
-
-        df = pd.DataFrame(test_preds.T, columns=regions)
-        if basedate is not None:
-            base = pd.to_datetime(basedate)
-            ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
-            df["date"] = ds
-
-            df.set_index("date", inplace=True)
-
-        return df
-
-    def run_standard_deviation(
-        self,
-        dset,
-        args,
-        nsamples,
-        intervals,
-        orig_cases,
-        model=None,
-        batch_size=1,
-        closed_form=False,
-    ):
-        with th.no_grad():
-            args.fdat = dset
-            if model is None:
-                raise NotImplementedError
-
-            cases, regions, basedate, device = self.initialize(args)
-
-            tmax = cases.size(1)
-
-            base = pd.to_datetime(basedate)
-
-            def mk_df(arr):
-                df = pd.DataFrame(arr, columns=regions)
-                df.index = pd.date_range(base + timedelta(days=1), periods=args.test_on)
-                return df
-
-            if closed_form:
-                preds, stds = model.simulate(
-                    tmax, cases, args.test_on, deterministic=True, return_stds=True
-                )
-                stds = th.cat([x.narrow(-1, -1, 1) for x in stds], dim=-1)
-                return mk_df(stds.cpu().numpy().T), mk_df(preds.cpu().numpy().T)
-
-            samples = []
-
-            if batch_size > 1:
-                cases = cases.repeat(batch_size, 1, 1)
-                nsamples = nsamples // batch_size
-
-            for i in tqdm(range(nsamples)):
-                test_preds = model.simulate(tmax, cases, args.test_on, False)
-                test_preds = test_preds.cpu().numpy()
-                samples.append(test_preds)
-            samples = (
-                np.stack(samples, axis=0)
-                if batch_size <= 1
-                else np.concatenate(samples, axis=0)
-            )
-
-            return mk_df(np.std(samples, axis=0).T), mk_df(np.mean(samples, axis=0).T)
-
-    def run_train(self, dset, model_params, model_out):
-        """
-        Train a model
-        """
-        ...
-
-    def preprocess(self, dset: str, preprocessed: str, preprocess_args: Dict[str, Any]):
-        """
-        Perform any kind of model specific pre-processing.
-        """
-        if "smooth" in preprocess_args:
-            common.smooth(dset, preprocessed, preprocess_args["smooth"])
-        else:
-            shutil.copy(dset, preprocessed)
-
-    def metric_df(self, basedir):
-        runs = []
-        for metrics_pth in glob(os.path.join(basedir, "*/metrics.csv")):
-            metrics = pd.read_csv(metrics_pth, index_col="Measure")
-            runs.append(
-                {
-                    "pth": os.path.dirname(metrics_pth),
-                    "mae": metrics.loc["MAE"][-1],
-                    "rmse": metrics.loc["RMSE"][-1],
-                    "mae_deltas": metrics.loc["MAE_DELTAS"].mean(),
-                    "rmse_deltas": metrics.loc["RMSE_DELTAS"].mean(),
-                    "state_mae": metrics.loc["STATE_MAE"][-1],
-                }
-            )
-        return pd.DataFrame(runs)
-
-    def model_selection(self, basedir: str, config, module) -> List[BestRun]:
-        """
-        Evaluate a sweep returning a list of models to retrain on the full dataset.
-        """
-        df = self.metric_df(basedir)
-        if "ablation" in config["train"]:
-            ablations = []
-            for _, row in df.iterrows():
-                job_cfg = load_config(os.path.join(row.pth, f"{module}.yml"))
-                if job_cfg["train"]["ablation"] is not None:
-                    ablations.append(
-                        ",".join(
-                            os.path.basename(x) for x in job_cfg["train"]["ablation"]
-                        )
-                    )
-                else:
-                    ablations.append("null")
-            df["ablation"] = ablations
-            best_runs = []
-            for key in ["mae", "rmse", "mae_deltas", "rmse_deltas"]:
-                best = df.loc[df.groupby("ablation")[key].idxmin()]
-                best_runs.extend(
-                    [
-                        BestRun(x.pth, f"best_{key}_{x.ablation}")
-                        for _, x in best.iterrows()
-                    ]
-                )
-            return best_runs
-
-        return [
-            BestRun(df.sort_values(by="mae").iloc[0].pth, "best_mae"),
-            BestRun(df.sort_values(by="rmse").iloc[0].pth, "best_rmse"),
-            BestRun(df.sort_values(by="mae_deltas").iloc[0].pth, "best_mae_deltas"),
-            BestRun(df.sort_values(by="rmse_deltas").iloc[0].pth, "best_rmse_deltas"),
-            BestRun(df.sort_values(by="state_mae").iloc[0].pth, "best_state_mae"),
-        ]
-
-    def compute_metrics(
-        self, gt: str, forecast: str, model: Any, metric_args: Dict[str, Any]
-    ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-        return metrics.compute_metrics(gt, forecast).round(2), {}
-
-    def setup_tensorboard(self, basedir):
-        """
-        Setup dir and writer for tensorboard logging
-        """
-        self.tb_writer = SummaryWriter(logdir=basedir)
-
-    def run_prediction_interval(
-        self, means_pth: str, stds_pth: str, intervals: List[float]
-    ):
-        ...
 
 
 def ensemble(basedirs, cfg, module, prefix, outdir):
@@ -377,7 +209,7 @@ def run_cv(
         df_forecast_deltas = mod.run_simulate(
             preprocessed, train_params, model, sim_params=sim_params
         )
-        df_forecast = rebase_forecast_deltas(val_in, df_forecast_deltas)
+        df_forecast = common.rebase_forecast_deltas(val_in, df_forecast_deltas)
 
     mod.tb_writer.close()
 
@@ -437,19 +269,6 @@ def filter_validation_days(dset: str, val_in: str, validation_days: int):
         raise RuntimeError(f"Unrecognized dataset extension: {dset}")
 
 
-def mk_absolute_paths(cfg):
-    if isinstance(cfg, dict):
-        return {k: mk_absolute_paths(v) for k, v in cfg.items()}
-    elif isinstance(cfg, list):
-        return list(map(mk_absolute_paths, cfg))
-    else:
-        return (
-            os.path.realpath(cfg)
-            if isinstance(cfg, str) and os.path.exists(cfg)
-            else cfg
-        )
-
-
 def load_model(model_pth, cv, args):
     chkpnt = th.load(model_pth)
     cv.initialize(args)
@@ -470,26 +289,10 @@ def copy_assets(cfg, dir):
         return cfg
 
 
-def load_config(cfg_pth: str) -> Dict[str, Any]:
-    return mk_absolute_paths(yaml.load(open(cfg_pth), Loader=yaml.FullLoader))
-
-
 def log_configs(cfg: Dict[str, Any], module: str, path: str):
     """Logs configs for job for reproducibility"""
     with open(path, "w") as f:
         yaml.dump(cfg[module], f)
-
-
-def rebase_forecast_deltas(val_in, df_forecast_deltas):
-    gt = metrics.load_ground_truth(val_in)
-    # Ground truth for the day before our first forecast
-    prev_day = gt.loc[[df_forecast_deltas.index.min() - timedelta(days=1)]]
-    # Stack the first day ground truth on top of the forecasts
-    common_cols = set(df_forecast_deltas.columns).intersection(set(gt.columns))
-    stacked = pd.concat([prev_day[common_cols], df_forecast_deltas[common_cols]])
-    # Cumulative sum to compute total cases for the forecasts
-    df_forecast = stacked.sort_index().cumsum().iloc[1:]
-    return df_forecast
 
 
 def run_best(config, module, remote, basedir, basedate=None, executor=None):

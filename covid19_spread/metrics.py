@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import h5py
 from datetime import timedelta
-from load import load_data
+from .load import load_data
 import warnings
 import sys
 

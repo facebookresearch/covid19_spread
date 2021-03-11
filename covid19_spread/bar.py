@@ -9,15 +9,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import NegativeBinomial, Normal, Poisson
-import decay
-import load
-import cv
-from cv import rebase_forecast_deltas
+from . import decay
+from . import load
+from .cross_val import CV
+from .common import rebase_forecast_deltas
 import yaml
-import metrics
+from . import metrics
 import click
 import sys
-from wavenet import Wavenet, CausalConv1d
+from .wavenet import Wavenet, CausalConv1d
 from functools import partial
 import math
 from scipy.stats import nbinom, norm
@@ -584,7 +584,7 @@ def _get_dict(args, v, device, regions):
         return None
 
 
-class BARCV(cv.CV):
+class BARCV(CV):
     def initialize(self, args):
         device = th.device("cuda" if th.cuda.is_available() else "cpu")
         cases, regions, basedate = load.load_confirmed_csv(args.fdat)
@@ -868,15 +868,15 @@ def cli():
 @click.argument("pth")
 def simulate(pth):
     chkpnt = th.load(pth)
-    cv = BARCV()
+    mod = BARCV()
     prefix = ""
     if "final_model" in pth:
         prefix = "final_model_"
     cfg = yaml.safe_load(open(f"{os.path.dirname(pth)}/{prefix}bar.yml"))
     args = argparse.Namespace(**cfg["train"])
-    new_cases, regions, basedate, device = cv.initialize(args)
-    cv.func.load_state_dict(chkpnt)
-    res = cv.func.simulate(new_cases.size(1), new_cases, args.test_on)
+    new_cases, regions, basedate, device = mod.initialize(args)
+    mod.func.load_state_dict(chkpnt)
+    res = mod.func.simulate(new_cases.size(1), new_cases, args.test_on)
     df = pd.DataFrame(res.cpu().data.numpy().transpose(), columns=regions)
     df.index = pd.date_range(
         start=pd.to_datetime(basedate) + timedelta(days=1), periods=len(df)
@@ -905,12 +905,12 @@ def main(args):
     parser.add_argument("-momentum", type=float, default=0.99)
     args = parser.parse_args()
 
-    cv = BARCV()
+    mod = BARCV()
 
-    model = cv.run_train(args.fdat, args, args.checkpoint)
+    model = mod.run_train(args.fdat, args, args.checkpoint)
 
     with th.no_grad():
-        forecast = cv.run_simulate(args, model)
+        forecast = mod.run_simulate(args, model)
 
 
 if __name__ == "__main__":

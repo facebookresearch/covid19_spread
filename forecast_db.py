@@ -8,11 +8,11 @@ import re
 from subprocess import check_call
 import datetime
 import shutil
-from data.usa.process_cases import get_nyt, get_google
+from covid19_spread.data.usa.process_cases import get_nyt, get_google
 import requests
 from xml.etree import ElementTree
 from datetime import timedelta
-from common import update_repo
+from covid19_spread.common import update_repo
 
 
 @click.group()

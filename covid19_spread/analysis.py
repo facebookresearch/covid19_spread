@@ -10,22 +10,18 @@ import nbformat
 from pathlib import Path
 
 # bokeh
-from bokeh.io import export_png, export_svgs
+from bokeh.io import export_png
 from bokeh.io import show as bokeh_show
 from bokeh.palettes import Blues3 as palette
 from bokeh.models import (
     HoverTool,
-    Title,
     FactorRange,
     LinearAxis,
-    Legend,
     Band,
     Range1d,
     LabelSet,
-    Span,
 )
-from bokeh.palettes import Blues
-from bokeh.plotting import figure, output_file, ColumnDataSource
+from bokeh.plotting import figure, ColumnDataSource
 from bokeh.transform import factor_cmap
 
 # Jupyter
@@ -34,7 +30,7 @@ from nbconvert.preprocessors import ExecutePreprocessor
 from IPython.display import Image
 
 # lib
-from metrics import _compute_metrics
+from .metrics import _compute_metrics
 
 
 def load_backfill(
@@ -137,7 +133,7 @@ def plot_metric(mets, others, days, title, metric, height=350, weight=450):
     )
     l_others = []
     for k, v in others.items():
-        l_ot = p.line(
+        p.line(
             x="day",
             y=k,
             source=source,
@@ -147,16 +143,8 @@ def plot_metric(mets, others, days, title, metric, height=350, weight=450):
             legend_label=k,
             name=k,
         )
-    # p.line(
-    #   x="day",
-    #   y="counts",
-    #   source=source,
-    #   line_width=1,
-    #   color="LightGray",
-    #    line_alpha=0.2,
-    #    y_range_name="counts",
-    # )
-    band = Band(
+
+    Band(
         base="day",
         upper="counts",
         source=source,

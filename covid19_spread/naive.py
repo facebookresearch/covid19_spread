@@ -2,8 +2,8 @@
 
 import numpy as np
 import pandas as pd
-import cv
-import load
+from .cross_val import CV
+from . import load
 from datetime import timedelta
 
 
@@ -68,7 +68,7 @@ def naive(data_path="data/usa/data.csv", days=7):
     return df
 
 
-class NaiveCV(cv.CV):
+class NaiveCV(CV):
     def run_train(self, dset, train_params, model_out):
         """Returns delta between last two days and last confirmed total.
 
