@@ -19,7 +19,6 @@ jobs:
                 command: |
                     cat environment.yml | grep -v cudatoolkit > environment_cpu.yml
                     conda env create -f environment_cpu.yml
-                    pip install --editable .
 
             - run:
                 name: Check Formatting
@@ -36,6 +35,7 @@ jobs:
                     source ~/.bashrc
                     conda activate covid19_spread
                     apt install curl --assume-yes
+                    pip install --editable .
                     prepare-data us --with-features
 
             - run:
