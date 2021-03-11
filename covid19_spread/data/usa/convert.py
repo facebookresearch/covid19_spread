@@ -111,20 +111,20 @@ def process_time_features(df, pth, shift=0, merge_nyc=False, input_resolution="c
     return feature_tensors
 
 
-def create_time_features(resolution):
+def create_time_features():
     from .symptom_survey import prepare as ss_prepare
     from .fb import prepare as fb_prepare
     from .google import prepare as google_prepare
     from .testing import prepare as testing_prepare
 
     print("Preparing symptom survey...")
-    ss_prepare(resolution)
+    ss_prepare()
     print("Preparing FB mobility...")
-    fb_prepare(resolution)
+    fb_prepare()
     print("Preparing Google features...")
-    google_prepare(resolution)
+    google_prepare()
     print("Preparing testing features...")
-    testing_prepare(resolution)
+    testing_prepare()
 
 
 def main(metric, with_features, source, resolution):
@@ -200,7 +200,7 @@ def main(metric, with_features, source, resolution):
         th.save(th.from_numpy(adj), f"{SCRIPT_DIR}/state_graph.pt")
 
     if with_features:
-        create_time_features(resolution)
+        create_time_features()
         res = resolution
         merge_nyc = metric == "deaths" and res == "county"
         process_time_features(
