@@ -77,12 +77,12 @@ bar:
         - covid19_spread/data/usa/google/mobility_features_county_google.pt
         - covid19_spread/data/usa/google/mobility_features_county_state_google.pt
         - covid19_spread/data/usa/google/weather_features_county.pt
-        #- covid19_spread/data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-county.pt
-        - covid19_spread/data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-county_state.pt
-        #- covid19_spread/data/usa/symptom-survey/fb-survey_smoothed_wcli-county.pt
-        - covid19_spread/data/usa/symptom-survey/fb-survey_smoothed_wcli-county_state.pt
-        - covid19_spread/data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-county.pt
-        # - covid19_spread/data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-county_state.pt
+        #- covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_hh_cmnty_cli-county.pt
+        - covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_hh_cmnty_cli-county_state.pt
+        #- covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_wcli-county.pt
+        - covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_wcli-county_state.pt
+        - covid19_spread/data/usa/symptom_survey/doctor-visits_smoothed_adj_cli-county.pt
+        # - covid19_spread/data/usa/symptom_survey/doctor-visits_smoothed_adj_cli-county_state.pt
     ablation:
       -
         - covid19_spread/data/usa/testing/total_features_county.pt
@@ -95,9 +95,9 @@ bar:
       -
         - covid19_spread/data/usa/google/weather_features_county.pt
       -
-        - covid19_spread/data/usa/symptom-survey/fb-survey_smoothed_hh_cmnty_cli-county_state.pt
-        - covid19_spread/data/usa/symptom-survey/fb-survey_smoothed_wcli-county_state.pt
-        - covid19_spread/data/usa/symptom-survey/doctor-visits_smoothed_adj_cli-county.pt
+        - covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_hh_cmnty_cli-county_state.pt
+        - covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_wcli-county_state.pt
+        - covid19_spread/data/usa/symptom_survey/doctor-visits_smoothed_adj_cli-county.pt
     # graph: *fgraph
     activation: sigmoid
     no_cross_correlation: false

@@ -31,9 +31,9 @@ bar:
       -
         - covid19_spread/data/spain/fb/mobility_features_fb.pt
         - covid19_spread/data/spain/google/mobility_features_google.pt
-        - covid19_spread/data/spain/symptom-survey/smoothed_cli.pt
-        - covid19_spread/data/spain/symptom-survey/smoothed_mc.pt
-        - covid19_spread/data/spain/symptom-survey/smoothed_dc.pt
+        - covid19_spread/data/spain/symptom_survey/smoothed_cli.pt
+        - covid19_spread/data/spain/symptom_survey/smoothed_mc.pt
+        - covid19_spread/data/spain/symptom_survey/smoothed_dc.pt
         # - covid19_spread/data/spain/testing/total_features.pt
         - covid19_spread/data/spain/weather/weather_features.pt
     # graph: *fgraph

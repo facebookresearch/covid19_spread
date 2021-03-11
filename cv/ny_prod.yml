@@ -35,7 +35,7 @@ bar:
     #  -
     #    - covid19_spread/data/usa/google/mobility_features.pt
     #    - covid19_spread/data/usa/fb/mobility_features.pt
-    #    - covid19_spread/data/usa/symptom-survey/features.pt
+    #    - covid19_spread/data/usa/symptom_survey/features.pt
     activation: sigmoid
     decay: [latent2_2]
     # decay: [latent2_2, latent16_2, latent32_2]
