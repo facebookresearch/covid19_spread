@@ -19,7 +19,7 @@ jobs:
                 command: |
                     cat environment.yml | grep -v cudatoolkit > environment_cpu.yml
                     conda env create -f environment_cpu.yml
-                    pip install .
+                    pip install --editable .
 
             - run:
                 name: Check Formatting
