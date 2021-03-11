@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import copy
+from importlib.machinery import SourceFileLoader
 import click
 import importlib
 import itertools
@@ -93,7 +94,7 @@ def ensemble(basedirs, cfg, module, prefix, outdir):
 
     assert len(means) > 0, "All ensemble jobs failed!!!!"
 
-    mod = importlib.import_module(module).CV_CLS()
+    mod = importlib.import_module(module, package="covid19_spread").CV_CLS()
 
     if len(stds) > 0:
         pred_interval = cfg.get("prediction_interval", {})
@@ -174,7 +175,7 @@ def run_cv(
     val_out = _path(prefix + cfg["validation"]["output"])
     cfg[module]["train"]["fdat"] = val_in
 
-    mod = importlib.import_module(module).CV_CLS()
+    mod = importlib.import_module("covid19_spread." + module).CV_CLS()
 
     # -- store configs to reproduce results --
     log_configs(cfg, module, _path(prefix + f"{module}.yml"))
@@ -296,7 +297,7 @@ def log_configs(cfg: Dict[str, Any], module: str, path: str):
 
 
 def run_best(config, module, remote, basedir, basedate=None, executor=None):
-    mod = importlib.import_module(module).CV_CLS()
+    mod = importlib.import_module("covid19_spread." + module).CV_CLS()
     sweep_config = load_config(os.path.join(basedir, "cfg.yml"))
     best_runs = mod.model_selection(basedir, config=sweep_config[module], module=module)
 
@@ -390,7 +391,7 @@ def prediction_interval(chkpnts, remote, nsamples, batchsize, closed_form):
         module = cfg["this_module"]
         job_config = load_config(os.path.join(job_pth, f"{prefix}{module}.yml"))
         opt = Namespace(**job_config["train"])
-        mod = importlib.import_module(module).CV_CLS()
+        mod = importlib.import_module("covid19_spread." + module).CV_CLS()
         new_cases, regions, basedate, device = mod.initialize(opt)
         model = mod.func
         model.load_state_dict(chkpnt)
