@@ -1,33 +1,17 @@
 #!/usr/bin/env python3
 
-import sys
 import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../.."))
-from common import update_repo
-from episode import mk_episode, to_h5
-from subprocess import check_call
-import os
-import csv
+from covid19_spread.common import update_repo
 import pandas
-import numpy as np
-import h5py
-import json
 import re
-from collections import defaultdict
-import itertools
-import shutil
-import argparse
 import datetime
-from glob import glob
 
 
 def get_index():
     index = pandas.read_csv(
         "https://storage.googleapis.com/covid19-open-data/v2/index.csv"
     )
-    index = index[index["key"].str.match("^US_[A-Z]+_\d{5}$").fillna(False)]
+    index = index[index["key"].str.match(r"^US_[A-Z]+_\d{5}$").fillna(False)]
     fips = pandas.read_csv(
         "https://raw.githubusercontent.com/kjhealy/fips-codes/master/state_and_county_fips_master.csv"
     )
@@ -118,7 +102,7 @@ def get_jhu(metric="cases"):
     }
 
     df = pandas.read_csv(urls[metric])
-    date_cols = [c for c in df.columns if re.match("\d+/\d+/\d+", c)]
+    date_cols = [c for c in df.columns if re.match(r"\d+/\d+/\d+", c)]
     df = df[~df["Admin2"].isnull()]
     US_TERRITORIES = {"AS", "GU", "MP", "PR", "VI", "UM"}
     # Strip out US territories
@@ -135,74 +119,3 @@ SOURCES = {
     "google": get_google,
     "jhu": get_jhu,
 }
-
-
-def main(args):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--smooth", type=int, default=1)
-    parser.add_argument("--source", choices=list(SOURCES.keys()), default="nyt")
-    parser.add_argument(
-        "--mode",
-        choices=["adjacent_states", "no_interaction", "deaths"],
-        default="adjacent_states",
-    )
-    opt = parser.parse_args(args)
-
-    if not os.path.exists("us-state-neighbors.json"):
-        check_call(
-            [
-                "wget",
-                "https://gist.githubusercontent.com/PrajitR/0afccfa4dc4febe59276/raw/7a73603f5346210ae34845c43094f0daabfd4d49/us-state-neighbors.json",
-            ]
-        )
-    if not os.path.exists("states_hash.json"):
-        check_call(
-            [
-                "wget",
-                "https://gist.githubusercontent.com/mshafrir/2646763/raw/8b0dbb93521f5d6889502305335104218454c2bf/states_hash.json",
-            ]
-        )
-
-    neighbors = json.load(open("us-state-neighbors.json", "r"))
-    state_map = json.load(open("states_hash.json", "r"))
-
-    # Convert abbreviated names to full state names
-    neighbors = {
-        state_map[k]: [state_map[v] for v in vs] for k, vs in neighbors.items()
-    }
-
-    df = SOURCES[opt.source](metric="deaths" if opt.mode == "deaths" else "cases")
-    print(f"Latest date = {df.index.max()}")
-
-    # Remove any unknowns
-    df = df[[c for c in df.columns if "Unknown" not in c]]
-
-    t = df.transpose()
-    t.columns = [str(x.date()) for x in t.columns]
-    t.reset_index().rename(columns={"loc": "county"}).to_csv(
-        "ground_truth.csv", index=False
-    )
-
-    counter = itertools.count()
-    county_ids = defaultdict(counter.__next__)
-
-    outfile = f"timeseries_smooth_{opt.smooth}_days_mode_{opt.mode}.h5"
-
-    episodes = []
-    if opt.mode == "adjacent_states" or opt.mode == "deaths":
-        for state, ns in neighbors.items():
-            states = set([state] + ns)
-            regex = "|".join(f"^{s}" for s in states)
-            cols = [c for c in df.columns if re.match(regex, c)]
-            episodes.append(mk_episode(df, cols, county_ids, opt.smooth))
-    elif opt.mode == "no_interaction":
-        for county in df.columns:
-            ts, ns = episodes.append(mk_episode(df, [county], county_ids, opt.smooth))
-            if ts is not None:
-                episodes.append((ts, ns))
-
-    to_h5(df, outfile, county_ids, episodes)
-
-
-if __name__ == "__main__":
-    main(sys.argv[1:])
