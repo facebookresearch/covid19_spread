@@ -4,5 +4,6 @@ from .process_symptom_survey import main as process
 
 def prepare(resolution):
     for source, signal in SIGNALS:
-        fetch(resolution, source, signal)
+        fetch("state", source, signal)
+        fetch("county", source, signal)
         process(f"{source}/{signal}", resolution)

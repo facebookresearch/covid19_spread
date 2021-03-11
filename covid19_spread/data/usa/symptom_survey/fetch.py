@@ -23,15 +23,17 @@ def main(geo_value, source, signal):
     assert len(df) == 1
     base_date = df.iloc[0].min_time - timedelta(1)
     end_date = df.iloc[0].max_time
-
+    dfs = []
     current_date = base_date
     while current_date < end_date:
         current_date = current_date + timedelta(1)
         date_str = current_date.strftime("%Y%m%d")
+        os.makedirs(os.path.join(SCRIPT_DIR, geo_value, source), exist_ok=True)
         fout = f"{SCRIPT_DIR}/{geo_value}/{source}/{signal}-{date_str}.csv"
 
         # d/l only if we don't have the file already
         if os.path.exists(fout):
+            dfs.append(pd.read_csv(fout))
             continue
 
         for _ in range(3):
@@ -55,6 +57,8 @@ def main(geo_value, source, signal):
             inplace=True,
         )
         df.to_csv(fout, index=False)
+        dfs.append(df)
+    pd.concat(dfs).to_csv(f"{SCRIPT_DIR}/{geo_value}/{source}/{signal}.csv")
 
 
 SIGNALS = [
