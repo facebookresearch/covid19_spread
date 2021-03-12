@@ -27,12 +27,6 @@ from contextlib import (
 import traceback
 import itertools
 import timeit
-import psycopg2
-
-
-def get_db_client():
-    DB_HOST = os.environ.get("SLURM_DB_HOST", "devfair0222")
-    return psycopg2.connect(dbname="slurm_pool", host=DB_HOST)
 
 
 @contextmanager
@@ -66,20 +60,19 @@ class TransactionManager(AbstractContextManager):
     the inner transaction is idempotent.
     """
 
-    def __init__(self, db_url: str, nretries: int = 20):
+    def __init__(self, db_pth: str, nretries: int = 20):
         self.retries = nretries
-        self.db_url = db_url
+        self.db_pth = db_pth
         self.exn = None
         self.conn = None
+        self.cursor = None
         self.nesting = 0
         self.start_time = None
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        assert (
-            self.conn is None
-        ), "You should not pickle a transaction manager with an open connection!!!!"
-        del state["conn"]
+        state = {k: v for k, v in state.items() if k not in {"conn", "cursor"}}
+        state["nesting"] = 0
         return state
 
     def __setstate__(self, state):
@@ -91,10 +84,9 @@ class TransactionManager(AbstractContextManager):
         for _ in range(ntries):
             try:
                 with self as conn:
-                    conn.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;")
-                    conn.execute("BEGIN")
                     return txn(conn)
             except Exception as e:
+                traceback.print_exc(file=sys.stderr)
                 sleep_time = random.randint(0, 10)
                 print(f"Transaction failed!  Sleeping for {sleep_time} seconds")
                 time.sleep(sleep_time)
@@ -105,21 +97,28 @@ class TransactionManager(AbstractContextManager):
     def __enter__(self):
         print(f"Entering transaction, nesting = {self.nesting}")
         if self.conn is None:
-            self.conn = get_db_client()
+            self.conn = sqlite3.connect(self.db_pth)
             self.cursor = self.conn.cursor()
+            self.cursor.execute("BEGIN EXCLUSIVE")
             self.start_time = timeit.default_timer()
         self.nesting += 1
         return self.cursor
 
-    def __exit__(self, exc_type, exc_val, traceback):
+    def __exit__(self, exc_type, exc_val, tb):
         self.nesting -= 1
         print(f"Exiting transaction, nesting = {self.nesting}")
+        if exc_type is not None:
+            traceback.print_exc(file=sys.stderr)
+
         if self.nesting == 0:
             if exc_type is None:
+                print("committing transaction")
                 self.conn.commit()
             else:
+                print("Rolling back transaction")
                 self.conn.rollback()
             self.cursor.close()
+            self.conn.close()
             self.cursor = None
             self.conn = None
             print(f"Finished transaction in {timeit.default_timer() - self.start_time}")
@@ -144,7 +143,7 @@ class Worker:
         self.sleep = 0
         self.worker_finished = False
 
-    def fetch_ready_job(self, conn):
+    def fetch_ready_job(self, cur):
         # Select a pending job that doesn't have any unfinished dependencies
         query = f"""
         SELECT 
@@ -165,29 +164,29 @@ class Worker:
             AND MAX(COALESCE(j2.status, {JobStatus.failure})) <= {JobStatus.failure}
         LIMIT 1
         """
-        conn.execute(query)
-        return conn.fetchall()
+        cur.execute(query)
+        return cur.fetchall()
 
-    def finished(self, conn):
-        conn.execute(
+    def finished(self, cur):
+        cur.execute(
             f"""
         SELECT COUNT(1) FROM jobs 
         WHERE status NOT IN ({JobStatus.success}, {JobStatus.failure}) AND id='{self.db_pth}'
         """
         )
-        return conn.fetchone()[0] == 0
+        return cur.fetchone()[0] == 0
 
-    def count_running(self, conn):
-        conn.execute(
+    def count_running(self, cur):
+        cur.execute(
             f"SELECT COUNT(1) FROM jobs WHERE status > {len(JobStatus)} AND id='{self.db_pth}'"
         )
-        return conn.fetchone()[0]
+        return cur.fetchone()[0]
 
-    def get_final_jobs(self, conn):
-        conn.execute(
+    def get_final_jobs(self, cur):
+        cur.execute(
             f"SELECT pickle, job_id FROM jobs WHERE status={JobStatus.final} AND id='{self.db_pth}' LIMIT 1"
         )
-        return conn.fetchall()
+        return cur.fetchall()
 
     def run(self):
         self.worker_finished = False
@@ -284,6 +283,7 @@ class SlurmPoolExecutor(SlurmExecutor):
     def __init__(self, *args, **kwargs):
         db_pth = kwargs.pop("db_pth", None)
         super().__init__(*args, **kwargs)
+        self.launched = False
         self.nested = False
         os.makedirs(self.folder, exist_ok=True)
         if db_pth is None:
@@ -331,7 +331,7 @@ class SlurmPoolExecutor(SlurmExecutor):
             )
             with self.transaction_manager as conn:
                 conn.execute(
-                    "INSERT INTO jobs(status, pickle, job_id, id) VALUES(%s, %s, %s, %s)",
+                    "INSERT INTO jobs(status, pickle, job_id, id) VALUES(?, ?, ?, ?)",
                     vals,
                 )
                 return jobs
@@ -362,20 +362,24 @@ class SlurmPoolExecutor(SlurmExecutor):
                     self.db_pth,
                 )
                 conn.execute(
-                    "INSERT INTO jobs(status, pickle, job_id, id) VALUES(%s, %s, %s, %s)",
+                    "INSERT INTO jobs(status, pickle, job_id, id) VALUES(?, ?, ?, ?)",
                     vals,
                 )
         return jobs
 
-    def submit_final_job(
-        self, fn: tp.Callable[..., core.R], *args: tp.Any, **kwargs: tp.Any,
+    def submit(
+        self, fn: tp.Callable[..., core.R], *args: tp.Any, **kwargs: tp.Any
     ) -> core.Job[core.R]:
-        with self.transaction_manager as conn:
-            job = self.submit(fn, *args, **kwargs)
-            conn.execute(
-                f"UPDATE jobs SET status={JobStatus.final} WHERE pickle=%s AND id=%s",
-                (str(job.paths.submitted_pickle), self.db_pth),
-            )
+        return self.transaction_manager.run(
+            lambda conn: super(SlurmPoolExecutor, self).submit(fn, *args, **kwargs)
+        )
+
+    def map_array(
+        self, fn: tp.Callable[..., core.R], *iterable: tp.Iterable[tp.Any]
+    ) -> tp.List[core.Job[core.R]]:
+        return self.transaction_manager.run(
+            lambda conn: super(SlurmPoolExecutor, self).map_array(fn, *iterable)
+        )
 
     def submit_dependent(
         self,
@@ -395,7 +399,7 @@ class SlurmPoolExecutor(SlurmExecutor):
                     self.db_pth,
                 )
                 conn.execute(
-                    "INSERT INTO dependencies(pickle, depends_on, id) VALUES (%s,%s,%s)",
+                    "INSERT INTO dependencies(pickle, depends_on, id) VALUES (?,?,?)",
                     vals,
                 )
             return job
@@ -406,11 +410,12 @@ class SlurmPoolExecutor(SlurmExecutor):
         if not self.nested:
             with self.transaction_manager as conn:
                 vals = (self.db_pth,)
-                conn.execute("SELECT COUNT(1) FROM jobs WHERE id=%s", vals)
+                conn.execute("SELECT COUNT(1) FROM jobs WHERE id=?", vals)
                 (njobs,) = conn.fetchone()
             workers = njobs if workers == -1 else workers
             ex = SlurmExecutor(folder or self.folder)
             ex.update_parameters(**self.parameters)
+            self.launched = True
             ex.map_array(
                 lambda x: x.run(), [Worker(self.db_pth, i) for i in range(workers)]
             )
@@ -421,7 +426,7 @@ class SlurmPoolExecutor(SlurmExecutor):
                 """
             SELECT pickle
             FROM dependencies
-            WHERE depends_on=%s AND id=%s
+            WHERE depends_on=? AND id=?
             """,
                 (os.environ["SLURM_PICKLE_PTH"], self.db_pth),
             )
@@ -433,7 +438,7 @@ class SlurmPoolExecutor(SlurmExecutor):
                     self.db_pth,
                 )
                 conn.execute(
-                    "INSERT INTO dependencies (pickle, depends_on, id) VALUES(%s,%s,%s)",
+                    "INSERT INTO dependencies (pickle, depends_on, id) VALUES(?,?,?)",
                     vals,
                 )
 

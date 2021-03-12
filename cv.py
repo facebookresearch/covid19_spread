@@ -36,12 +36,12 @@ from covid19_spread.lib.click_lib import DefaultGroup
 from covid19_spread.lib.slurm_pool_executor import (
     SlurmPoolExecutor,
     JobStatus,
-    get_db_client,
     TransactionManager,
 )
 from covid19_spread.lib.slack import get_client as get_slack_client
 from submitit.helpers import RsyncSnapshot
 from covid19_spread.cross_val import CV, load_config, BestRun
+import sqlite3
 
 
 def set_dict(d: Dict[str, Any], keys: List[str], v: Any):
@@ -99,7 +99,7 @@ def ensemble(basedirs, cfg, module, prefix, outdir):
 
     assert len(means) > 0, "All ensemble jobs failed!!!!"
 
-    mod = importlib.import_module(module, package="covid19_spread").CV_CLS()
+    mod = importlib.import_module("covid19_spread." + module).CV_CLS()
 
     if len(stds) > 0:
         pred_interval = cfg.get("prediction_interval", {})
@@ -729,7 +729,7 @@ def progress(sweep_dirs):
         sweep_dir = os.path.realpath(sweep_dir)
         db_file = next(iglob(os.path.join(sweep_dir, "**/.job.db"), recursive=True))
         db_file = os.path.realpath(db_file)
-        conn = get_db_client()
+        conn = sqlite3.connect(db_file)
         df = pd.read_sql(
             f"SELECT status, worker_id FROM jobs WHERE id='{db_file}'", conn
         )
@@ -794,7 +794,7 @@ def repair(sweep_dir, workers=None, reset_running=False):
 def list_jobs(sweep_dir, type):
     db_file = next(iglob(os.path.join(sweep_dir, "**/.job.db"), recursive=True))
     db_file = os.path.realpath(db_file)
-    conn = get_db_client()
+    conn = sqlite3.connect(db_file)
     if type == "running":
         cond = f"status >= {len(JobStatus)}"
     else:
