@@ -794,12 +794,12 @@ def repair(sweep_dir, workers=None, reset_running=False):
 def list_jobs(sweep_dir, type):
     db_file = next(iglob(os.path.join(sweep_dir, "**/.job.db"), recursive=True))
     db_file = os.path.realpath(db_file)
-    conn = sqlite3.connect(db_file)
+    txn_manager = TransactionManager(db_file)
     if type == "running":
         cond = f"status >= {len(JobStatus)}"
     else:
         cond = f"status = {getattr(JobStatus, type)}"
-    with conn.cursor() as cur:
+    with txn_manager as cur:
         cur.execute(
             f"""
         SELECT pickle, worker_id FROM jobs WHERE id='{db_file}' AND {cond}
