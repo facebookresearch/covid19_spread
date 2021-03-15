@@ -86,7 +86,7 @@ class TransactionManager(AbstractContextManager):
                 with self as conn:
                     return txn(conn)
             except Exception as e:
-                traceback.print_exc(file=sys.stderr)
+                traceback.print_exc(file=sys.stdout)
                 sleep_time = random.randint(0, 10)
                 print(f"Transaction failed!  Sleeping for {sleep_time} seconds")
                 time.sleep(sleep_time)
@@ -108,7 +108,7 @@ class TransactionManager(AbstractContextManager):
         self.nesting -= 1
         print(f"Exiting transaction, nesting = {self.nesting}")
         if exc_type is not None:
-            traceback.print_exc(file=sys.stderr)
+            traceback.print_exc(file=sys.stdout)
 
         if self.nesting == 0:
             if exc_type is None:
