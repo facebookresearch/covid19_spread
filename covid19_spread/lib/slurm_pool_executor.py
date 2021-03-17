@@ -63,7 +63,6 @@ class TransactionManager(AbstractContextManager):
     def __init__(self, db_pth: str, nretries: int = 20):
         self.retries = nretries
         self.db_pth = db_pth
-        self.exn = None
         self.conn = None
         self.cursor = None
         self.nesting = 0
@@ -71,19 +70,20 @@ class TransactionManager(AbstractContextManager):
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        state = {k: v for k, v in state.items() if k not in {"conn", "cursor"}}
         state["nesting"] = 0
+        state["conn"] = None
+        state["cursor"] = None
         return state
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self.conn = None
 
     def run(self, txn, ntries: int = 100):
         exn = None
         for _ in range(ntries):
             try:
                 with self as conn:
+                    conn.execute("BEGIN EXCLUSIVE")
                     return txn(conn)
             except Exception as e:
                 traceback.print_exc(file=sys.stdout)
@@ -96,12 +96,11 @@ class TransactionManager(AbstractContextManager):
 
     def __enter__(self):
         print(f"Entering transaction, nesting = {self.nesting}")
+        self.nesting += 1
         if self.conn is None:
             self.conn = sqlite3.connect(self.db_pth)
             self.cursor = self.conn.cursor()
-            self.cursor.execute("BEGIN EXCLUSIVE")
             self.start_time = timeit.default_timer()
-        self.nesting += 1
         return self.cursor
 
     def __exit__(self, exc_type, exc_val, tb):
@@ -197,7 +196,7 @@ class Worker:
         transaction_manager = TransactionManager(self.db_pth)
         while not self.worker_finished:
             if self.sleep > 0:
-                print(f"Sleeping...")
+                print(f"Sleeping for {self.sleep} seconds...")
                 time.sleep(self.sleep)
             print(f"Worker {self.worker_id} getting job to run")
 
@@ -235,8 +234,9 @@ class Worker:
             res = transaction_manager.run(txn)
             if res is None:
                 continue
+            self.sleep = 0
             pickle, job_id = res
-            print(f"Worker {self.worker_id} got job to run")
+            print(f"Worker {self.worker_id} got job to run: {pickle}")
 
             # Run the job
             # Some environment variable trickery to get submitit to find the correct pickle file
