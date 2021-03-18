@@ -532,6 +532,9 @@ def cv(
     #   perform the ablation
     if ablation:
         feats = []
+        if not any([len(x) == 0 for x in cfg[module]["train"]["ablation"]]):
+            # Add a baseline ablation that uses all time features by default
+            cfg[module]["train"]["ablation"].append([])
         all_feats = set(cfg[module]["train"]["time_features"][0])
         for x in cfg[module]["train"]["ablation"]:
             feats.append(list(all_feats - set(x)))
@@ -646,7 +649,7 @@ def backfill(
     """
     Run the cross validation pipeline over multiple time points.
     """
-    config = mk_absolute_paths(load_config(config_pth))
+    config = common.mk_absolute_paths(load_config(config_pth))
     # allow to set backfill dates in config (function argument overrides)
     if not dates and "backfill" in config:
         dates = list(pd.to_datetime(config["backfill"]))
