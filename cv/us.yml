@@ -1,0 +1,74 @@
+region: us
+population: &fpop covid19_spread/data/usa/population.csv
+basegraph: &fgraph covid19_spread/data/usa/state_graph.pt
+validation:
+  days: &vdays 7
+  output: validation.csv
+test:
+  days: &tdays 41
+  output: validation.csv
+forecast:
+  output: forecast.csv
+prediction_interval:
+  output_mean: mean.csv
+  output_std: std.csv
+  intervals: [.95, 0.8, .5]
+  nsamples: 5000
+  batch_size: 10
+bar:
+  output: bar_model.bin
+  data: covid19_spread/data/usa/data_cases.csv
+  resources:
+    gpus: 1
+    cpus: 1
+    memgb: 15
+    timeout: 3600
+  preprocess:
+    smooth: 7
+  train:
+    n_models: 5
+    fpop: covid19_spread/data/usa/population_county.csv
+    time_features:
+      -
+        - covid19_spread/data/usa/testing/total_features_county.pt
+        - covid19_spread/data/usa/fb/mobility_features_county_fb.pt
+        - covid19_spread/data/usa/fb/mobility_features_county_state_fb.pt
+        - covid19_spread/data/usa/google/mobility_features_county_google.pt
+        - covid19_spread/data/usa/google/mobility_features_county_state_google.pt
+        - covid19_spread/data/usa/google/weather_features_county.pt
+        - covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_hh_cmnty_cli-county_state.pt
+        - covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_wcli-county_state.pt
+        - covid19_spread/data/usa/symptom_survey/doctor-visits_smoothed_adj_cli-county.pt
+        - covid19_spread/data/usa/google/vaccination_county_state.pt
+        - covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_wothers_masked-county_state.pt
+        - covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_wothers_masked-county.pt
+        - covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_wearing_mask_all-county.pt
+        - covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_wearing_mask_all-county_state.pt
+        - covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_wcovid_vaccinated_or_accept-county.pt
+        - covid19_spread/data/usa/symptom_survey/fb-survey_smoothed_wcovid_vaccinated_or_accept-county_state.pt
+    activation: sigmoid
+    no_cross_correlation: false
+    decay: [lstm2_2]
+    window: [7, 14, 21]
+    lr: [0.005]
+    momentum: [0.9]
+    dropout: [0.1]
+    weight_decay: [0.2, 0.3]
+    niters: [30000]
+    granger: [0.5]
+    temporal: [100]
+    eta: [0.002, 0.02, 0.2]
+    loss: nb
+    t0: 0
+    test_on: *vdays
+naive:
+  module: naive
+  output: naive_model.npy
+  data: covid19_spread/data/usa/data_cases.csv
+  train:
+    test_on: *vdays
+  resources:
+    gpus: 0
+    cpus: 1
+    memgb: 15
+    timeout: 30
