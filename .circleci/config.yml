@@ -1,0 +1,50 @@
+version: 2
+
+jobs:
+    build:
+        docker:
+            - image: continuumio/miniconda3
+
+        working_directory: ~/covid19_spread
+
+        steps:
+            - checkout
+
+            - run:
+                name: "Install C++ compiler"
+                command: apt-get update && apt install build-essential unzip rsync -y
+
+            - run:
+                name: Install dependencies
+                command: |
+                    cat environment.yml | grep -v cudatoolkit > environment_cpu.yml
+                    conda env create -f environment_cpu.yml
+
+            - run:
+                name: Check Formatting
+                command: |
+                    conda init bash
+                    source ~/.bashrc
+                    conda activate covid19_spread
+                    black --check .
+
+            - run:
+                name: Make Data
+                no_output_timeout: 30m
+                command: |
+                    conda init bash
+                    source ~/.bashrc
+                    conda activate covid19_spread
+                    apt install curl --assume-yes
+                    pip install --editable .
+                    MAX_PARALLELISM=1 prepare-data us --with-features
+
+            - run:
+                name: Run Tests
+                no_output_timeout: 30m
+                command: |
+                    conda init bash
+                    source ~/.bashrc
+                    conda activate covid19_spread
+                    export USER=''
+                    python3 -m pytest tests/ 
