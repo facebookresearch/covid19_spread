@@ -1,4 +1,6 @@
 name: covid19_spread
+channels:
+  - pytorch
 dependencies:
   - python=3.7
   - pytorch
@@ -18,7 +20,7 @@ dependencies:
   - click
   - lxml
   - pip:
-    - bokeh==2.0.2
+    - bokeh==2.3.1
     - pyyaml
     - submitit
     - tensorboardX
@@ -36,4 +38,3 @@ dependencies:
     - zoltpy
     - pykwalify
     - pymmwr
-    - ax-platform
