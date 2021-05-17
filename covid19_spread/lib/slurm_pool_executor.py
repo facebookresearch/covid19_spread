@@ -6,6 +6,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import submitit
 from submitit.slurm.slurm import SlurmExecutor, SlurmJob
 from submitit.core import core, utils, job_environment
 from submitit.core.submission import process_job
@@ -141,6 +142,7 @@ class Worker:
         self.worker_id = worker_id
         self.sleep = 0
         self.worker_finished = False
+        self.current_job = None
 
     def fetch_ready_job(self, cur):
         # Select a pending job that doesn't have any unfinished dependencies
@@ -160,7 +162,7 @@ class Worker:
             (j2.id='{self.db_pth}' OR j2.id IS NULL)
         GROUP BY jobs.pickle, jobs.job_id 
             HAVING MIN(COALESCE(j2.status, {JobStatus.success})) >= {JobStatus.success} 
-            AND MAX(COALESCE(j2.status, {JobStatus.failure})) <= {JobStatus.failure}
+            AND MAX(COALESCE(j2.status, {JobStatus.success})) <= {JobStatus.success}
         LIMIT 1
         """
         cur.execute(query)
@@ -187,7 +189,21 @@ class Worker:
         )
         return cur.fetchall()
 
-    def run(self):
+    def checkpoint(self):
+        print(f"Worker {self.worker_id} checkpointing")
+        if self.current_job is not None:
+            pickle, job_id = self.current_job
+            print(f"Worker {self.worker_id} setting {pickle} back to pending...")
+            transaction_manager = TransactionManager(self.db_pth)
+            # Set the job back to pending
+            transaction_manager.run(
+                lambda conn: conn.execute(
+                    f"UPDATE jobs SET status={JobStatus.pending} WHERE pickle='{pickle}' AND id='{self.db_pth}'"
+                )
+            )
+        return submitit.helpers.DelayedSubmission(Worker(self.db_pth, self.worker_id))
+
+    def __call__(self):
         self.worker_finished = False
         worker_job_id = f"worker_{self.worker_id}"
         running_status = (
@@ -234,6 +250,7 @@ class Worker:
             res = transaction_manager.run(txn)
             if res is None:
                 continue
+            self.current_job = res
             self.sleep = 0
             pickle, job_id = res
             print(f"Worker {self.worker_id} got job to run: {pickle}")
@@ -276,6 +293,7 @@ class Worker:
                         f"UPDATE jobs SET status={status.value} WHERE pickle='{pickle}' AND id='{self.db_pth}'"
                     )
                 )
+                self.current_job = None
                 print(f"Worker {self.worker_id} updated job status")
 
 
@@ -416,9 +434,11 @@ class SlurmPoolExecutor(SlurmExecutor):
             ex = SlurmExecutor(folder or self.folder)
             ex.update_parameters(**self.parameters)
             self.launched = True
-            ex.map_array(
-                lambda x: x.run(), [Worker(self.db_pth, i) for i in range(workers)]
-            )
+            jobs = []
+            with ex.batch():
+                for i in range(workers):
+                    jobs.append(ex.submit(Worker(self.db_pth, i)))
+            return jobs
 
     def extend_dependencies(self, jobs: tp.List[core.Job]):
         def txn(conn):
