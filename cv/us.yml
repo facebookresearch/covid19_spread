@@ -60,13 +60,13 @@ bar:
     eta: [0.002, 0.02, 0.2]
     loss: nb
     t0: 0
-    test_on: *tdays
+    test_on: *vdays
 naive:
   module: naive
   output: naive_model.npy
   data: covid19_spread/data/usa/data_cases.csv
   train:
-    test_on: *tdays
+    test_on: *vdays
   resources:
     gpus: 0
     cpus: 1
