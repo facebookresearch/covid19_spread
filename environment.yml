@@ -38,3 +38,4 @@ dependencies:
     - zoltpy
     - pykwalify
     - pymmwr
+    - ax-platform
