@@ -6,9 +6,10 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import numpy as np
 import submitit
 from submitit.slurm.slurm import SlurmExecutor, SlurmJob
-from submitit.core import core, utils, job_environment
+from submitit.core import core, utils
 from submitit.core.submission import process_job
 import uuid
 import typing as tp
@@ -18,7 +19,6 @@ import os
 import sqlite3
 import enum
 import random
-import re
 from contextlib import (
     contextmanager,
     redirect_stderr,
@@ -150,6 +150,7 @@ class Worker:
         SELECT 
             jobs.pickle, 
             jobs.job_id, 
+            jobs.retry_count,
             MIN(COALESCE(j2.status, {JobStatus.success})) as min_status, 
             MAX(COALESCE(j2.status, {JobStatus.failure})) AS max_status
         FROM jobs 
@@ -185,14 +186,14 @@ class Worker:
 
     def get_final_jobs(self, cur):
         cur.execute(
-            f"SELECT pickle, job_id FROM jobs WHERE status={JobStatus.final} AND id='{self.db_pth}' LIMIT 1"
+            f"SELECT pickle, job_id, retry_count FROM jobs WHERE status={JobStatus.final} AND id='{self.db_pth}' LIMIT 1"
         )
         return cur.fetchall()
 
     def checkpoint(self):
         print(f"Worker {self.worker_id} checkpointing")
         if self.current_job is not None:
-            pickle, job_id = self.current_job
+            pickle, job_id, retry_count = self.current_job
             print(f"Worker {self.worker_id} setting {pickle} back to pending...")
             transaction_manager = TransactionManager(self.db_pth)
             # Set the job back to pending
@@ -237,7 +238,7 @@ class Worker:
                         f"Worker {self.worker_id} is executing final_job: {ready[0][0]}"
                     )
 
-                pickle, job_id = ready[0][0], ready[0][1]
+                pickle, job_id, retry_count = ready[0][0], ready[0][1], ready[0][2]
                 # Mark that we're working on this job.
                 conn.execute(
                     f"""
@@ -245,52 +246,40 @@ class Worker:
                     WHERE pickle='{pickle}' AND status={status} AND id='{self.db_pth}'
                     """
                 )
-                return pickle, job_id
+                return pickle, job_id, retry_count
 
             res = transaction_manager.run(txn)
             if res is None:
                 continue
             self.current_job = res
             self.sleep = 0
-            pickle, job_id = res
+            pickle, job_id, retry_count = res
             print(f"Worker {self.worker_id} got job to run: {pickle}")
 
             # Run the job
-            # Some environment variable trickery to get submitit to find the correct pickle file
-            env_vars = {
-                "SLURM_JOB_ID": job_id,
-                "SLURM_ARRAY_JOB_ID": None,
-                "SLURM_ARRAY_TASK_ID": None,
-                "SLURM_PICKLE_PTH": pickle,
-            }
-            if re.match(r"job_(\d+)", job_id):
-                env_vars["SLURM_ARRAY_JOB_ID"] = "job"
-                env_vars["SLURM_ARRAY_TASK_ID"] = re.search(r"job_(\d+)", job_id).group(
-                    1
-                )
-            with env_var(
-                env_vars
-            ):  # will reset os.environ when leaving the context manager
-                job_dir = os.path.dirname(pickle)
-                env = job_environment.JobEnvironment()
-                paths = utils.JobPaths(
-                    job_dir, job_id=env.job_id, task_id=env.global_rank
-                )
-                with paths.stderr.open("w", buffering=1) as stderr, paths.stdout.open(
-                    "w", buffering=1
-                ) as stdout:
-                    with redirect_stderr(stderr), redirect_stdout(stdout):
-                        try:
-                            process_job(job_dir)
+            job_dir = os.path.dirname(pickle)
+            paths = utils.JobPaths(job_dir, job_id=job_id)
+            with paths.stderr.open("w", buffering=1) as stderr, paths.stdout.open(
+                "w", buffering=1
+            ) as stdout:
+                with redirect_stderr(stderr), redirect_stdout(stdout):
+                    try:
+                        with env_var({"SLURM_PICKLE_PTH": str(pickle)}):
+                            dl = utils.DelayedSubmission.load(pickle)
+                            dl.result()
                             status = JobStatus.success
-                        except Exception:
-                            status = JobStatus.failure
-                            traceback.print_exc(file=sys.stderr)
+                    except Exception:
+                        retry_count -= 1
+                        print(f"Job failed, retry_count = {retry_count}")
+                        status = (
+                            JobStatus.failure if retry_count == 0 else JobStatus.pending
+                        )
+                        traceback.print_exc(file=sys.stderr)
 
                 print(f"Worker {self.worker_id} finished job with status {status}")
                 transaction_manager.run(
                     lambda conn: conn.execute(
-                        f"UPDATE jobs SET status={status.value} WHERE pickle='{pickle}' AND id='{self.db_pth}'"
+                        f"UPDATE jobs SET status={status.value}, retry_count={retry_count} WHERE pickle='{pickle}' AND id='{self.db_pth}'"
                     )
                 )
                 self.current_job = None
@@ -317,7 +306,7 @@ class SlurmPoolExecutor(SlurmExecutor):
         self.transaction_manager = TransactionManager(self.db_pth)
         with self.transaction_manager as conn:
             conn.execute(
-                "CREATE TABLE IF NOT EXISTS jobs(status int, pickle text, job_id text, worker_id text, id TEXT)"
+                "CREATE TABLE IF NOT EXISTS jobs(status int, pickle text, job_id text, worker_id text, id TEXT, retry_count INT)"
             )
             conn.execute("CREATE INDEX IF NOT EXISTS jobs_p_idx ON jobs(pickle)")
             conn.execute("CREATE INDEX IF NOT EXISTS jobs_id_idx ON jobs(id)")
@@ -346,10 +335,11 @@ class SlurmPoolExecutor(SlurmExecutor):
                 str(jobs[0].paths.submitted_pickle),
                 jobs[0].job_id,
                 self.db_pth,
+                3,
             )
             with self.transaction_manager as conn:
                 conn.execute(
-                    "INSERT INTO jobs(status, pickle, job_id, id) VALUES(?, ?, ?, ?)",
+                    "INSERT INTO jobs(status, pickle, job_id, id, retry_count) VALUES(?, ?, ?, ?, ?)",
                     vals,
                 )
                 return jobs
@@ -378,9 +368,10 @@ class SlurmPoolExecutor(SlurmExecutor):
                     str(job.paths.submitted_pickle),
                     job.job_id,
                     self.db_pth,
+                    3,
                 )
                 conn.execute(
-                    "INSERT INTO jobs(status, pickle, job_id, id) VALUES(?, ?, ?, ?)",
+                    "INSERT INTO jobs(status, pickle, job_id, id, retry_count) VALUES(?, ?, ?, ?, ?)",
                     vals,
                 )
         return jobs
