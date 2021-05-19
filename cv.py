@@ -133,6 +133,7 @@ def run_cv(
     prefix="",
     basedate=None,
     executor=None,
+    test_run: bool = False,  # is this a test or validation run?
 ):
     """Runs cross validaiton for one set of hyperaparmeters"""
     try:
@@ -151,7 +152,12 @@ def run_cv(
     if n_models > 1:
         launcher = map if executor is None else executor.map_array
         fn = partial(
-            run_cv, module, prefix=prefix, basedate=basedate, executor=executor
+            run_cv,
+            module,
+            prefix=prefix,
+            basedate=basedate,
+            executor=executor,
+            test_run=test_run,
         )
         configs = [
             set_dict(copy.deepcopy(cfg), [module, "train", "n_models"], 1)
@@ -177,7 +183,8 @@ def run_cv(
     # setup input/output paths
     dset = cfg[module]["data"]
     val_in = _path(prefix + "filtered_" + os.path.basename(dset))
-    val_out = _path(prefix + cfg["validation"]["output"])
+    val_test_key = "test" if test_run else "validation"
+    val_out = _path(prefix + cfg[val_test_key]["output"])
     cfg[module]["train"]["fdat"] = val_in
 
     mod = importlib.import_module("covid19_spread." + module).CV_CLS()
@@ -185,7 +192,7 @@ def run_cv(
     # -- store configs to reproduce results --
     log_configs(cfg, module, _path(prefix + f"{module}.yml"))
 
-    ndays = cfg["validation"]["days"]
+    ndays = 0 if test_run else cfg[val_test_key]["days"]
     if basedate is not None:
         # If we want to train from a particular basedate, then also subtract
         # out the different in days.  Ex: if ground truth contains data up to 5/20/2020
@@ -193,6 +200,7 @@ def run_cv(
         gt = metrics.load_ground_truth(dset)
         assert gt.index.max() >= basedate
         ndays += (gt.index.max() - basedate).days
+
     filter_validation_days(dset, val_in, ndays)
     # apply data pre-processing
     preprocessed = _path(prefix + "preprocessed_" + os.path.basename(dset))
@@ -213,7 +221,11 @@ def run_cv(
         sim_params = cfg[module].get("simulate", {})
         # Returns the number of new cases for each day
         df_forecast_deltas = mod.run_simulate(
-            preprocessed, train_params, model, sim_params=sim_params
+            preprocessed,
+            train_params,
+            model,
+            sim_params=sim_params,
+            days=cfg[val_test_key]["days"],
         )
         df_forecast = common.rebase_forecast_deltas(val_in, df_forecast_deltas)
 
@@ -315,13 +327,18 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
         json.dump([x._asdict() for x in best_runs], fout)
 
     cfg = copy.deepcopy(config)
-    cfg["validation"]["days"] = 0
     best_runs_df = pd.DataFrame(best_runs)
 
     def run_cv_and_copy_results(tags, module, pth, cfg, prefix):
         try:
             jobs = run_cv(
-                module, pth, cfg, prefix=prefix, basedate=basedate, executor=executor
+                module,
+                pth,
+                cfg,
+                prefix=prefix,
+                basedate=basedate,
+                executor=executor,
+                test_run=True,
             )
 
             def rest():
@@ -573,10 +590,9 @@ def cv(
                 {**extra, "array_parallelism": array_parallelism},
             )
         launcher = executor.map_array
-        basedirs = [f"{basedir}/%j" for _ in cfgs]
     else:
         launcher = map
-        basedirs = [os.path.join(basedir, f"job_{i}") for i in range(len(cfgs))]
+    basedirs = [os.path.join(basedir, f"job_{i}") for i in range(len(cfgs))]
 
     with ExitStack() as stack:
         if not in_backfill:
@@ -588,7 +604,9 @@ def cv(
             )
         jobs = list(
             launcher(
-                partial(run_cv, module, basedate=basedate, executor=executor),
+                partial(
+                    run_cv, module, basedate=basedate, executor=executor, test_run=False
+                ),
                 basedirs,
                 cfgs,
             )
@@ -878,6 +896,7 @@ def optimize(config_pth, module, basedate, iters, array_parallelism, resume):
             cfg=current_cfg,
             basedate=basedate,
             executor=executor,
+            test_run=True,
         )
         result_pth = os.path.join(
             os.path.dirname(str(job.paths.result_pickle)), "metrics.csv"
@@ -922,7 +941,6 @@ def optimize(config_pth, module, basedate, iters, array_parallelism, resume):
             k: v[0] if isinstance(v, list) else v
             for k, v in current_cfg[module]["train"].items()
         }
-        current_cfg["validation"]["days"] = 0
         threading.Thread(target=optimize_run, args=(q, trial_idx, current_cfg)).start()
         waiting_for += 1
 

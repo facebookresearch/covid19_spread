@@ -84,9 +84,8 @@ class NaiveCV(CV):
         Returns: list of (doubling_times (np.float64), regions (list of str))
         """
 
-    def run_simulate(self, dset, train_params, model, sim_params):
+    def run_simulate(self, dset, train_params, model, days, sim_params):
         """Returns new cases count predictions"""
-        days = train_params.test_on
         forecast_df = naive(data_path=dset, days=days)
         cases_df = load.load_confirmed_by_region(dset)
         new_cases_forecast_df = (

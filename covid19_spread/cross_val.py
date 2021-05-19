@@ -29,7 +29,12 @@ def load_config(cfg_pth: str) -> Dict[str, Any]:
 
 class CV:
     def run_simulate(
-        self, dset: str, args: Dict[str, Any], model: Any, sim_params: Dict[str, Any]
+        self,
+        dset: str,
+        args: Dict[str, Any],
+        model: Any,
+        days: int,
+        sim_params: Dict[str, Any],
     ) -> pd.DataFrame:
         """
         Run a simulation given a trained model.  This should return a pandas DataFrame with each
@@ -43,13 +48,13 @@ class CV:
         cases, regions, basedate, device = self.initialize(args)
         tmax = cases.size(1)
 
-        test_preds = model.simulate(tmax, cases, args.test_on, **sim_params)
+        test_preds = model.simulate(tmax, cases, days, **sim_params)
         test_preds = test_preds.cpu().numpy()
 
         df = pd.DataFrame(test_preds.T, columns=regions)
         if basedate is not None:
             base = pd.to_datetime(basedate)
-            ds = [base + timedelta(i) for i in range(1, args.test_on + 1)]
+            ds = [base + timedelta(i) for i in range(1, days + 1)]
             df["date"] = ds
 
             df.set_index("date", inplace=True)
