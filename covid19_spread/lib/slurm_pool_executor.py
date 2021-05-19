@@ -10,7 +10,6 @@ import numpy as np
 import submitit
 from submitit.slurm.slurm import SlurmExecutor, SlurmJob
 from submitit.core import core, utils
-from submitit.core.submission import process_job
 import uuid
 import typing as tp
 import time
@@ -28,30 +27,7 @@ from contextlib import (
 import traceback
 import itertools
 import timeit
-
-
-@contextmanager
-def env_var(key_vals: tp.Dict[str, tp.Union[str, None]]):
-    """
-    Context manager for manipulating environment variables.  Environment is restored
-    upon exiting the context manager
-    Params:
-        key_vals - mapping of environment variables to their values.  Of a value is 
-        `None`, then it is deleted from the environment.  
-    """
-    old_dict = {k: os.environ.get(k, None) for k in key_vals.keys()}
-    for k, v in key_vals.items():
-        if v is None:
-            if k in os.environ:
-                del os.environ[k]
-        else:
-            os.environ[k] = v
-    yield
-    for k, v in old_dict.items():
-        if v:
-            os.environ[k] = v
-        elif k in os.environ:
-            del os.environ[k]
+from covid19_spread.lib.context_managers import env_var
 
 
 class TransactionManager(AbstractContextManager):
