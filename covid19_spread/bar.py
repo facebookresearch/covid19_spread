@@ -183,7 +183,6 @@ class BAR(nn.Module):
     def metapopulation_weights(self):
         alphas = self.alphas()
         W = th.sigmoid(alphas)
-        W = self.adjdrop(W.unsqueeze(0).unsqueeze(-1))
         W = W.squeeze(0).squeeze(-1).t()
         if self.graph is not None:
             W = W * self.graph
@@ -271,7 +270,7 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
     tmax = new_cases.size(1)
     t = th.arange(tmax, device=device) + 1
     size_pred = tmax - days_ahead
-    reg = th.tensor([0], device=device)
+    reg = th.tensor([0.0], device=device)
     target = new_cases.narrow(1, days_ahead, size_pred)
 
     start_time = timeit.default_timer()
@@ -293,19 +292,27 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
 
         # temporal smoothness
         if args.temporal > 0:
-            reg = th.pow(beta[:, 1:] - beta[:, :-1], 2).sum(axis=1).mean()
+            reg = (
+                args.temporal * th.pow(beta[:, 1:] - beta[:, :-1], 2).sum(axis=1).mean()
+            )
 
         # back prop
-        (loss + args.temporal * reg).backward()
+        (loss + reg).backward()
 
         # do AdamW-like update for Granger regularization
         if args.granger > 0:
             with th.no_grad():
                 mu = np.log(args.granger / (1 - args.granger))
-                r = args.lr * args.eta
-                err = model.alphas() - mu
-                err.fill_diagonal_(0)
-                model._alphas.copy_(model._alphas - r * err)
+                y = args.granger
+                n = th.numel(model._alphas)
+                ex = th.exp(-model._alphas)
+                model._alphas.fill_diagonal_(mu)
+                de = 2 * (model._alphas.sigmoid().mean() - y) * ex
+                nu = n * (ex + 1) ** 2
+                _grad = de / nu
+                _grad.fill_diagonal_(0)
+                r = args.lr * args.eta * n
+                model._alphas.copy_(model._alphas - r * _grad)
 
         # make sure we have no NaNs
         assert loss == loss, (loss, scores, _loss)
@@ -315,7 +322,7 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
         optimizer.step()
 
         # control
-        if itr % 100 == 0:
+        if itr % 500 == 0:
             time = timeit.default_timer() - start_time
             with th.no_grad(), np.printoptions(precision=3, suppress=True):
                 length = scores.size(1) - 1
@@ -323,6 +330,8 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                 z = model.z
                 nu = th.sigmoid(model.nu)
                 means = model.dist(scores).mean
+                W_spread = (W * (1 - W)).mean()
+                _err = W.mean() - args.granger
                 print(
                     f"[{itr:04d}] Loss {loss.item():.2f} | "
                     f"Temporal {reg.item():.5f} | "
@@ -330,7 +339,8 @@ def train(model, new_cases, regions, optimizer, checkpoint, args):
                     f"{model} | "
                     f"{args.loss} ({means[:, -1].min().item():.2f}, {means[:, -1].max().item():.2f}) | "
                     f"z ({z.min().item():.2f}, {z.mean().item():.2f}, {z.max().item():.2f}) | "
-                    f"alpha ({W.min().item():.2f}, {W.mean().item():.2f}, {W.max().item():.2f}) | "
+                    f"W ({W.min().item():.2f}, {W.mean().item():.2f}, {W.max().item():.2f}) | "
+                    f"W_spread {W_spread:.2f} | mu_err {_err:.3f} | "
                     f"nu ({nu.min().item():.2f}, {nu.mean().item():.2f}, {nu.max().item():.2f}) | "
                     f"nb_stddev ({stddev.data.mean().item():.2f}) | "
                     f"scale ({th.exp(model.scale).mean():.2f}) | "
@@ -377,7 +387,9 @@ def _get_dict(args, v, device, regions):
 
 class BARCV(CV):
     def initialize(self, args):
-        device = th.device("cuda" if th.cuda.is_available() else "cpu")
+        device = th.device(
+            "cuda" if th.cuda.is_available() and getattr(args, "cuda", True) else "cpu"
+        )
         cases, regions, basedate = load.load_confirmed_csv(args.fdat)
         assert (cases == cases).all(), th.where(cases != cases)
 
