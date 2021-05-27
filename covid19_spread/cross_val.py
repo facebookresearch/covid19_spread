@@ -13,11 +13,13 @@ import numpy as np
 from .common import mk_absolute_paths
 import yaml
 from tensorboardX import SummaryWriter
-from collections import namedtuple
+from collections import namedtuple, defaultdict
+from itertools import count
 from . import common, metrics
 import os
 from glob import glob
 import shutil
+import json
 
 
 BestRun = namedtuple("BestRun", ("pth", "name"))
@@ -150,18 +152,26 @@ class CV:
         """
         df = self.metric_df(basedir)
         if "ablation" in config["train"]:
+            ablation_map = defaultdict(count().__next__)
             ablations = []
             for _, row in df.iterrows():
                 job_cfg = load_config(os.path.join(row.pth, f"{module}.yml"))
-                if job_cfg["train"]["ablation"] is not None:
-                    ablations.append(
-                        ",".join(
-                            os.path.basename(x) for x in job_cfg["train"]["ablation"]
-                        )
+                if (
+                    job_cfg["train"]["ablation"] is not None
+                    and len(job_cfg["train"]["ablation"]) > 0
+                ):
+                    ablation = ",".join(
+                        os.path.basename(x) for x in job_cfg["train"]["ablation"]
                     )
                 else:
-                    ablations.append("null")
-            df["ablation"] = ablations
+                    ablation = "null"
+                ablations.append(ablation)
+                ablation_map[ablation]
+            ablation_map = {k: f"ablation_{v}" for k, v in ablation_map.items()}
+            rev_map = {v: k for k, v in ablation_map.items()}
+            df["ablation"] = [ablation_map[x] for x in ablations]
+            with open(os.path.join(basedir, "ablation_map.json"), "w") as fout:
+                print(json.dumps(rev_map), file=fout)
             best_runs = []
             for key in ["mae", "rmse", "mae_deltas", "rmse_deltas"]:
                 best = df.loc[df.groupby("ablation")[key].idxmin()]
