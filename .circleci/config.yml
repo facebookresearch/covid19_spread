@@ -30,6 +30,7 @@ jobs:
 
             - run:
                 name: Make Data
+                no_output_timeout: 30m
                 command: |
                     conda init bash
                     source ~/.bashrc
