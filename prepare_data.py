@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# Copyright (c) 2021-present, Facebook, Inc.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
 import click
 from covid19_spread.data.usa.convert import main as us_convert, SOURCES as US_SOURCES
 import os

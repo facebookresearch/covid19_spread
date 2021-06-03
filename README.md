@@ -1,12 +1,5 @@
 # Neural Relational Autoregression <br/> for High-Resolution COVID-19 Forecasting
 
-[![CircleCI](https://circleci.com/gh/facebookresearch/covid19_spread.svg?style=shield&circle-token=c8ca107a5135df4d7544141d105031dec491d83e)](https://circleci.com/gh/facebookresearch/covid19_spread)
-
-This library provides code to forecast COVID-19 cases.  Details regarding the methods can be found in our [paper](https://ai.facebook.com/research/publications/neural-relational-autoregression-for-high-resolution-covid-19-forecasting)
-
-![Forecast](https://github.com/facebookresearch/covid19_spread/blob/master/img/fair_model.gif?raw=true)
-
-
 ## Install Dependencies
 
 ``` sh
@@ -54,22 +47,6 @@ python cv.py backfill cfg/us.yml bar -dates 2020-11-01 -dates 2020-12-01
 ```
 
 Will run a backfill for both 11/01/2020 and 12/01/2020
-
-## References
-If you are using this code in your work, please cite
-```
-@techreport{le2020covid19,
-     title = {{Neural Relational Autoregression for High-Resolution COVID-19 Forecasting}},
-     author = {Matthew Le and Mark Ibrahim and Levent Sagun and Timothee Lacroix and Maximilian Nickel},
-     url = {https://ai.facebook.com/research/publications/neural-relational-autoregression-for-high-resolution-covid-19-forecasting/},
-     month = {10},
-     Date-Added = {2020-10-01},
-     year = {2020}
-}
-```
-
-## Forecasts
-We provide continuous forecasts for all counties in the United States via the [Humanitarian Data Exchange](https://data.humdata.org/dataset/fair-covid-dataset). Past forecasts of our model are also available through the [COVID-19 Forecast Hub](https://github.com/reichlab/covid19-forecast-hub).
 
 ## Tests
 
