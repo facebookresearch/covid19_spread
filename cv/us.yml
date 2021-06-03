@@ -2,7 +2,7 @@ region: us
 population: &fpop covid19_spread/data/usa/population.csv
 basegraph: &fgraph covid19_spread/data/usa/state_graph.pt
 validation:
-  days: &vdays 7
+  days: &vdays 41
   output: validation.csv
 test:
   days: &tdays 41
@@ -23,14 +23,11 @@ bar:
     cpus: 1
     memgb: 15
     timeout: 3600
-  preprocess:
-    smooth: 7
   train:
     n_models: 5
     fpop: covid19_spread/data/usa/population_county.csv
     time_features:
-      -
-        - covid19_spread/data/usa/testing/total_features_county.pt
+      - - covid19_spread/data/usa/testing/total_features_county.pt
         - covid19_spread/data/usa/fb/mobility_features_county_fb.pt
         - covid19_spread/data/usa/fb/mobility_features_county_state_fb.pt
         - covid19_spread/data/usa/google/mobility_features_county_google.pt
@@ -55,9 +52,9 @@ bar:
     dropout: [0.1]
     weight_decay: [0.2, 0.3]
     niters: [30000]
-    granger: [0.5]
+    granger: [0.2, 0.3, 0.4]
     temporal: [100]
-    eta: [0.002, 0.02, 0.2]
+    eta: [10]
     loss: nb
     t0: 0
     test_on: *vdays
