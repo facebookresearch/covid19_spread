@@ -47,7 +47,11 @@ def main(geo_value, source, signal):
             if res["result"] == 1:
                 break
 
-        assert res["result"] == 1, ("CLI", res["message"], res)
+        if res["result"] != 1:
+            # response may be non-zero if there aren't enough respondants
+            # See: https://github.com/cmu-delphi/delphi-epidata/issues/613#event-4962274038
+            print(f"Skipping {source}/{signal} for {date_str}")
+            continue
 
         df = pd.DataFrame(res["epidata"])
         df.rename(
