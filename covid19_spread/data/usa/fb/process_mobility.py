@@ -28,6 +28,7 @@ def main():
         x
         for x in resources
         if os.path.basename(x["url"]).startswith("movement-range-data")
+        and x["format"].lower() == "zip"
     ]
     assert len(resource) == 1
     resource = resource[0]
