@@ -59,7 +59,16 @@ def main():
         return df.fillna(0)  # in case all values are NaN
 
     def get_df(url):
-        df = pandas.read_csv(url, parse_dates=["date"])
+        if "weather" in url:
+            # This dataset is quite large.  Iterate in chunks, and filter out non-US rows
+            chunks = []
+            for chunk in pandas.read_csv(url, parse_dates=["date"], chunksize=200000):
+                chunks.append(
+                    chunk[~chunk["key"].isnull() & chunk["key"].str.startswith("US")]
+                )
+            df = pandas.concat(chunks)
+        else:
+            df = pandas.read_csv(url, parse_dates=["date"])
         return df[~df["key"].isnull() & df["key"].str.startswith("US")]
 
     def do_feature(url, columns, resolution, func_normalize, outfile):
