@@ -50,6 +50,7 @@ def merge_nyc_boroughs(df, ntypes):
 
 
 def process_time_features(df, pth, shift=0, merge_nyc=False, input_resolution="county"):
+    print(f"Processing {pth} at resolution: {input_resolution}")
     time_features = pd.read_csv(pth)
     if input_resolution == "county_state":
         # Expand state level time features to each county in `df`

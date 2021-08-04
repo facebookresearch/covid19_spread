@@ -14,6 +14,7 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
 def main():
+    print("Getting Google mobility data...")
     cols = [
         "date",
         "region",

@@ -62,71 +62,88 @@ def main():
         df = pandas.read_csv(url, parse_dates=["date"])
         return df[~df["key"].isnull() & df["key"].str.startswith("US")]
 
+    def do_feature(url, columns, resolution, func_normalize, outfile):
+        print(f"Fetching {url}")
+        df = get_df(url)
+        vaccination = process_df(
+            df, columns=columns, resolution=resolution, func_normalize=func_normalize
+        )
+        vaccination = vaccination.reset_index().set_index(["region", "type"])
+        vaccination.to_csv(outfile, index_label=["region", "type"])
+
     # --- Vaccination data ---
-    df = get_df("https://storage.googleapis.com/covid19-open-data/v2/vaccinations.csv")
-    vaccination = process_df(
-        df,
+    do_feature(
+        url="https://storage.googleapis.com/covid19-open-data/v2/vaccinations.csv",
         columns=["new_persons_vaccinated", "total_persons_vaccinated"],
         resolution="state",
         func_normalize=zero_one,
-    )
-    vaccination = vaccination.reset_index().set_index(["region", "type"])
-    vaccination.to_csv(
-        os.path.join(SCRIPT_DIR, "vaccination_state.csv"),
-        index_label=["region", "type"],
+        outfile=os.path.join(SCRIPT_DIR, "vaccination_state.csv"),
     )
 
     # --- Hospitalizations ---
-    df = get_df(
-        "https://storage.googleapis.com/covid19-open-data/v2/hospitalizations.csv"
-    )
-    state_hosp = process_df(
-        df,
+    do_feature(
+        url="https://storage.googleapis.com/covid19-open-data/v2/hospitalizations.csv",
         columns=[
             "current_hospitalized",
             "current_intensive_care",
             "current_ventilator",
         ],
         resolution="state",
-        # func_normalize=lambda x: zero_one(x.clip(0, None)).rolling(7, min_periods=1).mean(),
         func_normalize=lambda x: zero_one(x.clip(0, None)),
+        outfile=os.path.join(SCRIPT_DIR, "hosp_features_state.csv"),
     )
-    state_hosp.round(3).to_csv(f"{SCRIPT_DIR}/hosp_features_state.csv")
 
     # --- Weather features ---
-    df = get_df("https://storage.googleapis.com/covid19-open-data/v2/weather.csv")
-    cols = [
-        "average_temperature",
-        "minimum_temperature",
-        "maximum_temperature",
-        "rainfall",
-        "relative_humidity",
-        "dew_point",
-    ]
-    weather = process_df(df, columns=cols, resolution="county", func_normalize=zscore)
-    weather.round(3).to_csv(f"{SCRIPT_DIR}/weather_features_county.csv")
+    do_feature(
+        url="https://storage.googleapis.com/covid19-open-data/v2/weather.csv",
+        columns=[
+            "average_temperature",
+            "minimum_temperature",
+            "maximum_temperature",
+            "rainfall",
+            "relative_humidity",
+            "dew_point",
+        ],
+        resolution="state",
+        func_normalize=zscore,
+        outfile=os.path.join(SCRIPT_DIR, "weather_features_state.csv"),
+    )
 
-    weather = process_df(df, columns=cols, resolution="state", func_normalize=zscore)
-    weather.round(3).to_csv(f"{SCRIPT_DIR}/weather_features_state.csv")
+    do_feature(
+        url="https://storage.googleapis.com/covid19-open-data/v2/weather.csv",
+        columns=[
+            "average_temperature",
+            "minimum_temperature",
+            "maximum_temperature",
+            "rainfall",
+            "relative_humidity",
+            "dew_point",
+        ],
+        resolution="county",
+        func_normalize=zscore,
+        outfile=os.path.join(SCRIPT_DIR, "weather_features_county.csv"),
+    )
 
     # --- Epi features ---
-    df = get_df("https://storage.googleapis.com/covid19-open-data/v2/epidemiology.csv")
 
-    state_epi = process_df(
-        df,
+    do_feature(
+        url="https://storage.googleapis.com/covid19-open-data/v2/epidemiology.csv",
         columns=["new_confirmed"],
         resolution="state",
         func_normalize=lambda x: zero_one(x.clip(0, None)),
+        outfile=os.path.join(SCRIPT_DIR, "epi_features_state.csv"),
     )
-    state_epi.round(3).to_csv(f"{SCRIPT_DIR}/epi_features_state.csv")
-    epi = process_df(
-        df,
+    do_feature(
+        url="https://storage.googleapis.com/covid19-open-data/v2/epidemiology.csv",
         columns=["new_confirmed"],
         resolution="county",
         func_normalize=lambda x: zero_one(x.clip(0, None)),
+        outfile=os.path.join(SCRIPT_DIR, "epi_features_county.csv"),
     )
-    epi.round(3).to_csv(f"{SCRIPT_DIR}/epi_features_county.csv")
 
+    # ---- Testing -----
+    print("Getting Google testing data...")
+    df = get_df("https://storage.googleapis.com/covid19-open-data/v2/epidemiology.csv")
     testing = process_df(
         df,
         columns=["new_tested"],
