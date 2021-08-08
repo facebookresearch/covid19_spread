@@ -13,6 +13,7 @@ import shutil
 from glob import glob
 import os
 from covid19_spread.data.usa.process_cases import get_index
+import re
 
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -27,8 +28,7 @@ def main():
     resource = [
         x
         for x in resources
-        if os.path.basename(x["url"]).startswith("movement-range-data")
-        and x["format"].lower() == "zip"
+        if re.match("http://movement-range-data-\d{4}-\d{2}-\d{2}\.zip", x["url"])
     ]
     assert len(resource) == 1
     resource = resource[0]
