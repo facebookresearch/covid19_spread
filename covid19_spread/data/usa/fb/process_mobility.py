@@ -28,7 +28,7 @@ def main():
     resource = [
         x
         for x in resources
-        if re.match("http://movement-range-data-\d{4}-\d{2}-\d{2}\.zip", x["url"])
+        if re.match(".*/movement-range-data-\d{4}-\d{2}-\d{2}\.zip", x["url"])
     ]
     assert len(resource) == 1
     resource = resource[0]
