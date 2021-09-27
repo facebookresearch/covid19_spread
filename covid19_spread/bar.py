@@ -96,13 +96,12 @@ class BetaLatent(nn.Module):
         self.time_features = time_features
         input_dim = 0
 
-        if time_features is not None:
-            input_dim += time_features.size(2)
+        input_dim = 1 if time_features is None else time_features.size(2)
 
         self.fbeta = fbeta(self.M, input_dim)
 
     def forward(self, t, ys):
-        x = []
+        x = None
         if self.time_features is not None:
             if self.time_features.size(0) > t.size(0):
                 f = self.time_features.narrow(0, 0, t.size(0))
@@ -112,8 +111,9 @@ class BetaLatent(nn.Module):
                 )
                 f.copy_(self.time_features.narrow(0, -1, 1))
                 f.narrow(0, 0, self.time_features.size(0)).copy_(self.time_features)
-            x.append(f)
-        x = th.cat(x, dim=2)
+            x = f
+        else:
+            x = ys.transpose(1, 0).unsqueeze(-1)
         beta = self.fbeta(x)
         return beta.squeeze().t()
 
