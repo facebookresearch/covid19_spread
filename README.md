@@ -4,7 +4,7 @@
 
 This library provides code to forecast COVID-19 cases.  Details regarding the methods can be found in our [paper](https://ai.facebook.com/research/publications/neural-relational-autoregression-for-high-resolution-covid-19-forecasting)
 
-![Forecast](https://github.com/facebookresearch/covid19_spread/blob/master/img/fair_model.gif?raw=true)
+![Forecast](https://github.com/facebookresearch/covid19_spread/blob/main/img/fair_model.gif?raw=true)
 
 
 ## Install Dependencies
