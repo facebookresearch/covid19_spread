@@ -15,18 +15,29 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 def main():
     df = pd.read_csv(
-        "https://api.covidtracking.com/v1/states/daily.csv", parse_dates=["date"]
+        "https://beta.healthdata.gov/api/views/j8mb-icvb/rows.csv?accessType=DOWNLOAD",
+        parse_dates=["date"],
     )
+    df_piv = df.pivot(
+        columns=["overall_outcome"],
+        values="total_results_reported",
+        index=["state", "date"],
+    )
+    df_piv = df_piv.fillna(0).groupby(level=0).cummax()
 
     index = get_index()
     states = index.drop_duplicates("subregion1_name")
 
-    df = df.merge(states, left_on="state", right_on="subregion1_code")
+    with_index = df_piv.reset_index().merge(
+        states, left_on="state", right_on="subregion1_code"
+    )
 
-    df = df[["subregion1_name", "negative", "positive", "date"]].set_index("date")
+    df = with_index[
+        ["subregion1_name", "Negative", "Positive", "Inconclusive", "date"]
+    ].set_index("date")
     df = df.rename(columns={"subregion1_name": "state_name"})
 
-    df["total"] = df["positive"] + df["negative"]
+    df["Total"] = df["Positive"] + df["Negative"] + df["Inconclusive"]
 
     def zscore(df):
         df.iloc[:, 0:] = (
@@ -59,14 +70,14 @@ def main():
         return df.diff(axis=1).rolling(7, axis=1, min_periods=1).mean()
 
     state_r, county_r = fmt_features(
-        df.pivot(columns="state_name", values=["positive", "total"]),
+        df.pivot(columns="state_name", values=["Positive", "Total"]),
         "ratio",
-        lambda _df: (_diff(_df.loc["positive"]) / _diff(_df.loc["total"])),
+        lambda _df: (_diff(_df.loc["Positive"]) / _diff(_df.loc["Total"])),
         None,
     )
 
     state_t, county_t = fmt_features(
-        df.pivot(columns="state_name", values="total"), "total", _diff, zero_one,
+        df.pivot(columns="state_name", values="Total"), "Total", _diff, zero_one,
     )
 
     def write_features(df, res, fout):

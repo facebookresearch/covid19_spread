@@ -15,7 +15,6 @@ class TestBatchedInference:
     def test_batched_inference(self):
         with th.no_grad():
             th.set_default_tensor_type(th.DoubleTensor)
-            th.set_deterministic(True)
             th.manual_seed(0)
             mod = BARCV()
             cfg = yaml.safe_load(open("cv/us.yml"))
