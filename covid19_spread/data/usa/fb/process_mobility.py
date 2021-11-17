@@ -7,7 +7,7 @@
 
 import numpy as np
 import pandas as pd
-from hdx.hdx_configuration import Configuration
+from hdx.api.configuration import Configuration
 from hdx.data.dataset import Dataset
 import shutil
 from glob import glob
