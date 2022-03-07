@@ -363,7 +363,7 @@ def run_best(config, module, remote, basedir, basedate=None, executor=None):
                                 ),
                             )
 
-            if cfg[module]["train"].get("n_models", 1) > 1:
+            if cfg[module]["train"].get("n_models", 1) > 1 and executor is not None:
                 executor.submit_dependent(jobs, rest)
             else:
                 rest()
